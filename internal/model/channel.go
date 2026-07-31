@@ -32,6 +32,12 @@ type Channel struct {
 	ChannelProxy  *string        `json:"channel_proxy"`
 	Stats         *StatsChannel  `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
 	MatchRegex    *string        `json:"match_regex"`
+
+	// 同步状态字段(由 SyncModelsTask 维护,非运维编辑)
+	SyncFailCount int        `json:"sync_fail_count" gorm:"default:0"`      // 连续同步失败次数(成功时归零)
+	LastSyncError string     `json:"last_sync_error" gorm:"type:text"`      // 最近一次同步失败错误信息
+	LastSyncAt    *time.Time `json:"last_sync_at"`                          // 最近一次同步尝试时间
+	AutoDisabled  bool       `json:"auto_disabled" gorm:"default:false"`    // 是否因连续同步失败被自动禁用
 }
 
 // BaseUrl 表示渠道的一个上游地址，每个地址可独立指定渠道类型。

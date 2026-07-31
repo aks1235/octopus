@@ -37,7 +37,29 @@ func SyncModelsTask() {
 		}
 		fetchModels, err := helper.FetchModels(ctx, channel)
 		if err != nil {
-			log.Warnf("failed to fetch models for channel %s: %v", channel.Name, err)
+			threshold, terr := op.SettingGetInt(model.SettingKeySyncFailThreshold)
+			if terr != nil {
+				threshold = 3 // 读取失败时取默认阈值,不阻断同步主流程
+			}
+			now := time.Now()
+			failCount := channel.SyncFailCount + 1
+			var enabledPtr *bool
+			var autoDisabledPtr *bool
+			if failCount >= threshold {
+				f := false
+				t := true
+				enabledPtr = &f
+				autoDisabledPtr = &t
+			}
+			errStr := err.Error()
+			if len(errStr) > 500 {
+				errStr = errStr[:500]
+			}
+			if uerr := op.ChannelUpdateSyncStatus(ctx, channel.ID, failCount, errStr, &now, enabledPtr, autoDisabledPtr); uerr != nil {
+				log.Errorf("failed to update sync status for channel %s: %v", channel.Name, uerr)
+			}
+			log.Warnf("sync fail channel=%s id=%d count=%d/%d disabled=%v err=%v",
+				channel.Name, channel.ID, failCount, threshold, failCount >= threshold, err)
 			continue
 		}
 		oldModels := xstrings.SplitTrimCompact(",", channel.Model)
@@ -64,6 +86,20 @@ func SyncModelsTask() {
 				log.Errorf("failed to update channel %s: %v", channel.Name, err)
 				continue
 			}
+		}
+
+		// 同步成功:清零失败计数,若此前因连续失败被自动禁用则自动解禁
+		now := time.Now()
+		var enabledPtr *bool
+		var autoDisabledPtr *bool
+		if channel.AutoDisabled && !channel.Enabled {
+			t := true
+			f := false
+			enabledPtr = &t
+			autoDisabledPtr = &f
+		}
+		if err := op.ChannelUpdateSyncStatus(ctx, channel.ID, 0, "", &now, enabledPtr, autoDisabledPtr); err != nil {
+			log.Errorf("failed to update sync status (success) for channel %s: %v", channel.Name, err)
 		}
 		// 批量删除消失的模型对应的 GroupItem
 		if len(deletedModels) > 0 {
