@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { RefreshCw, Clock } from 'lucide-react';
+import { RefreshCw, Clock, AlertTriangle, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/endpoints/setting';
@@ -17,14 +17,28 @@ export function SettingLLMSync() {
     const { data: lastSyncTime } = useLastSyncTime();
 
     const [syncInterval, setSyncInterval] = useState('');
+    const [syncFailThreshold, setSyncFailThreshold] = useState('');
+    const [groupReconcileInterval, setGroupReconcileInterval] = useState('');
     const initialSyncInterval = useRef('');
+    const initialSyncFailThreshold = useRef('');
+    const initialGroupReconcileInterval = useRef('');
 
     useEffect(() => {
         if (settings) {
             const interval = settings.find(s => s.key === SettingKey.SyncLLMInterval);
+            const failThreshold = settings.find(s => s.key === SettingKey.SyncFailThreshold);
+            const reconcileInterval = settings.find(s => s.key === SettingKey.GroupReconcileInterval);
             if (interval) {
                 queueMicrotask(() => setSyncInterval(interval.value));
                 initialSyncInterval.current = interval.value;
+            }
+            if (failThreshold) {
+                queueMicrotask(() => setSyncFailThreshold(failThreshold.value));
+                initialSyncFailThreshold.current = failThreshold.value;
+            }
+            if (reconcileInterval) {
+                queueMicrotask(() => setGroupReconcileInterval(reconcileInterval.value));
+                initialGroupReconcileInterval.current = reconcileInterval.value;
             }
         }
     }, [settings]);
@@ -35,7 +49,13 @@ export function SettingLLMSync() {
         setSetting.mutate({ key, value }, {
             onSuccess: () => {
                 toast.success(t('saved'));
-                initialSyncInterval.current = value;
+                if (key === SettingKey.SyncLLMInterval) {
+                    initialSyncInterval.current = value;
+                } else if (key === SettingKey.SyncFailThreshold) {
+                    initialSyncFailThreshold.current = value;
+                } else if (key === SettingKey.GroupReconcileInterval) {
+                    initialGroupReconcileInterval.current = value;
+                }
             }
         });
     };
@@ -81,6 +101,38 @@ export function SettingLLMSync() {
                 />
             </div>
 
+            {/* 同步失败阈值 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('llmSync.syncFailThreshold.label')}</span>
+                </div>
+                <Input
+                    type="number"
+                    value={syncFailThreshold}
+                    onChange={(e) => setSyncFailThreshold(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.SyncFailThreshold, syncFailThreshold, initialSyncFailThreshold.current)}
+                    placeholder={t('llmSync.syncFailThreshold.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </div>
+
+            {/* 孤儿对账周期 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Search className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('llmSync.groupReconcileInterval.label')}</span>
+                </div>
+                <Input
+                    type="number"
+                    value={groupReconcileInterval}
+                    onChange={(e) => setGroupReconcileInterval(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.GroupReconcileInterval, groupReconcileInterval, initialGroupReconcileInterval.current)}
+                    placeholder={t('llmSync.groupReconcileInterval.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </div>
+
             {/* 手动同步 */}
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col gap-1">
@@ -105,4 +157,3 @@ export function SettingLLMSync() {
         </div>
     );
 }
-

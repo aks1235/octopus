@@ -404,7 +404,15 @@
       "lastSync": "上次同步",
       "neverSynced": "從未同步",
       "syncSuccess": "供應源同步成功",
-      "syncFailed": "供應源同步失敗"
+      "syncFailed": "供應源同步失敗",
+      "syncFailThreshold": {
+        "label": "同步失敗閾值",
+        "placeholder": "連續失敗N次自動禁用渠道"
+      },
+      "groupReconcileInterval": {
+        "label": "孤兒對賬週期",
+        "placeholder": "分鐘,掃描清理失效GroupItem"
+      }
     },
     "account": {
       "title": "帳戶設定",

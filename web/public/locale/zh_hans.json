@@ -404,7 +404,15 @@
       "lastSync": "上次同步",
       "neverSynced": "从未同步",
       "syncSuccess": "渠道同步成功",
-      "syncFailed": "渠道同步失败"
+      "syncFailed": "渠道同步失败",
+      "syncFailThreshold": {
+        "label": "同步失败阈值",
+        "placeholder": "连续失败N次自动禁用渠道"
+      },
+      "groupReconcileInterval": {
+        "label": "孤儿对账周期",
+        "placeholder": "分钟,扫描清理失效GroupItem"
+      }
     },
     "account": {
       "title": "账户设置",

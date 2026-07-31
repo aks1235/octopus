@@ -22,6 +22,8 @@ export const SettingKey = {
     CircuitBreakerThreshold: 'circuit_breaker_threshold',
     CircuitBreakerCooldown: 'circuit_breaker_cooldown',
     CircuitBreakerMaxCooldown: 'circuit_breaker_max_cooldown',
+    SyncFailThreshold: 'sync_fail_threshold',
+    GroupReconcileInterval: 'group_reconcile_interval',
 } as const;
 
 /**

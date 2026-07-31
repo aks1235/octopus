@@ -404,7 +404,15 @@
       "lastSync": "Last Sync",
       "neverSynced": "Never synced",
       "syncSuccess": "Channel synced successfully",
-      "syncFailed": "Failed to sync channel"
+      "syncFailed": "Failed to sync channel",
+      "syncFailThreshold": {
+        "label": "Sync Fail Threshold",
+        "placeholder": "Auto-disable after N consecutive failures"
+      },
+      "groupReconcileInterval": {
+        "label": "Reconcile Interval",
+        "placeholder": "Minutes, scan and cleanup orphan GroupItems"
+      }
     },
     "account": {
       "title": "Account Settings",
