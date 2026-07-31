@@ -18,6 +18,7 @@ const (
 	TaskCleanLLM     = "clean_llm"
 	TaskBaseUrlDelay = "base_url_delay"
 	TaskOAuthCleanup = "oauth_cleanup"
+	TaskGroupReconcile = "group_reconcile"
 )
 
 func Init() {
@@ -64,4 +65,13 @@ func Init() {
 
 	// 注册 OAuth session 清理任务
 	Register(TaskOAuthCleanup, 1*time.Hour, false, op.CleanupExpiredOAuthSessions)
+
+	// 注册 GroupItem 孤儿对账任务(渠道已删/模型已下架的残留引用)
+	reconcileIntervalMinutes, err := op.SettingGetInt(model.SettingKeyGroupReconcileInterval)
+	if err != nil {
+		log.Warnf("failed to get group reconcile interval: %v", err)
+	} else {
+		reconcileInterval := time.Duration(reconcileIntervalMinutes) * time.Minute
+		Register(TaskGroupReconcile, reconcileInterval, true, GroupItemReconcileTask)
+	}
 }
