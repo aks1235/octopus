@@ -15,11 +15,36 @@ var groupCache = cache.New[int, model.Group](16)
 var groupMap = cache.New[string, model.Group](16)
 
 func GroupList(ctx context.Context) ([]model.Group, error) {
-	groups := make([]model.Group, 0, groupCache.Len())
+	res := make([]model.Group, 0, groupCache.Len())
 	for _, group := range groupCache.GetAll() {
-		groups = append(groups, group)
+		// 重建 Items slice 并填充渠道名/启停态,避免就地修改污染缓存对象。
+		// 渠道已删除时 ChannelName 留空、ChannelEnabled=false,前端据此显示占位。
+		items := make([]model.GroupItem, len(group.Items))
+		for i, item := range group.Items {
+			item := item
+			if ch, ok := channelCache.Get(item.ChannelID); ok {
+				item.ChannelName = ch.Name
+				item.ChannelEnabled = ch.Enabled
+			} else {
+				item.ChannelName = ""
+				item.ChannelEnabled = false
+			}
+			items[i] = item
+		}
+		group.Items = items
+		res = append(res, group)
 	}
-	return groups, nil
+	return res, nil
+}
+
+// GroupListRaw 返回不带渠道名填充的 group 列表,供内部逻辑(ChannelAutoGroup 等)
+// 只关心 group 名称/匹配规则、不关心 item 渠道展示名的热路径使用,避免无谓遍历开销。
+func GroupListRaw(ctx context.Context) ([]model.Group, error) {
+	res := make([]model.Group, 0, groupCache.Len())
+	for _, group := range groupCache.GetAll() {
+		res = append(res, group)
+	}
+	return res, nil
 }
 
 func GroupListModel(ctx context.Context) ([]string, error) {
@@ -352,6 +377,15 @@ func GroupItemList(groupID int, ctx context.Context) ([]model.GroupItem, error) 
 		Where("group_id = ?", groupID).
 		Order("priority ASC").
 		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// GroupItemListAll 返回全部 GroupItem,供对账任务扫描孤儿引用(渠道已删/模型已下架)。
+func GroupItemListAll(ctx context.Context) ([]model.GroupItem, error) {
+	var items []model.GroupItem
+	if err := db.GetDB().WithContext(ctx).Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil

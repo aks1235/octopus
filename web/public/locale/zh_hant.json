@@ -482,7 +482,9 @@
       "submitting": "建立中..."
     },
     "card": {
-      "empty": "暫無規則"
+      "empty": "暫無規則",
+      "channelDeleted": "渠道已刪除",
+      "channelDisabled": "已停用"
     },
     "detail": {
       "actions": {

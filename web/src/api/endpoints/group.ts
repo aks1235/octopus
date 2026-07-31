@@ -12,6 +12,10 @@ export interface GroupItem {
     model_name: string;
     priority: number;
     weight: number;
+    // 以下字段非持久化,由后端 GroupList 填充,用于分组列表正确展示渠道名/启停态。
+    // channel_name 缺失表示渠道已删除,channel_enabled 表示渠道级启停(与模型级 enabled 区分)。
+    channel_name?: string;
+    channel_enabled?: boolean;
 }
 
 /**

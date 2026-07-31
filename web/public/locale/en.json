@@ -482,7 +482,9 @@
       "submitting": "Creating..."
     },
     "card": {
-      "empty": "No rules"
+      "empty": "No rules",
+      "channelDeleted": "Channel deleted",
+      "channelDisabled": "Disabled"
     },
     "detail": {
       "actions": {

@@ -27,6 +27,11 @@ type GroupItem struct {
 	ModelName string `json:"model_name" gorm:"not null;index:idx_group_channel_model,unique"`
 	Priority  int    `json:"priority"`
 	Weight    int    `json:"weight"`
+
+	// 以下字段非持久化:仅由 op.GroupList 填充后返回前端,用于分组列表正确展示渠道名与启停态。
+	// 渠道已删除时 ChannelName 留空、ChannelEnabled=false,前端据此显示占位文案。
+	ChannelName    string `json:"channel_name,omitempty" gorm:"-"`
+	ChannelEnabled bool   `json:"channel_enabled" gorm:"-"`
 }
 
 // GroupUpdateRequest 分组更新请求 - 仅包含变更的数据

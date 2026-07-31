@@ -65,7 +65,7 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 	if channel.AutoGroup == model.AutoGroupTypeNone {
 		return
 	}
-	groups, err := op.GroupList(ctx)
+	groups, err := op.GroupListRaw(ctx)
 	if err != nil {
 		log.Warnf("get group list failed: %v", err)
 		return
