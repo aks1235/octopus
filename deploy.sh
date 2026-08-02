@@ -11,8 +11,10 @@ git pull aks-fork dev
 
 echo ""
 echo ">>> [2/5] 构建前端 (Node.js 容器)"
-# 获取 git 版本号
+# 获取 git 版本号。发布构建去掉 -dirty 后缀,使当前版本与 Release tag 一致,
+# 避免前端 Info 页 "latestVersion !== backendNowVersion" 误报"有更新"。
 GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+GIT_VERSION="${GIT_VERSION%%-dirty}"
 echo "    版本号: $GIT_VERSION"
 cd web
 docker run --rm -v "$PWD":/w -w /w -e NEXT_PUBLIC_APP_VERSION="$GIT_VERSION" node:22-alpine sh -c "
