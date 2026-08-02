@@ -1,9 +1,13 @@
 services:
   octopus:
-    image: chruxc/octopus
+    build:
+      context: .
+      dockerfile: scripts/dockerfiles/Dockerfile.alpine
+      args:
+        TARGETPLATFORM: linux/amd64
     ports:
        - '8080:8080'
-    volumes:      
-       - '/path/to/data:/app/data'
-    container_name: octopus
+    volumes:
+       - './data:/app/data'
+    container_name: octopus-new
     restart: unless-stopped
