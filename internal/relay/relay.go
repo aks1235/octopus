@@ -606,7 +606,7 @@ func (ra *relayAttempt) handleStreamResponse(ctx context.Context, response *http
 				return fmt.Errorf("failed to read stream event: %w", r.err)
 			}
 
-			data, err := ra.transformStreamData(ctx, r.data, r.typ)
+			data, terminal, err := ra.transformStreamData(ctx, r.data, r.typ)
 			if err != nil {
 				var respErr *model.ResponseError
 				if errors.As(err, &respErr) {
@@ -631,10 +631,12 @@ func (ra *relayAttempt) handleStreamResponse(ctx context.Context, response *http
 				_ = response.Body.Close()
 				return errStreamTransformAfterWrite
 			}
-			if len(data) == 0 {
+			// terminal 信号可能产出空 data（如某些 inbound 对 [DONE] 返回 nil）,
+			// 此时不能 continue 跳过——需让 terminal 走到下方成功结束判断。
+			if len(data) == 0 && !terminal {
 				continue
 			}
-			if firstToken {
+			if firstToken && len(data) > 0 {
 				ra.metrics.SetFirstTokenTime(time.Now())
 				firstToken = false
 				if firstTokenTimer != nil {
@@ -649,23 +651,36 @@ func (ra *relayAttempt) handleStreamResponse(ctx context.Context, response *http
 				}
 			}
 
-			ra.metrics.AppendClientResponseBody(data)
-			_, _ = ra.c.Writer.Write(data)
-			ra.c.Writer.Flush()
+			// 必须先写+Flush [DONE] 给客户端，再按成功结束，
+			// 否则客户端收不到终止符会自己超时。
+			if len(data) > 0 {
+				ra.metrics.AppendClientResponseBody(data)
+				_, _ = ra.c.Writer.Write(data)
+				ra.c.Writer.Flush()
+			}
+			if terminal {
+				log.Infof("stream completed: terminal event [DONE] received")
+				return nil
+			}
 		}
 	}
 }
 
-// transformStreamData 转换流式数据
-func (ra *relayAttempt) transformStreamData(ctx context.Context, data string, eventType string) ([]byte, error) {
+// transformStreamData 转换流式数据。
+// 返回 (data, terminal, err):terminal=true 表示收到上游终止事件([DONE]),
+// 调用方应在转发该 data 后按成功结束,不再等上游 EOF,避免客户端按协议收到
+// [DONE] 正常关闭连接时被误记为 client disconnected。
+func (ra *relayAttempt) transformStreamData(ctx context.Context, data string, eventType string) ([]byte, bool, error) {
 	internalStream, err := ra.outAdapter.TransformStream(ctx, []byte(data))
 	if err != nil {
 		log.Warnf("failed to transform stream: %v", err)
-		return nil, err
+		return nil, false, err
 	}
 	if internalStream == nil {
-		return nil, nil
+		return nil, false, nil
 	}
+	// 终止事件由 outbound adapter 在解析到上游 [DONE] 时设置 Object="[DONE]"
+	terminal := internalStream.Object == "[DONE]"
 
 	// 同格式透传：原始数据直接转发给客户端，同时仍将内部响应送入 inbound adapter
 	// 以累积 streamChunks 供聚合/日志使用（TransformStream 的输出被丢弃）。
@@ -675,22 +690,22 @@ func (ra *relayAttempt) transformStreamData(ctx context.Context, data string, ev
 		}
 
 		if internalStream.Object == "[DONE]" {
-			return []byte("data: [DONE]\n\n"), nil
+			return []byte("data: [DONE]\n\n"), terminal, nil
 		}
 		if len(internalStream.RawChunk) > 0 {
-			return formatRawSSEEvent(eventType, internalStream.RawChunk), nil
+			return formatRawSSEEvent(eventType, internalStream.RawChunk), terminal, nil
 		}
 		// 无 RawChunk 的内部事件（如 usage-only chunk）不发送给客户端
-		return nil, nil
+		return nil, terminal, nil
 	}
 
 	inStream, err := ra.inAdapter.TransformStream(ctx, internalStream)
 	if err != nil {
 		log.Warnf("failed to transform stream: %v", err)
-		return nil, err
+		return nil, false, err
 	}
 
-	return inStream, nil
+	return inStream, terminal, nil
 }
 
 func formatRawSSEEvent(eventType string, data []byte) []byte {
