@@ -173,9 +173,12 @@ export function useLogs(options: { pageSize?: number } = {}) {
     const [error, setError] = useState<Error | null>(null);
     const [reconnectNonce, setReconnectNonce] = useState(0);
     const [activeRequests, setActiveRequests] = useState<ActiveRequest[]>([]);
+    // 活跃请求快照同步中（SSE 重连后等待服务端推送初始快照）
+    const [isSyncing, setIsSyncing] = useState(false);
 
     const eventSourceRef = useRef<EventSource | null>(null);
     const connectGenerationRef = useRef(0);
+    const snapshotTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
     // 使用 ref 保存筛选条件，避免 SSE 回调因状态变化而重新注册
     const filterAPIKeyNamesRef = useRef(filterAPIKeyNames);
@@ -251,6 +254,11 @@ export function useLogs(options: { pageSize?: number } = {}) {
         if (eventSourceRef.current === source) {
             eventSourceRef.current = null;
         }
+        // 清理快照同步超时定时器
+        if (snapshotTimeoutRef.current) {
+            clearTimeout(snapshotTimeoutRef.current);
+            snapshotTimeoutRef.current = undefined;
+        }
     }, []);
 
     // 写入缓存的辅助函数
@@ -287,15 +295,31 @@ export function useLogs(options: { pageSize?: number } = {}) {
                 const eventSource = new EventSource(`${API_BASE_URL}/api/v1/log/stream?token=${token}`);
                 eventSourceRef.current = eventSource;
 
+                // 快照同步状态管理
+                let snapshotReceived = false;
+
                 eventSource.onopen = () => {
                     if (cancelled || connectGenerationRef.current !== currentGen || getManualDisconnectFlag()) {
                         closeEventSource(eventSource);
                         return;
                     }
-                    // 重连时清空活跃请求列表，等待服务端推送最新快照
+                    // 重连时清空活跃请求列表，标记同步中，等待服务端推送最新快照
                     setActiveRequests([]);
+                    setIsSyncing(true);
                     setIsConnected(true);
                     setError(null);
+
+                    // 清理旧的超时定时器（如果存在）
+                    if (snapshotTimeoutRef.current) {
+                        clearTimeout(snapshotTimeoutRef.current);
+                    }
+
+                    // 500ms 超时保护：如果服务端没有推送快照，解除同步状态
+                    snapshotTimeoutRef.current = setTimeout(() => {
+                        if (!snapshotReceived) {
+                            setIsSyncing(false);
+                        }
+                    }, 500);
                 };
 
                 eventSource.onmessage = (event) => {
@@ -338,6 +362,17 @@ export function useLogs(options: { pageSize?: number } = {}) {
 
                     try {
                         const activeEvent: ActiveRequestEvent = JSON.parse(event.data);
+
+                        // 首个 active_register 到达时，标记快照已接收，解除同步状态
+                        if (!snapshotReceived && activeEvent.type === 'active_register') {
+                            snapshotReceived = true;
+                            if (snapshotTimeoutRef.current) {
+                                clearTimeout(snapshotTimeoutRef.current);
+                                snapshotTimeoutRef.current = undefined;
+                            }
+                            setIsSyncing(false);
+                        }
+
                         setActiveRequests((prev) => {
                             switch (activeEvent.type) {
                                 case 'active_register':
@@ -405,6 +440,7 @@ export function useLogs(options: { pageSize?: number } = {}) {
     return {
         logs,
         isConnected,
+        isSyncing,
         error,
         hasMore: !!logsQuery.hasNextPage,
         isLoading: logsQuery.isLoading,

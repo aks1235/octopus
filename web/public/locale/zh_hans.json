@@ -614,6 +614,7 @@
       "active": "进行中",
       "title": "{count} 个请求进行中",
       "empty": "暂无活跃请求",
+      "syncing": "同步中...",
       "forwarding": "转发中",
       "waitingFirstToken": "等待首Token",
       "streaming": "流式传输中",

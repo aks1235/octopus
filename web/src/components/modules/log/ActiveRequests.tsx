@@ -76,9 +76,10 @@ function ActiveRequestItem({ request, now }: { request: ActiveRequest; now: numb
 
 interface ActiveRequestsPopoverProps {
     activeRequests: ActiveRequest[];
+    isSyncing?: boolean;
 }
 
-export function ActiveRequestsPopover({ activeRequests }: ActiveRequestsPopoverProps) {
+export function ActiveRequestsPopover({ activeRequests, isSyncing = false }: ActiveRequestsPopoverProps) {
     const t = useTranslations('log.activeRequest');
     const count = activeRequests.length;
 
@@ -122,7 +123,11 @@ export function ActiveRequestsPopover({ activeRequests }: ActiveRequestsPopoverP
                     </span>
                 </div>
                 <div className="max-h-72 overflow-y-auto py-1">
-                    {count === 0 ? (
+                    {isSyncing ? (
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                            {t('syncing')}
+                        </div>
+                    ) : count === 0 ? (
                         <div className="py-6 text-center text-sm text-muted-foreground">
                             {t('empty')}
                         </div>

@@ -614,6 +614,7 @@
       "active": "Active",
       "title": "{count} requests in progress",
       "empty": "No active requests",
+      "syncing": "Syncing...",
       "forwarding": "Forwarding",
       "waitingFirstToken": "Waiting First Token",
       "streaming": "Streaming",

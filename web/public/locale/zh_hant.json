@@ -614,6 +614,7 @@
       "active": "進行中",
       "title": "{count} 個請求進行中",
       "empty": "暫無活躍請求",
+      "syncing": "同步中...",
       "forwarding": "轉發中",
       "waitingFirstToken": "等待首Token",
       "streaming": "串流傳輸中",

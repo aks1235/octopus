@@ -27,6 +27,7 @@ export function Log() {
     const {
         logs,
         isConnected,
+        isSyncing,
         hasMore,
         isLoading,
         isLoadingMore,
@@ -125,7 +126,7 @@ export function Log() {
                     deselectAllText={t('controls.deselectAll')}
                     className="shrink-0"
                 />
-                <ActiveRequestsPopover activeRequests={activeRequests} />
+                <ActiveRequestsPopover activeRequests={activeRequests} isSyncing={isSyncing} />
                 <div className="flex-1 min-w-2" />
                 <Button
                     variant="outline"
