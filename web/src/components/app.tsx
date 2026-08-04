@@ -257,9 +257,8 @@ export function AppContainer() {
                         animate="animate"
                         exit={{
                             opacity: 0,
-                            scale: 0.98,
                         }}
-                        transition={{ duration: 0.25 }}
+                        transition={{ duration: 0.15 }}
                         className="h-full min-h-0 flex-1"
                     >
                         <ContentLoader activeRoute={activeItem} />
