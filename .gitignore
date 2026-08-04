@@ -7,3 +7,4 @@ static/out/*
 .claude/
 .trellis/
 web/.pnpm-store/
+.pnpm-store/
