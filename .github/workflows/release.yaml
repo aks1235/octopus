@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 env:
-  DOCKER_IMAGE: chruxc/octopus
+  DOCKER_IMAGE: raynmy/octopus
 
 jobs:
   # tag push 时：生成 changelog + 合并 dev → master
