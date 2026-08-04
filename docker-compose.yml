@@ -1,6 +1,11 @@
 services:
   octopus:
-    image: raynmy/octopus:v1.0.1
+    image: raynmy/octopus:latest
+    build:
+      context: .
+      dockerfile: scripts/dockerfiles/Dockerfile.alpine
+      args:
+        TARGETPLATFORM: linux/amd64
     ports:
        - '8080:8080'
     volumes:

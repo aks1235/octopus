@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
     MorphingDialog,
     MorphingDialogTrigger,
@@ -13,7 +14,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/common/Toast';
 
-export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
+function CardComponent({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
     const t = useTranslations('channel.card');
     const tForm = useTranslations('channel.form');
     const tSections = useTranslations('channel.detail.sections');
@@ -158,3 +159,6 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
         </MorphingDialog>
     );
 }
+
+export const Card = memo(CardComponent);
+

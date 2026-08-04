@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { Trash2, X, Pencil, Brain } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { type Group, useDeleteGroup, useUpdateGroup } from '@/api/endpoints/group';
@@ -70,7 +70,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
     );
 }
 
-export function GroupCard({ group }: { group: Group }) {
+function GroupCardComponent({ group }: { group: Group }) {
     const t = useTranslations('group');
     const updateGroup = useUpdateGroup();
     const deleteGroup = useDeleteGroup();
@@ -366,3 +366,6 @@ export function GroupCard({ group }: { group: Group }) {
         </article >
     );
 }
+
+export const GroupCard = memo(GroupCardComponent);
+
