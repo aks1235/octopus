@@ -5,13 +5,15 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle, History } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
+import { useChannelViewStore } from './detail-store';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
 import { toast } from '@/components/common/Toast';
 
 function CardComponent({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
@@ -19,7 +21,9 @@ function CardComponent({ channel, stats, layout = 'grid' }: { channel: Channel; 
     const tForm = useTranslations('channel.form');
     const tSections = useTranslations('channel.detail.sections');
     const tMetrics = useTranslations('channel.detail.metrics');
+    const tCallDetail = useTranslations('channel.callDetail');
     const enableChannel = useEnableChannel();
+    const setView = useChannelViewStore((s) => s.setView);
     const isListLayout = layout === 'list';
 
     const splitModels = (models: string) =>
@@ -33,6 +37,12 @@ function CardComponent({ channel, stats, layout = 'grid' }: { channel: Channel; 
         ...splitModels(channel.custom_model),
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
+
+    // 进入该渠道的「调用详情」视图。stopPropagation 避免触发卡片整体的 MorphingDialog。
+    const handleOpenCallDetail = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setView({ mode: 'detail', channelID: channel.id, channelName: channel.name });
+    };
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -59,12 +69,24 @@ function CardComponent({ channel, stats, layout = 'grid' }: { channel: Channel; 
                             </TooltipTrigger>
                             <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
                         </Tooltip>
-                        <Switch
-                            checked={channel.enabled}
-                            onCheckedChange={handleEnableChange}
-                            disabled={enableChannel.isPending}
-                            onClick={(e) => e.stopPropagation()}
-                        />
+                        <div className="flex items-center gap-1.5">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 gap-1 text-xs text-muted-foreground"
+                                onClick={handleOpenCallDetail}
+                                aria-label={tCallDetail('open')}
+                            >
+                                <History className="size-3.5" />
+                                <span className="hidden sm:inline">{tCallDetail('open')}</span>
+                            </Button>
+                            <Switch
+                                checked={channel.enabled}
+                                onCheckedChange={handleEnableChange}
+                                disabled={enableChannel.isPending}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
                     </header>
 
                     {isListLayout ? (

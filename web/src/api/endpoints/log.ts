@@ -26,6 +26,33 @@ export interface ChannelAttempt {
 }
 
 /**
+ * 按渠道查调用明细的单条记录。
+ * 复用 ChannelAttempt 的尝试字段,并增加请求级溯源字段(指向该 attempt 所属的 relay_log)。
+ */
+export interface ChannelAttemptDetail {
+    request_id: number;       // 所属 relay_log.id
+    request_time: number;     // relay_log.time(unix 秒)
+    request_model: string;    // request_model_name
+    request_error?: string;   // relay_log.error(请求级)
+    attempt_num: number;      // 本次 attempt 在请求中的序号
+    status: AttemptStatus;    // success/failed/circuit_break/skipped
+    channel_id: number;       // 本次尝试渠道(非最终成功渠道)
+    channel_name?: string;
+    channel_key_remark?: string;
+    model_name?: string;       // 被试模型
+    duration: number;          // 耗时(ms)
+    sticky?: boolean;
+    msg?: string;
+}
+
+/** /api/v1/log/channel-attempts 响应体 */
+export interface ChannelAttemptsResponse {
+    list: ChannelAttemptDetail[];
+    total: number;
+    truncated: boolean; // 粗筛行数触顶时为 true,前端提示"仅展示最近 N 条"
+}
+
+/**
  * 日志数据
  */
 export interface RelayLog {
@@ -401,4 +428,36 @@ export function useLogs(options: { pageSize?: number } = {}) {
  */
 export async function getLogDetail(id: number): Promise<RelayLog> {
     return apiClient.get<RelayLog>(`/api/v1/log/${id}`);
+}
+
+/**
+ * 按渠道查调用明细(infinite query)。
+ * channelID 为 null 时禁用查询(供渠道详情视图未选定渠道时使用)。
+ *
+ * @param channelID 渠道 ID
+ * @param pageSize   每页条数(默认 50,后端上限 200)
+ */
+export function useChannelAttempts(channelID: number | null, pageSize = 50) {
+    return useInfiniteQuery({
+        queryKey: ['channel-attempts', channelID, pageSize],
+        enabled: channelID != null,
+        initialPageParam: 1,
+        queryFn: async ({ pageParam }: { pageParam: number }) => {
+            const params = new URLSearchParams();
+            params.set('channel_id', String(channelID));
+            params.set('page', String(pageParam));
+            params.set('page_size', String(pageSize));
+            return apiClient.get<ChannelAttemptsResponse>(
+                `/api/v1/log/channel-attempts?${params.toString()}`
+            );
+        },
+        getNextPageParam: (lastPage, allPages) => {
+            // 一页不满 pageSize即到底;total 也兜底
+            if (!lastPage.list || lastPage.list.length < pageSize) return undefined;
+            const fetched = allPages.reduce((n, p) => n + (p.list?.length ?? 0), 0);
+            if (fetched >= lastPage.total) return undefined;
+            return allPages.length + 1;
+        },
+        staleTime: Infinity,
+    });
 }

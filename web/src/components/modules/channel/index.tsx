@@ -5,8 +5,15 @@ import { useChannelList } from '@/api/endpoints/channel';
 import { Card } from './Card';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { useChannelViewStore } from './detail-store';
+import { ChannelCallDetail } from './CallDetail';
 
-export function Channel() {
+/**
+ * 渠道列表视图(默认)。
+ * 独立组件以遵守 Rules of Hooks:壳组件根据 view 分叉后,
+ * 列表分支与详情分支各自管理 hooks,不交叉。
+ */
+function ChannelListView() {
     const { data: channelsData } = useChannelList();
     const pageKey = 'channel' as const;
     const searchTerm = useSearchStore((s) => s.getSearchTerm(pageKey));
@@ -45,4 +52,17 @@ export function Channel() {
             renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
         />
     );
+}
+
+/**
+ * 渠道模块入口:模块内自路由(list ↔ detail)。主导航 NavItem 不变。
+ * 仅在此读 view store 选分支,两个子视图各自管理 hooks。
+ */
+export function Channel() {
+    const view = useChannelViewStore((s) => s.view);
+
+    if (view.mode === 'detail') {
+        return <ChannelCallDetail channelID={view.channelID} channelName={view.channelName} />;
+    }
+    return <ChannelListView />;
 }

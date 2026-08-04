@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -336,4 +338,129 @@ func RelayLogExists(ctx context.Context, id int64) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// relayLogChannelAttemptsScanLimit 粗筛阶段从 DB 拉回的最大行数上界。
+// attempts 是 JSON serializer 字段无法 SQL 展开,需粗筛缩小行集后再 Go 层精确展开。
+// 粗筛后超过此上界的部分被截断,前端以 truncated 标志提示"仅展示最近 N 条"。
+const relayLogChannelAttemptsScanLimit = 5000
+
+// RelayLogAttemptsByChannel 按渠道 ID 返回其在保留期内被尝试的每次调用明细。
+//
+// 数据来源:relay_logs.attempts(JSON serializer 字段)。7 天历史日志全在 DB
+// (relayLogCache 只是 ≤20 条 flush 缓冲,不覆盖历史)。
+//
+// 策略「先限缩再展开」:
+//  1. 读 relay_log_keep_period 算 cutoff;
+//  2. 按 channel_id 粗筛:attempts LIKE '%"channel_id":<id>%' 三库统一(SQLite/MySQL/PG 均走 LIKE,
+//     不依赖 dialect jsonb)。注意整数字段无引号、无空格,模板需与 jsoniter 实际序列化字节匹配。
+//     LIKE 粗筛可能误匹配前缀相同的大 ID(如 90 误匹配 900),由 step 3 Go 层精确过滤兜底;
+//  3. Go 层 json.Unmarshal attempts → 过滤 a.ChannelID == channelID(本次尝试渠道,非 relay_logs.channel 最终渠道)
+//     → 拼装 ChannelAttemptDetail(带 request_id 溯源);
+//  4. 按 request_time 倒序,分页用展开后 matches 切片(total = len(matches),精确);
+//  5. 粗筛行数超 relayLogChannelAttemptsScanLimit 截断,truncated=true。
+//
+// 未启用日志保存(RelayLogKeepEnabled=false)时 DB 无历史数据,直接返回空。
+func RelayLogAttemptsByChannel(ctx context.Context, channelID int, page, pageSize int) (list []model.ChannelAttemptDetail, total int, truncated bool, err error) {
+	enabled, eerr := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
+	if eerr != nil {
+		return nil, 0, false, eerr
+	}
+	if !enabled {
+		// 未启用日志保存,DB 无历史 attempts,返回空
+		return nil, 0, false, nil
+	}
+
+	// step 1:读保留期算 cutoff(照 relayLogCleanup 写法)
+	keepPeriod, perr := SettingGetInt(model.SettingKeyRelayLogKeepPeriod)
+	if perr != nil {
+		return nil, 0, false, perr
+	}
+	if keepPeriod <= 0 {
+		// 无保留期限制:不按时间过滤(仍受粗筛行数上界保护)
+		keepPeriod = 0
+	}
+	var cutoff int64
+	if keepPeriod > 0 {
+		cutoff = time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Unix()
+	}
+
+	// step 2:粗筛拉回候选行(仅取展开所需列,避开大字段 request_content 等)
+	likePattern := fmt.Sprintf(`%%"channel_id":%d%%`, channelID)
+	query := db.GetDB().WithContext(ctx).
+		Model(&model.RelayLog{}).
+		Select("id, time, request_model_name, error, attempts")
+	if cutoff > 0 {
+		query = query.Where("time >= ?", cutoff)
+	}
+	query = query.Where("attempts LIKE ?", likePattern).
+		Order("time DESC").
+		Limit(relayLogChannelAttemptsScanLimit)
+
+	var rows []model.RelayLog
+	if err = query.Find(&rows).Error; err != nil {
+		return nil, 0, false, err
+	}
+
+	// 粗筛是否触顶:命中上界即视为可能还有未扫到的行
+	if len(rows) >= relayLogChannelAttemptsScanLimit {
+		truncated = true
+	}
+
+	// step 3:Go 层展开并精确过滤
+	matches := make([]model.ChannelAttemptDetail, 0, len(rows))
+	for _, log := range rows {
+		// GORM serializer:json 已在 Find 时将 attempts 列反序列化为 log.Attempts,
+		// 此处无需再 json.Unmarshal,直接遍历过滤。
+		for _, a := range log.Attempts {
+			if a.ChannelID != channelID {
+				// 粗筛误匹配(如 90 误匹配 900)在此被精确过滤
+				continue
+			}
+			matches = append(matches, model.ChannelAttemptDetail{
+				RequestID:     log.ID,
+				RequestTime:   log.Time,
+				RequestModel:  log.RequestModelName,
+				RequestError:  log.Error,
+				AttemptNum:    a.AttemptNum,
+				Status:        a.Status,
+				ChannelID:     a.ChannelID,
+				ChannelName:   a.ChannelName,
+				ChannelKeyRem: a.ChannelKeyRemark,
+				ModelName:     a.ModelName,
+				Duration:      a.Duration,
+				Sticky:        a.Sticky,
+				Msg:           a.Msg,
+			})
+		}
+	}
+
+	// step 4:按 request_time 倒序(同时间按 request_id 倒序稳定),分页
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].RequestTime != matches[j].RequestTime {
+			return matches[i].RequestTime > matches[j].RequestTime
+		}
+		return matches[i].RequestID > matches[j].RequestID
+	})
+	total = len(matches)
+
+	// 分页参数收敛
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	offset := (page - 1) * pageSize
+	if offset >= total {
+		return nil, total, truncated, nil
+	}
+	end := offset + pageSize
+	if end > total {
+		end = total
+	}
+	return matches[offset:end], total, truncated, nil
 }

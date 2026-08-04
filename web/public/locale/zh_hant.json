@@ -663,6 +663,19 @@
       "anthropicTs": "Anthropic SDK",
       "openaiPython": "OpenAI Python SDK",
       "openaiJs": "OpenAI JS SDK"
+    },
+    "channelAttempts": {
+      "requestTitle": "請求詳情",
+      "loadFailed": "載入失敗",
+      "debugInfo": "除錯資訊",
+      "total": "{count} 次嘗試",
+      "statusSuccess": "成功",
+      "statusFailed": "失敗",
+      "statusCircuitBreak": "熔斷跳過",
+      "statusSkipped": "跳過",
+      "truncatedTip": "僅展示最近呼叫(已達掃描上限)",
+      "loadMore": "載入更多",
+      "noMore": "沒有更多 · 已載入 {loaded} 條"
     }
   },
   "channel": {
@@ -817,6 +830,14 @@
       "failed": "失敗",
       "skipped": "跳過",
       "authFile": "Auth 檔案"
+    },
+    "callDetail": {
+      "open": "呼叫詳情",
+      "back": "返回",
+      "title": "呼叫詳情",
+      "empty": "保留期內無呼叫嘗試",
+      "openRequestHint": "查看請求詳情",
+      "stickyHint": "會話粘性"
     }
   },
   "provider": {

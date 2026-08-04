@@ -663,6 +663,19 @@
       "anthropicTs": "Anthropic SDK",
       "openaiPython": "OpenAI Python SDK",
       "openaiJs": "OpenAI JS SDK"
+    },
+    "channelAttempts": {
+      "requestTitle": "请求详情",
+      "loadFailed": "加载失败",
+      "debugInfo": "调试信息",
+      "total": "{count} 次尝试",
+      "statusSuccess": "成功",
+      "statusFailed": "失败",
+      "statusCircuitBreak": "熔断跳过",
+      "statusSkipped": "跳过",
+      "truncatedTip": "仅展示最近调用(已达扫描上限)",
+      "loadMore": "加载更多",
+      "noMore": "没有更多 · 已加载 {loaded} 条"
     }
   },
   "channel": {
@@ -816,6 +829,14 @@
       "updated": "已更新",
       "failed": "失败",
       "skipped": "跳过"
+    },
+    "callDetail": {
+      "open": "调用详情",
+      "back": "返回",
+      "title": "调用详情",
+      "empty": "保留期内无调用尝试",
+      "openRequestHint": "查看请求详情",
+      "stickyHint": "会话粘性"
     }
   },
   "provider": {

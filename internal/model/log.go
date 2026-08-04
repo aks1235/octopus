@@ -36,6 +36,24 @@ type ChannelAttempt struct {
 	Msg              string        `json:"msg,omitempty"`
 }
 
+// ChannelAttemptDetail 按渠道查调用明细时返回的单条记录。
+// 复用 ChannelAttempt 的渠道尝试字段,并增加请求级溯源字段(指向该 attempt 所属的 relay_log)。
+type ChannelAttemptDetail struct {
+	RequestID    int64         `json:"request_id"`              // 所属 relay_log.id(Snowflake)
+	RequestTime  int64         `json:"request_time"`            // relay_log.time(unix 秒)
+	RequestModel string        `json:"request_model"`           // request_model_name
+	RequestError string        `json:"request_error,omitempty"` // relay_log.error(请求级错误)
+	AttemptNum   int           `json:"attempt_num"`             // 本次 attempt 在请求中的序号
+	Status       AttemptStatus `json:"status"`                  // success/failed/circuit_break/skipped
+	ChannelID    int           `json:"channel_id"`              // 本次尝试渠道(非最终成功渠道)
+	ChannelName  string        `json:"channel_name,omitempty"`
+	ChannelKeyRem string       `json:"channel_key_remark,omitempty"`
+	ModelName    string        `json:"model_name,omitempty"` // 被试模型
+	Duration     int           `json:"duration"`             // 耗时(ms)
+	Sticky       bool          `json:"sticky,omitempty"`
+	Msg          string        `json:"msg,omitempty"`
+}
+
 type RelayLog struct {
 	ID                  int64            `json:"id" gorm:"primaryKey;autoIncrement:false"` // Snowflake ID
 	Time                int64            `json:"time"`                                     // 时间戳（秒）

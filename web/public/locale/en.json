@@ -663,6 +663,19 @@
       "anthropicTs": "Anthropic SDK",
       "openaiPython": "OpenAI Python SDK",
       "openaiJs": "OpenAI JS SDK"
+    },
+    "channelAttempts": {
+      "requestTitle": "Request Detail",
+      "loadFailed": "Failed to load",
+      "debugInfo": "Debug Info",
+      "total": "{count} attempts",
+      "statusSuccess": "success",
+      "statusFailed": "failed",
+      "statusCircuitBreak": "circuit break",
+      "statusSkipped": "skipped",
+      "truncatedTip": "Showing recent attempts only (scan cap reached)",
+      "loadMore": "Load more",
+      "noMore": "No more · {loaded} loaded"
     }
   },
   "channel": {
@@ -816,6 +829,14 @@
       "updated": "Updated",
       "failed": "Failed",
       "skipped": "Skipped"
+    },
+    "callDetail": {
+      "open": "Call Details",
+      "back": "Back",
+      "title": "Call Details",
+      "empty": "No call attempts in retention period",
+      "openRequestHint": "Open request detail",
+      "stickyHint": "Sticky routing"
     }
   },
   "provider": {

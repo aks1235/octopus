@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
@@ -20,6 +21,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/list", http.MethodGet).
 				Handle(listLog),
+		).
+		AddRoute(
+			router.NewRoute("/channel-attempts", http.MethodGet).
+				Handle(channelAttempts),
 		).
 		AddRoute(
 			router.NewRoute("/clear", http.MethodDelete).
@@ -92,6 +97,46 @@ func listLog(c *gin.Context) {
 	}
 
 	resp.Success(c, logs)
+}
+
+// channelAttemptsResponse 按渠道查调用明细的响应体。
+type channelAttemptsResponse struct {
+	List      []model.ChannelAttemptDetail `json:"list"`
+	Total     int                          `json:"total"`
+	Truncated bool                         `json:"truncated"` // 粗筛行数触顶时为 true,前端提示"仅展示最近 N 条"
+}
+
+// channelAttempts 按渠道返回其保留期内的每次调用明细(展开 attempts),只读,挂鉴权组。
+func channelAttempts(c *gin.Context) {
+	channelIDStr := c.Query("channel_id")
+	if channelIDStr == "" {
+		resp.Error(c, http.StatusBadRequest, "missing channel_id")
+		return
+	}
+	channelID, err := strconv.Atoi(channelIDStr)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, "invalid channel_id")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+
+	list, total, truncated, err := op.RelayLogAttemptsByChannel(c.Request.Context(), channelID, page, pageSize)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		// 返回非 null 的空数组,前端解构更稳
+		list = []model.ChannelAttemptDetail{}
+	}
+
+	resp.Success(c, channelAttemptsResponse{
+		List:      list,
+		Total:     total,
+		Truncated: truncated,
+	})
 }
 
 func clearLog(c *gin.Context) {
