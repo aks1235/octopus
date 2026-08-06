@@ -298,6 +298,48 @@ export function useLogs(options: { pageSize?: number } = {}) {
                 // 快照同步状态管理
                 let snapshotReceived = false;
 
+                // 按 id 去重合并活跃请求（REST 补拉与 SSE 首次快照双写时安全）
+                const mergeActiveRequests = (
+                    prev: ActiveRequest[],
+                    incoming: ActiveRequest[]
+                ): ActiveRequest[] => {
+                    const result = [...prev];
+                    for (const req of incoming) {
+                        const idx = result.findIndex((r) => r.id === req.id);
+                        if (idx >= 0) {
+                            result[idx] = req;
+                        } else {
+                            result.push(req);
+                        }
+                    }
+                    // 按开始时间降序，与后端 ActiveRequestList 保持一致
+                    result.sort((a, b) => b.start_time - a.start_time);
+                    return result;
+                };
+
+                // 兜底补拉当前活跃请求快照。
+                // 根因:外部 AnimatePresence + Suspense 骨架屏会把 Log 组件 mount 推迟到
+                // lazy chunk 解析之后,导致 SSE 连接建立错过服务端仅推一次的首次快照,
+                // 此时需要等下一次后端事件才补显。这里在连接建立后主动 REST 拉一次全量,
+                // 立刻填充列表,不再依赖那次一次性快照。
+                const fetchActiveSnapshot = async () => {
+                    try {
+                        const list = await apiClient.get<ActiveRequest[]>('/api/v1/log/active');
+                        if (cancelled || connectGenerationRef.current !== currentGen) return;
+                        if (!list || list.length === 0) return;
+                        snapshotReceived = true;
+                        if (snapshotTimeoutRef.current) {
+                            clearTimeout(snapshotTimeoutRef.current);
+                            snapshotTimeoutRef.current = undefined;
+                        }
+                        setIsSyncing(false);
+                        setActiveRequests((prev) => mergeActiveRequests(prev, list));
+                    } catch (e) {
+                        // 拉取失败不影响 SSE 后续推送
+                        logger.error('补拉活跃请求快照失败:', e);
+                    }
+                };
+
                 eventSource.onopen = () => {
                     if (cancelled || connectGenerationRef.current !== currentGen || getManualDisconnectFlag()) {
                         closeEventSource(eventSource);
@@ -320,6 +362,9 @@ export function useLogs(options: { pageSize?: number } = {}) {
                             setIsSyncing(false);
                         }
                     }, 500);
+
+                    // 兜底：主动 REST 补拉一次活跃请求全量快照，弥补可能错过的 SSE 首次快照
+                    fetchActiveSnapshot();
                 };
 
                 eventSource.onmessage = (event) => {
