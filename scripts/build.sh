@@ -292,9 +292,9 @@ build_standard() {
     log_info "Building ${os}/${arch}..."
 
     if ! GOOS="${os}" GOARCH="${go_arch}" CGO_ENABLED=0 \
-        go build -o "${output_file}" -ldflags="${LDFLAGS}" -tags=jsoniter "${MAIN_DIR}" 2>&1; then
+        go build -a -o "${output_file}" -ldflags="${LDFLAGS}" -tags=jsoniter "${MAIN_DIR}" 2>&1; then
         log_error "Failed to build ${os}/${arch}"
-        log_error "Build command: GOOS=${os} GOARCH=${go_arch} CGO_ENABLED=0 go build -o ${output_file} -ldflags=\"${LDFLAGS}\" -tags=jsoniter ${MAIN_DIR}"
+        log_error "Build command: GOOS=${os} GOARCH=${go_arch} CGO_ENABLED=0 go build -a -o ${output_file} -ldflags=\"${LDFLAGS}\" -tags=jsoniter ${MAIN_DIR}"
         return 1
     fi
 
