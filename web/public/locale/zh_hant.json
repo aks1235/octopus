@@ -586,7 +586,8 @@
       "noAPIKeys": "暫無 API 金鑰",
       "noModels": "暫無模型",
       "selectAll": "全選",
-      "deselectAll": "取消全選"
+      "deselectAll": "取消全選",
+      "refresh": "重新整理"
     },
     "card": {
       "error": "錯誤",

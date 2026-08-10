@@ -467,6 +467,21 @@ export function useLogs(options: { pageSize?: number } = {}) {
         queryClient.removeQueries({ queryKey: logsInfiniteQueryKey(pageSize, filterError, filterAPIKeyNames, filterModelNames) });
     }, [pageSize, filterError, filterAPIKeyNames, filterModelNames, queryClient]);
 
+    const refreshActive = useCallback(async () => {
+        // 强制以服务端为准:整体替换本地活跃请求列表,
+        // 治 SSE 事件丢失/重连快照竞态导致的"已结束请求仍显示进行中"残留。
+        setIsSyncing(true);
+        try {
+            const list = await apiClient.get<ActiveRequest[]>('/api/v1/log/active');
+            const next = (list ?? []).slice().sort((a, b) => b.start_time - a.start_time);
+            setActiveRequests(next);
+        } catch (e) {
+            logger.error('刷新活跃请求快照失败:', e);
+        } finally {
+            setIsSyncing(false);
+        }
+    }, []);
+
     const disconnect = useCallback(() => {
         setManualDisconnectFlag(true);
         closeEventSource();
@@ -481,6 +496,12 @@ export function useLogs(options: { pageSize?: number } = {}) {
         closeEventSource();
         setReconnectNonce((n) => n + 1);
     }, [closeEventSource]);
+
+    const refresh = useCallback(async () => {
+        // 同时刷新:已完成的日志列表 + 活跃请求快照
+        await queryClient.invalidateQueries({ queryKey: ['logs'] });
+        await refreshActive();
+    }, [queryClient, refreshActive]);
 
     return {
         logs,
@@ -501,6 +522,8 @@ export function useLogs(options: { pageSize?: number } = {}) {
         setFilterModelNames,
         disconnect,
         reconnect,
+        refresh,
+        refreshActive,
     };
 }
 

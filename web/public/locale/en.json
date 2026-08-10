@@ -586,7 +586,8 @@
       "noAPIKeys": "No API keys",
       "noModels": "No models",
       "selectAll": "Select All",
-      "deselectAll": "Deselect All"
+      "deselectAll": "Deselect All",
+      "refresh": "Refresh"
     },
     "card": {
       "error": "Error",

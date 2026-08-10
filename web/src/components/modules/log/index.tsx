@@ -6,7 +6,7 @@ import { useAPIKeyList } from '@/api/endpoints/apikey';
 import { useGroupList } from '@/api/endpoints/group';
 import { LogCard } from './Item';
 import { ActiveRequestsPopover } from './ActiveRequests';
-import { Loader2, ArrowUp, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
+import { Loader2, ArrowUp, Wifi, WifiOff, AlertTriangle, RotateCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { MultiSelect } from '@/components/common/MultiSelect';
@@ -41,6 +41,7 @@ export function Log() {
         setFilterModelNames,
         disconnect,
         reconnect,
+        refresh,
     } = useLogs({ pageSize: 10 });
 
     const { data: apiKeys } = useAPIKeyList();
@@ -57,6 +58,17 @@ export function Log() {
 
     const scrollContainerRef = useRef<HTMLDivElement | null>(null);
     const [showScrollTop, setShowScrollTop] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    const handleRefresh = useCallback(async () => {
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        try {
+            await refresh();
+        } finally {
+            setIsRefreshing(false);
+        }
+    }, [isRefreshing, refresh]);
 
     // 监听滚动位置
     useEffect(() => {
@@ -162,6 +174,20 @@ export function Log() {
                             <span className="text-sm text-muted-foreground sr-only sm:not-sr-only">{t('controls.disconnected')}</span>
                         </>
                     )}
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRefresh}
+                    disabled={isRefreshing}
+                    aria-label={t('controls.refresh')}
+                    title={t('controls.refresh')}
+                    className={cn(
+                        'shrink-0 gap-2 px-3 h-9 rounded-xl border-border',
+                    )}
+                >
+                    <RotateCw className={cn('h-4 w-4 text-muted-foreground', isRefreshing && 'animate-spin')} />
+                    <span className="text-sm text-muted-foreground sr-only sm:not-sr-only">{t('controls.refresh')}</span>
                 </Button>
             </div>
 
