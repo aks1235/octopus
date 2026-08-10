@@ -8,3 +8,4 @@ static/out/*
 .trellis/
 web/.pnpm-store/
 .pnpm-store/
+.octopus-verified
