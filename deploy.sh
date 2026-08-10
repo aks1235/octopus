@@ -38,6 +38,7 @@ echo ""
 echo ">>> [4/5] 构建后端 (Golang 容器,复用 go module 缓存)"
 mkdir -p build/docker/linux/amd64
 # 注入版本号、commit、构建时间
+# -a 强制全量重编译:go build 缓存会误判 go:embed 未变化,导致 static/out 改动不进二进制(前端产物滞后),加 -a 绕过该问题
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 docker run --rm -v "$PWD":/src -w /src \
@@ -45,6 +46,7 @@ docker run --rm -v "$PWD":/src -w /src \
   -v "octopus-go-build-cache:/root/.cache/go-build" \
   golang:1.25 sh -c "
   CGO_ENABLED=0 go build \
+    -a \
     -tags=jsoniter \
     -buildvcs=false \
     -ldflags='-s -w -X \"github.com/bestruirui/octopus/internal/conf.Version=$GIT_VERSION\" -X \"github.com/bestruirui/octopus/internal/conf.Commit=$GIT_COMMIT\" -X \"github.com/bestruirui/octopus/internal/conf.BuildTime=$BUILD_TIME\"' \
