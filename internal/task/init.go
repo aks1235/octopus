@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	TaskPriceUpdate  = "price_update"
-	TaskStatsSave    = "stats_save"
-	TaskSyncLLM      = "sync_llm"
-	TaskCleanLLM     = "clean_llm"
+	TaskPriceUpdate   = "price_update"
+	TaskStatsSave     = "stats_save"
+	TaskSyncLLM       = "sync_llm"
+	TaskCleanLLM      = "clean_llm"
+	TaskGroupReconcile = "group_reconcile"
 )
 
 func Init() {
@@ -48,4 +49,13 @@ func Init() {
 	}
 	statsSaveInterval := time.Duration(statsSaveIntervalMinutes) * time.Minute
 	Register(TaskStatsSave, statsSaveInterval, false, op.StatsSaveDBTask)
+
+	// 注册 GroupItem 孤儿对账任务(渠道已删/模型已下架的残留引用)
+	reconcileIntervalMinutes, err := op.SettingGetInt(model.SettingKeyGroupReconcileInterval)
+	if err != nil {
+		log.Warnf("failed to get group reconcile interval: %v", err)
+	} else {
+		reconcileInterval := time.Duration(reconcileIntervalMinutes) * time.Minute
+		Register(TaskGroupReconcile, reconcileInterval, true, GroupItemReconcileTask)
+	}
 }

@@ -387,6 +387,17 @@ func GroupItemList(groupID int, ctx context.Context) ([]model.GroupItem, error) 
 	return items, nil
 }
 
+// GroupItemListAll 返回全量 GroupItem,供对账任务扫描孤儿引用。
+func GroupItemListAll(ctx context.Context) ([]model.GroupItem, error) {
+	var items []model.GroupItem
+	if err := db.GetDB().WithContext(ctx).
+		Order("priority ASC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func groupRefreshCache(ctx context.Context) error {
 	groups := []model.Group{}
 	if err := db.GetDB().WithContext(ctx).

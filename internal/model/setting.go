@@ -15,6 +15,7 @@ const (
 	SettingKeySyncLLMInterval         SettingKey = "sync_llm_interval"          // LLM 同步间隔(小时)
 	SettingKeyCORSAllowOrigins        SettingKey = "cors_allow_origins"         // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
 	SettingKeySyncFailThreshold        SettingKey = "sync_fail_threshold"       // 同步连续失败阈值(达到后自动禁用渠道)
+	SettingKeyGroupReconcileInterval   SettingKey = "group_reconcile_interval"  // GroupItem 孤儿对账周期(分钟)
 )
 
 type Setting struct {
@@ -30,12 +31,13 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"}, // 默认24小时更新一次模型信息
 		{Key: SettingKeySyncLLMInterval, Value: "24"},         // 默认24小时同步一次LLM
 		{Key: SettingKeySyncFailThreshold, Value: "3"},         // 默认连续同步失败3次自动禁用渠道
+		{Key: SettingKeyGroupReconcileInterval, Value: "60"},   // 默认60分钟对账一次 GroupItem 孤儿
 	}
 }
 
 func (s *Setting) Validate() error {
 	switch s.Key {
-	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeySyncFailThreshold:
+	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeySyncFailThreshold, SettingKeyGroupReconcileInterval:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
 			return fmt.Errorf("model info update interval must be an integer")
