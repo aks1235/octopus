@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -50,8 +51,9 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		updates.Type = *req.Type
 	}
 	if req.Enabled != nil {
-		selectFields = append(selectFields, "enabled")
+		selectFields = append(selectFields, "enabled", "auto_disabled")
 		updates.Enabled = *req.Enabled
+		updates.AutoDisabled = false // 运维接管启停时清除自动禁用标记
 	}
 	if req.BaseURL != nil {
 		selectFields = append(selectFields, "base_url")
@@ -116,12 +118,37 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("channel not found")
 	}
-	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+	// 运维手动启停一律清除自动禁用标记,避免与同步自动禁用混淆
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"enabled": enabled, "auto_disabled": false}).Error; err != nil {
 		return err
 	}
 	oldChannel.Enabled = enabled
+	oldChannel.AutoDisabled = false
 	channelCache.Set(id, oldChannel)
 	return nil
+}
+
+// ChannelUpdateSyncStatus 同步任务专用轻量更新:仅写入同步状态字段(失败计数/最近错误/最近时间/启停/自动禁用标记)。
+// enabled 与 autoDisabled 为 nil 时表示不更新该字段。落库后刷新该渠道缓存。
+func ChannelUpdateSyncStatus(ctx context.Context, id int, syncFailCount int, lastSyncError string, lastSyncAt *time.Time, enabled *bool, autoDisabled *bool) error {
+	updates := map[string]interface{}{
+		"sync_fail_count": syncFailCount,
+		"last_sync_error": lastSyncError,
+	}
+	if lastSyncAt != nil {
+		updates["last_sync_at"] = *lastSyncAt
+	}
+	if enabled != nil {
+		updates["enabled"] = *enabled
+	}
+	if autoDisabled != nil {
+		updates["auto_disabled"] = *autoDisabled
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update channel sync status: %w", err)
+	}
+	return channelRefreshCacheByID(id, ctx)
 }
 
 // ChannelDel 删除渠道及其关联数据。

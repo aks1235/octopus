@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // ChannelProvider 表示渠道使用的上游服务提供方。
 type ChannelProvider string
 
@@ -28,6 +30,12 @@ type Channel struct {
 	ChannelProxy  *string         `json:"channel_proxy"`                               // 渠道专用代理地址。
 	Stats         *StatsChannel   `json:"stats,omitempty" gorm:"foreignKey:ChannelID"` // 渠道统计信息。
 	MatchRegex    *string         `json:"match_regex"`                                 // 模型同步过滤表达式。
+
+	// 同步状态字段(由 SyncModelsTask 维护,非运维编辑)
+	SyncFailCount int        `json:"sync_fail_count" gorm:"default:0"`   // 连续同步失败次数(成功时归零)
+	LastSyncError string     `json:"last_sync_error" gorm:"type:text"`   // 最近一次同步失败错误信息
+	LastSyncAt    *time.Time `json:"last_sync_at"`                       // 最近一次同步尝试时间
+	AutoDisabled  bool       `json:"auto_disabled" gorm:"default:false"` // 是否因连续同步失败被自动禁用
 }
 
 // CustomHeader 表示追加到上游请求的单个 Header。
