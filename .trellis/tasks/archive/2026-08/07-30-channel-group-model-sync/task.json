@@ -1,0 +1,30 @@
+{
+  "id": "channel-group-model-sync",
+  "name": "channel-group-model-sync",
+  "title": "渠道-分组模型一致性同步与级联清理",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "yuan",
+  "assignee": "yuan",
+  "createdAt": "2026-07-30",
+  "completedAt": "2026-08-02",
+  "branch": null,
+  "base_branch": "dev",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "07-30-sync-fail-disable",
+    "07-30-group-item-reconcile",
+    "07-30-group-channel-name-display"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
