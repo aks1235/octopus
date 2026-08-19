@@ -23,6 +23,8 @@ export interface RelayLogOverview {
     request_model: string;
     actual_model: string;
     client_protocol: string;
+    user_agent: string;
+    client_name: string;
     stream: boolean;
     final_channel_name: string;
     input_tokens: number;

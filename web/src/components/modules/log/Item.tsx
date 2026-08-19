@@ -11,6 +11,7 @@ import { ApiError } from '@/api/client';
 import { useGroupList, useUpdateGroupActiveItem } from '@/api/group';
 import { useModelChannelList } from '@/api/model';
 import { getModelIcon } from '@/lib/model-icons';
+import { ClientIconBadge } from './ClientIcon';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
@@ -199,7 +200,10 @@ function LogCardContent({ log }: { log: RelayLogOverview }) {
                 )}
             >
                 <div className={cn("p-4 grid grid-cols-[auto_1fr] gap-4", requestFailed ? "items-start" : "items-center")}>
-                    <Icon aria-hidden="true" className={iconClassName} width={40} height={40} />
+                    <div className="relative shrink-0">
+                        <Icon aria-hidden="true" className={iconClassName} width={40} height={40} />
+                        <ClientIconBadge clientName={log.client_name} className="absolute -bottom-0.5 -right-0.5 size-4" />
+                    </div>
                     <div className="min-w-0 flex flex-col gap-3">
                         <div className="flex items-center gap-2 min-w-0 text-sm">
                             <span className="font-semibold text-card-foreground truncate" title={log.request_model}>
@@ -262,7 +266,10 @@ function LogCardContent({ log }: { log: RelayLogOverview }) {
                 <MorphingDialogContent className="relative w-[calc(100vw-2rem)] md:w-[80vw] bg-card text-card-foreground px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
                     <MorphingDialogClose className="top-4 right-5 text-muted-foreground hover:text-foreground transition-colors" />
                     <MorphingDialogTitle className="flex items-center gap-2 mb-3 text-sm">
-                        <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
+                        <div className="relative shrink-0">
+                            <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
+                            <ClientIconBadge clientName={log.client_name} className="absolute -bottom-0.5 -right-0.5 size-3.5" />
+                        </div>
                         <span className="font-semibold text-card-foreground">{log.request_model || t('unknownModel')}</span>
                         <ArrowRight className="size-3.5 text-muted-foreground/50" />
                         <Badge

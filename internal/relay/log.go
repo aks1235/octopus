@@ -50,6 +50,8 @@ type LogOverview struct {
 	RequestModel     string        `json:"request_model"`      // 客户端请求的模型名称。
 	ActualModel      string        `json:"actual_model"`       // 最终实际请求的模型名称。
 	ClientProtocol   llm.APIFormat `json:"client_protocol"`    // 客户端使用的请求协议。
+	UserAgent        string        `json:"user_agent"`         // 原始 User-Agent 头。
+	ClientName       string        `json:"client_name"`        // 解析后的客户端标识（如 claude-code、cline 等）。
 	Stream           bool          `json:"stream"`             // 是否为流式请求。
 	FinalChannelName string        `json:"final_channel_name"` // 成功渠道或最后尝试渠道的名称。
 	InputTokens      int64         `json:"input_tokens"`       // 请求完成后补充的输入 Token 数量。

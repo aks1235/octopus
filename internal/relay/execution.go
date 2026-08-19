@@ -50,6 +50,10 @@ func HandleMessages(c *gin.Context) {
 // execute 初始化请求，并在渠道未选择时等待、失败时重试，直至提交响应或客户端取消。
 func (e *execution) execute() {
 	e.log = LogRecord{LogOverview: LogOverview{ID: requestIDs.Add(1), State: RequestStateRunning, StartedAt: time.Now(), ClientProtocol: e.protocol.format}}
+	// 只读捕获 User-Agent 并解析客户端，不修改请求流（⑦ 后续接入点保持干净）
+	ua := e.ctx.GetHeader("User-Agent")
+	e.log.UserAgent = ua
+	e.log.ClientName = DetectClient(ua)
 	ctx := e.ctx.Request.Context()
 	raw, err := httpclient.ReadHTTPRequest(e.ctx.Request)
 	if err != nil {
