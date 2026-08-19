@@ -16,6 +16,11 @@ type GroupItem struct {
 	ChannelID int    `json:"channel_id" gorm:"not null;index:idx_group_channel_model,unique"` // ChannelID 是实际上游渠道 ID。
 	ModelName string `json:"model_name" gorm:"not null;index:idx_group_channel_model,unique"` // ModelName 是该渠道实际请求的模型名称。
 	Priority  int    `json:"priority"`                                                         // Priority 仅用于分组项的界面展示顺序。
+
+	// 以下字段非持久化:仅由 op.GroupList 填充后返回前端,用于分组列表正确展示渠道名与启停态。
+	// 渠道已删除时 ChannelName 留空、ChannelEnabled=false,前端据此显示占位文案。
+	ChannelName    string `json:"channel_name,omitempty" gorm:"-"`
+	ChannelEnabled bool   `json:"channel_enabled" gorm:"-"`
 }
 
 // GroupUpdateRequest 表示分组普通配置和成员变更请求。

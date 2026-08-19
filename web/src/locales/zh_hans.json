@@ -317,7 +317,9 @@
         "card": {
             "empty": "暂无规则",
             "active": "当前活动项",
-            "activate": "设为活动项"
+            "activate": "设为活动项",
+            "channelDeleted": "渠道已删除",
+            "channelDisabled": "已禁用"
         },
         "detail": {
             "actions": {

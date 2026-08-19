@@ -17,6 +17,8 @@ import { useTranslations } from 'use-intl';
 export interface SelectedMember extends LLMChannel {
     id: string;
     item_id?: number;
+    // 渠道级启停(与 LLMChannel.enabled 模型级启停区分):false 表示整个渠道被禁用。
+    channel_enabled?: boolean;
 }
 
 function reorderList<T>(list: T[], startIndex: number, endIndex: number): T[] {
@@ -57,6 +59,9 @@ function MemberItem({
     const { Icon, className: iconClassName } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isDisabled = member.enabled === false;
+    // 渠道级状态:channel_name 缺失表示渠道已删除;channel_enabled=false 表示渠道被禁用(含 ① 的自动禁用)。
+    const channelDeleted = !member.channel_name;
+    const channelDisabled = member.channel_enabled === false;
 
     return (
         <div
@@ -123,7 +128,18 @@ function MemberItem({
                             {member.name}
                         </TooltipContent>
                     </Tooltip>
-                    <span className="text-[10px] text-muted-foreground truncate leading-tight">{member.channel_name}</span>
+                    <span className="text-[10px] text-muted-foreground truncate leading-tight flex items-center gap-1">
+                        {channelDeleted ? (
+                            <span className="text-destructive/70">{t('card.channelDeleted')}</span>
+                        ) : (
+                            <>
+                                <span className="truncate">{member.channel_name}</span>
+                                {channelDisabled && (
+                                    <span className="shrink-0 text-amber-500/80">{t('card.channelDisabled')}</span>
+                                )}
+                            </>
+                        )}
+                    </span>
                 </div>
 
                 {onActivate && member.item_id !== undefined && (

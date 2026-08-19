@@ -317,7 +317,9 @@
         "card": {
             "empty": "No rules",
             "active": "Active item",
-            "activate": "Set as active"
+            "activate": "Set as active",
+            "channelDeleted": "Channel deleted",
+            "channelDisabled": "Disabled"
         },
         "detail": {
             "actions": {

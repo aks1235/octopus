@@ -21,11 +21,26 @@ var (
 )
 
 func GroupList(ctx context.Context) ([]model.Group, error) {
-	groups := make([]model.Group, 0, groupCache.Len())
+	res := make([]model.Group, 0, groupCache.Len())
 	for _, group := range groupCache.GetAll() {
-		groups = append(groups, group)
+		// 重建 Items slice 并填充渠道名/启停态,避免就地修改污染缓存对象底层数组。
+		// 渠道已删除(不在 channelCache)时 ChannelName 留空、ChannelEnabled=false,前端据此显示占位。
+		items := make([]model.GroupItem, len(group.Items))
+		for i, item := range group.Items {
+			item := item
+			if ch, ok := channelCache.Get(item.ChannelID); ok {
+				item.ChannelName = ch.Name
+				item.ChannelEnabled = ch.Enabled
+			} else {
+				item.ChannelName = ""
+				item.ChannelEnabled = false
+			}
+			items[i] = item
+		}
+		group.Items = items
+		res = append(res, group)
 	}
-	return groups, nil
+	return res, nil
 }
 
 func GroupListModel(ctx context.Context) ([]string, error) {

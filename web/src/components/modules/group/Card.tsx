@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
 import { GroupEditor, type GroupEditorValues } from './Editor';
-import { buildChannelNameByModelKey, modelChannelKey } from './utils';
+import { modelChannelKey } from './utils';
 import {
     MorphingDialog,
     MorphingDialogClose,
@@ -72,7 +72,6 @@ export function GroupCard({ group }: { group: Group }) {
     const [members, setMembers] = useState<SelectedMember[]>([]);
     const isDragging = useRef(false);
 
-    const channelNameByKey = useMemo(() => buildChannelNameByModelKey(modelChannels), [modelChannels]);
     const enabledByKey = useMemo(() => {
         const map = new Map<string, boolean>();
         modelChannels.forEach((mc) => {
@@ -89,10 +88,13 @@ export function GroupCard({ group }: { group: Group }) {
                 name: item.model_name,
                 enabled: enabledByKey.get(modelChannelKey(item.channel_id, item.model_name)) ?? true,
                 channel_id: item.channel_id,
-                channel_name: channelNameByKey.get(modelChannelKey(item.channel_id, item.model_name)) ?? `Channel ${item.channel_id}`,
+                // channel_name 来自后端 DTO;为空表示渠道已删除,由 ItemList 渲染占位文案。
+                // channel_enabled 为渠道级启停,用于显示已禁用角标。
+                channel_name: item.channel_name ?? '',
+                channel_enabled: item.channel_enabled ?? true,
                 item_id: item.id,
             })),
-        [group.items, channelNameByKey, enabledByKey]
+        [group.items, enabledByKey]
     );
 
     useEffect(() => {
