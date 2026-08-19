@@ -445,6 +445,12 @@
                 "delete": "Delete",
                 "confirmDelete": "Confirm Delete",
                 "deleting": "Deleting..."
+            },
+            "test": {
+                "title": "Connectivity Test",
+                "button": "Test Connectivity",
+                "pending": "Testing...",
+                "summary": "{passed}/{total} models passed"
             }
         },
         "create": {

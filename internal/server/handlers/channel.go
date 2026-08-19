@@ -10,6 +10,7 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -44,6 +45,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/fetch-model", http.MethodPost).
 				Handle(fetchModel),
+		).
+		AddRoute(
+			router.NewRoute("/test-models", http.MethodPost).
+				Handle(testModels),
 		)
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
@@ -156,6 +161,34 @@ func fetchModel(c *gin.Context) {
 		return
 	}
 	resp.Success(c, models)
+}
+
+// testModels 对已保存渠道的指定模型逐个进行连通性测试。
+func testModels(c *gin.Context) {
+	var req struct {
+		ChannelID int      `json:"channel_id"`
+		Models    []string `json:"models"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	if req.ChannelID <= 0 || len(req.Models) == 0 {
+		resp.Error(c, http.StatusBadRequest, "channel_id and models are required")
+		return
+	}
+
+	channel, err := op.ChannelGet(req.ChannelID, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, "channel not found")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+
+	results := relay.TestModels(ctx, channel, req.Models)
+	resp.Success(c, results)
 }
 
 func syncChannel(c *gin.Context) {

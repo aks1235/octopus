@@ -445,6 +445,12 @@
                 "delete": "刪除",
                 "confirmDelete": "確認刪除",
                 "deleting": "刪除中..."
+            },
+            "test": {
+                "title": "連通性測試",
+                "button": "測試連通性",
+                "pending": "測試中...",
+                "summary": "{passed}/{total} 個模型通過測試"
             }
         },
         "create": {

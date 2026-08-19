@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
     Trash2,
     CheckCircle2,
@@ -7,9 +7,12 @@ import {
     DollarSign,
     Clock,
     Activity,
-    TrendingUp
+    TrendingUp,
+    Zap,
+    Loader2
 } from 'lucide-react';
-import { useUpdateChannel, useDeleteChannel, type Channel, type UpdateChannelRequest } from '@/api/channel';
+import { useUpdateChannel, useDeleteChannel, useTestModels, type Channel, type TestModelResult, type UpdateChannelRequest } from '@/api/channel';
+import { toast } from 'sonner';
 import {
     MorphingDialogTitle,
     MorphingDialogDescription,
@@ -26,6 +29,12 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const { setIsOpen } = useMorphingDialog();
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
+    const testModels = useTestModels();
+    const [testResults, setTestResults] = useState<TestModelResult[] | null>(null);
+    const modelsToTest = useMemo(() => {
+        const split = (s: string) => s.split(',').map((m) => m.trim()).filter(Boolean);
+        return Array.from(new Set([...split(channel.model), ...split(channel.custom_model)]));
+    }, [channel.model, channel.custom_model]);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [formData, setFormData] = useState<ChannelFormData>({
@@ -110,6 +119,22 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         setTimeout(() => {
             deleteChannel.mutate(channel.id);
         }, 300);
+    };
+
+    const handleTestModels = () => {
+        if (modelsToTest.length === 0) return;
+        setTestResults(null);
+        testModels.mutate(
+            { channel_id: channel.id, models: modelsToTest },
+            {
+                onSuccess: (data) => {
+                    setTestResults(data);
+                    const passed = data.filter((r) => r.passed).length;
+                    toast.success(t('test.summary', { passed, total: data.length }));
+                },
+                onError: (error) => toast.error(error.message),
+            }
+        );
     };
 
     return (
@@ -274,6 +299,60 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </dd>
                                 </dl>
                             </div>
+
+                            {/* 模型连通性测试 */}
+                            <section className="space-y-3">
+                                <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                    <Zap className="size-3.5" />
+                                    {t('test.title')}
+                                </h4>
+                                <Button
+                                    onClick={handleTestModels}
+                                    disabled={testModels.isPending || modelsToTest.length === 0}
+                                    variant="secondary"
+                                    className="w-full rounded-2xl h-11"
+                                >
+                                    {testModels.isPending ? (
+                                        <Loader2 className="size-4 animate-spin" />
+                                    ) : (
+                                        <Zap className="size-4" />
+                                    )}
+                                    {testModels.isPending ? t('test.pending') : t('test.button')}
+                                </Button>
+                                {testResults && testResults.length > 0 && (
+                                    <ul className="space-y-1.5">
+                                        {testResults.map((r) => (
+                                            <li
+                                                key={r.model}
+                                                className="flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm"
+                                            >
+                                                {r.passed ? (
+                                                    <CheckCircle2 className="size-4 text-accent shrink-0" />
+                                                ) : (
+                                                    <XCircle className="size-4 text-destructive shrink-0" />
+                                                )}
+                                                <span className="truncate font-medium">{r.model}</span>
+                                                {r.passed ? (
+                                                    r.delay != null && (
+                                                        <span className="ml-auto text-xs text-muted-foreground">
+                                                            {r.delay}ms
+                                                        </span>
+                                                    )
+                                                ) : (
+                                                    r.error && (
+                                                        <span
+                                                            className="ml-auto truncate text-xs text-destructive max-w-[50%]"
+                                                            title={r.error}
+                                                        >
+                                                            {r.error}
+                                                        </span>
+                                                    )
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </section>
 
                             {/* 操作按钮 */}
                             <div className="grid gap-3 sm:grid-cols-2 pt-2">

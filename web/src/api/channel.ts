@@ -262,6 +262,33 @@ export function useFetchModel() {
 }
 
 /**
+ * 模型连通性测试结果（与后端 relay.TestModelResult 对齐）
+ */
+export type TestModelResult = {
+    model: string;
+    passed: boolean;
+    error?: string;
+    delay?: number;
+};
+
+/**
+ * 测试已保存渠道的模型连通性 Hook
+ *
+ * @example
+ * const testModels = useTestModels();
+ *
+ * testModels.mutate({ channel_id: 1, models: ['gpt-4', 'gpt-3.5-turbo'] });
+ * // 在 onSuccess 中获取逐模型结果
+ * testModels.data // [{ model: 'gpt-4', passed: true, delay: 320 }, ...]
+ */
+export function useTestModels() {
+    return useMutation({
+        mutationFn: (data: { channel_id: number; models: string[] }) =>
+            apiRequest<TestModelResult[]>('/api/v1/channel/test-models', { method: 'POST', body: data }),
+    });
+}
+
+/**
  * 获取渠道最后同步时间 Hook
  * 
  * @example
