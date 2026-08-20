@@ -1,0 +1,19 @@
+# feat/my-features 本地 smoke 独立 compose(不走 base,避免端口/volume 合并)。
+# 绕开 deploy.sh 的 `git pull aks-fork dev`:用 feat 源码编出的二进制造本地镜像。
+# 与线上 octopus-new(8080 / dev v1.0.3 / data.db)隔离:8081 + octopus-feat + 独立 data.smoke 库(全新 006 schema,空库起)。
+# 用法: docker compose -f docker-compose.smoke.yml up -d --build
+services:
+  octopus:
+    build:
+      context: .
+      dockerfile: scripts/dockerfile/Dockerfile
+      args:
+        TARGETPLATFORM: linux/amd64
+    image: bestrui/octopus:feat-smoke
+    container_name: octopus-feat
+    ports:
+      - '8081:8080'
+    volumes:
+      - './data.smoke:/app/data'
+    restart: unless-stopped
+    network_mode: bridge
