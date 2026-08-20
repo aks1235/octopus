@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/relay"
@@ -41,6 +42,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/clear", http.MethodDelete).
 				Handle(clearLog),
+		).
+		AddRoute(
+			router.NewRoute("/channel-attempts", http.MethodGet).
+				Handle(getChannelAttempts),
 		)
 }
 
@@ -66,6 +71,16 @@ func clearLog(c *gin.Context) {
 	runtime.GC()
 	log.Debugf("relay log history cleared")
 	c.Status(http.StatusNoContent)
+}
+
+// getChannelAttempts 返回指定渠道在内存日志窗口内被尝试的每次调用明细。
+func getChannelAttempts(c *gin.Context) {
+	name := strings.TrimSpace(c.Query("channel_name"))
+	if name == "" {
+		resp.Error(c, http.StatusBadRequest, "missing channel_name")
+		return
+	}
+	resp.Success(c, relay.GetLogAttemptsByChannel(name))
 }
 
 // getRequestBody 返回指定请求的原始请求体。

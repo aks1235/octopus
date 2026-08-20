@@ -202,6 +202,8 @@ func (e *execution) handleAttemptFailure(ctx context.Context, item model.GroupIt
 	if len(result.responseBody) > 0 {
 		attempt.Error += ": " + string(result.responseBody)
 	}
+	attempt.Status = AttemptFailed
+	attempt.Duration = duration.Milliseconds()
 	if interrupted {
 		e.log.Error = attempt.Error
 		e.emit(LogEventAttemptFinished, attempt)
@@ -230,6 +232,8 @@ func (e *execution) handleAttemptFailure(ctx context.Context, item model.GroupIt
 // commitAttempt 将已验证的上游响应提交给客户端，并完成本次尝试和请求统计。
 func (e *execution) commitAttempt(ctx, attemptCtx context.Context, item model.GroupItem, channel *model.Channel, attempt *LogAttempt, result upstreamResult, startedAt time.Time) {
 	e.log.State = RequestStateCommitted
+	attempt.Status = AttemptSuccess
+	attempt.Duration = time.Since(startedAt).Milliseconds()
 	e.emit(LogEventResponseCommitted, attempt)
 
 	commit := result.response.Commit(attemptCtx, e.ctx)
@@ -275,6 +279,7 @@ func (e *execution) recordUnavailableTarget(item model.GroupItem, channel *model
 	}
 	attempt := e.newAttempt(channelName, modelName)
 	attempt.Error = err.Error()
+	attempt.Status = AttemptSkipped
 	e.log.Error = attempt.Error
 	e.emit(LogEventAttemptFinished, attempt)
 }

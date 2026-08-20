@@ -31,13 +31,24 @@ const (
 	LogEventRequestFinished   LogEventType = "request.finished"
 )
 
+// AttemptStatus 表示一次渠道尝试的结果状态。
+type AttemptStatus string
+
+const (
+	AttemptSuccess AttemptStatus = "success" // 上游返回可用响应并提交。
+	AttemptFailed  AttemptStatus = "failed"  // 上游请求失败。
+	AttemptSkipped AttemptStatus = "skipped" // 目标不可用，未发上游请求（禁用、无 Key、未找到等）。
+)
+
 // LogAttempt 记录一次渠道尝试。
 type LogAttempt struct {
-	Type        LogEventType `json:"-"`             // 尝试阶段事件类型。
-	Index       int          `json:"attempt_index"` // 当前请求中的尝试序号。
-	ChannelName string       `json:"channel_name"`  // 渠道名称。
-	ModelName   string       `json:"model_name"`    // 实际请求的模型名称。
-	Error       string       `json:"error"`         // 本次尝试的失败原因。
+	Type        LogEventType  `json:"-"`               // 尝试阶段事件类型。
+	Index       int           `json:"attempt_index"`   // 当前请求中的尝试序号。
+	ChannelName string        `json:"channel_name"`    // 渠道名称。
+	ModelName   string        `json:"model_name"`      // 实际请求的模型名称。
+	Status      AttemptStatus `json:"status,omitempty"` // 本次尝试结果（终态事件时设置）。
+	Duration    int64         `json:"duration,omitempty"` // 本次尝试耗时（毫秒）。
+	Error       string        `json:"error"`           // 本次尝试的失败原因。
 }
 
 // LogOverview 表示概览流中一条可持续更新的请求日志。
@@ -65,9 +76,10 @@ type LogOverview struct {
 // LogRecord 保存一个请求的概览和正文快照。
 type LogRecord struct {
 	LogOverview
-	RequestBody    string      `json:"request_body"`  // 客户端原始请求体。
-	ResponseBody   string      `json:"response_body"` // 聚合后的完整最终响应体。
-	currentAttempt *LogAttempt // 当前仍在执行的渠道尝试(内部游标,未导出)。
+	RequestBody    string       `json:"request_body"`  // 客户端原始请求体。
+	ResponseBody   string       `json:"response_body"` // 聚合后的完整最终响应体。
+	attempts       []LogAttempt // 已完成尝试的历史明细(内部,未导出)。
+	currentAttempt *LogAttempt  // 当前仍在执行的渠道尝试(内部游标,未导出)。
 }
 
 const logStreamBufferSize = 16
@@ -86,6 +98,10 @@ func applyLog(eventType LogEventType, record LogRecord, attempt *LogAttempt) {
 	logMu.Lock()
 	defer logMu.Unlock()
 
+	// 跨事件保留已累积的尝试历史（applyLog 每次收到 e.log 的值拷贝，历史只存活于 logRecords）。
+	if prev, ok := logRecords[record.ID]; ok {
+		record.attempts = prev.attempts
+	}
 	if attempt != nil {
 		attempt.Type = eventType
 		switch eventType {
@@ -93,6 +109,7 @@ func applyLog(eventType LogEventType, record LogRecord, attempt *LogAttempt) {
 			record.currentAttempt = attempt
 		case LogEventAttemptFinished, LogEventResponseCommitted:
 			record.currentAttempt = nil
+			record.attempts = append(record.attempts, *attempt) // 追加终态尝试到历史。
 		}
 	}
 	if eventType == LogEventRequestFinished {
@@ -173,6 +190,55 @@ func GetLogResponseBody(id uint64) (string, bool) {
 		return "", false
 	}
 	return record.ResponseBody, true
+}
+
+// ChannelAttemptDetail 按渠道查调用明细时返回的单条记录，合并请求级与尝试级字段。
+type ChannelAttemptDetail struct {
+	RequestID        uint64        `json:"request_id"`          // 所属请求 ID。
+	RequestState     RequestState  `json:"request_state"`       // 所属请求当前状态。
+	StartedAt        time.Time     `json:"started_at"`          // 请求到达时间。
+	RequestModel     string        `json:"request_model"`       // 客户端请求的模型名称。
+	FinalChannelName string       `json:"final_channel_name"`  // 成功渠道或最后尝试渠道的名称。
+	AttemptIndex     int           `json:"attempt_index"`       // 本次尝试在请求中的序号。
+	ChannelName      string        `json:"channel_name"`        // 本次尝试的渠道名称。
+	ModelName        string        `json:"model_name"`          // 本次尝试实际请求的模型名称。
+	Status           AttemptStatus `json:"status"`              // success/failed/skipped。
+	Duration         int64         `json:"duration"`            // 本次尝试耗时（毫秒）。
+	Error            string        `json:"error,omitempty"`     // 本次尝试的失败原因。
+}
+
+// GetLogAttemptsByChannel 返回内存日志窗口内指定渠道被尝试的每次调用明细，按请求时间倒序。
+// 数据源为 logRecords 中各请求已累积的 attempts 历史；窗口随 trim 50 自然收敛。
+func GetLogAttemptsByChannel(channelName string) []ChannelAttemptDetail {
+	logMu.Lock()
+	defer logMu.Unlock()
+
+	rows := make([]ChannelAttemptDetail, 0)
+	for _, record := range logRecords {
+		for i := range record.attempts {
+			attempt := record.attempts[i]
+			if attempt.ChannelName != channelName {
+				continue
+			}
+			rows = append(rows, ChannelAttemptDetail{
+				RequestID:        record.ID,
+				RequestState:     record.State,
+				StartedAt:        record.StartedAt,
+				RequestModel:     record.RequestModel,
+				FinalChannelName: record.FinalChannelName,
+				AttemptIndex:     attempt.Index,
+				ChannelName:      attempt.ChannelName,
+				ModelName:        attempt.ModelName,
+				Status:           attempt.Status,
+				Duration:         attempt.Duration,
+				Error:            attempt.Error,
+			})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].StartedAt.After(rows[j].StartedAt)
+	})
+	return rows
 }
 
 // OpenLogOverview 替换当前概览连接，并返回建立连接时的完整快照和消息通道。

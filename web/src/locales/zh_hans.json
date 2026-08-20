@@ -420,7 +420,8 @@
         "detail": {
             "title": {
                 "edit": "编辑渠道",
-                "view": "渠道详情"
+                "view": "渠道详情",
+                "callDetail": "调用详情"
             },
             "sections": {
                 "requests": "请求详情",
@@ -446,7 +447,8 @@
                 "saving": "保存中...",
                 "delete": "删除",
                 "confirmDelete": "确认删除",
-                "deleting": "删除中..."
+                "deleting": "删除中...",
+                "callDetail": "调用详情"
             },
             "test": {
                 "title": "连通性测试",
@@ -495,6 +497,19 @@
             "autoSync": "自动同步",
             "matchRegex": "匹配正则",
             "matchRegexPlaceholder": "可选：用于匹配请求模型名称的正则表达式"
+        },
+        "callDetail": {
+            "back": "返回",
+            "refresh": "刷新",
+            "total": "总尝试数",
+            "status": {
+                "success": "成功",
+                "failed": "失败",
+                "skipped": "跳过"
+            },
+            "error": "加载调用明细失败",
+            "empty": "内存窗口内无调用记录",
+            "finalChannel": "最终渠道"
         }
     }
 }

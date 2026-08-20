@@ -10,7 +10,37 @@ interface RelayAttempt {
     attempt_index: number;
     channel_name: string;
     model_name: string;
+    status?: string; // 终态事件携带的尝试结果（success/failed/skipped）。
+    duration?: number; // 本次尝试耗时（毫秒）。
     error: string;
+}
+
+// ChannelAttemptDetail 按渠道查调用明细时返回的单条记录（请求级 + 尝试级）。
+export interface ChannelAttemptDetail {
+    request_id: number;
+    request_state: RequestState;
+    started_at: string;
+    request_model: string;
+    final_channel_name: string;
+    attempt_index: number;
+    channel_name: string;
+    model_name: string;
+    status: string;
+    duration: number;
+    error?: string;
+}
+
+// useChannelAttempts 查询指定渠道在内存日志窗口内的每次调用明细。
+export function useChannelAttempts(channelName: string, enabled = true) {
+    return useQuery({
+        queryKey: ['channel-attempts', channelName],
+        queryFn: () =>
+            apiRequest<ChannelAttemptDetail[]>(
+                `/api/v1/log/channel-attempts?channel_name=${encodeURIComponent(channelName)}`
+            ),
+        enabled: enabled && !!channelName,
+        staleTime: 0,
+    });
 }
 
 // RelayLogOverview 是概览流中不含正文和尝试详情的日志。

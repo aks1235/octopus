@@ -420,7 +420,8 @@
         "detail": {
             "title": {
                 "edit": "Edit Channel",
-                "view": "Channel Details"
+                "view": "Channel Details",
+                "callDetail": "Call Details"
             },
             "sections": {
                 "requests": "Request Details",
@@ -446,7 +447,8 @@
                 "saving": "Saving...",
                 "delete": "Delete",
                 "confirmDelete": "Confirm Delete",
-                "deleting": "Deleting..."
+                "deleting": "Deleting...",
+                "callDetail": "Call Details"
             },
             "test": {
                 "title": "Connectivity Test",
@@ -495,6 +497,19 @@
             "autoSync": "Auto Sync",
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names"
+        },
+        "callDetail": {
+            "back": "Back",
+            "refresh": "Refresh",
+            "total": "Total attempts",
+            "status": {
+                "success": "Success",
+                "failed": "Failed",
+                "skipped": "Skipped"
+            },
+            "error": "Failed to load call details",
+            "empty": "No call attempts in memory window",
+            "finalChannel": "Final channel"
         }
     }
 }

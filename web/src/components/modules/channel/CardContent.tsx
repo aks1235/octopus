@@ -9,7 +9,8 @@ import {
     Activity,
     TrendingUp,
     Zap,
-    Loader2
+    Loader2,
+    History
 } from 'lucide-react';
 import { useUpdateChannel, useDeleteChannel, useTestModels, type Channel, type TestModelResult, type UpdateChannelRequest } from '@/api/channel';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ import { type StatsMetricsFormatted } from '@/api/stats';
 import { useTranslations } from 'use-intl';
 import { Button } from '@/components/ui/button';
 import { ChannelForm, type ChannelFormData } from './Form';
+import { CallDetail } from './CallDetail';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
@@ -37,6 +39,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     }, [channel.model, channel.custom_model]);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const [showCallDetail, setShowCallDetail] = useState(false);
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
@@ -54,7 +57,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     });
     const t = useTranslations('channel.detail');
 
-    const currentView = isEditing ? 'editing' : 'viewing';
+    const currentView = showCallDetail ? 'callDetail' : isEditing ? 'editing' : 'viewing';
 
     const headersEqual = (a: Channel['custom_header'] | undefined, b: Channel['custom_header'] | undefined) =>
         JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
@@ -142,7 +145,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
             <MorphingDialogTitle>
                 <header className="mb-6 flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-card-foreground">
-                        {isEditing ? t('title.edit') : t('title.view')}
+                        {showCallDetail ? t('title.callDetail') : isEditing ? t('title.edit') : t('title.view')}
                     </h2>
                     <MorphingDialogClose
                         className="relative top-0 right-0"
@@ -355,27 +358,37 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                             </section>
 
                             {/* 操作按钮 */}
-                            <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                            <div className="grid gap-3 pt-2">
                                 <Button
-                                    onClick={() => (isConfirmingDelete ? setIsConfirmingDelete(false) : setIsEditing(true))}
-                                    variant={isConfirmingDelete ? 'secondary' : 'default'}
+                                    onClick={() => setShowCallDetail(true)}
+                                    variant="outline"
                                     className="w-full rounded-2xl h-12"
                                 >
-                                    {isConfirmingDelete ? t('actions.cancel') : t('actions.edit')}
+                                    <History className="size-4" />
+                                    {t('actions.callDetail')}
                                 </Button>
-                                <Button
-                                    onClick={handleDeleteClick}
-                                    disabled={deleteChannel.isPending}
-                                    variant="destructive"
-                                    className="w-full rounded-2xl h-12"
-                                >
-                                    <Trash2 className={`size-4 transition-transform ${isConfirmingDelete ? 'scale-110' : ''}`} />
-                                    {deleteChannel.isPending
-                                        ? t('actions.deleting')
-                                        : isConfirmingDelete
-                                            ? t('actions.confirmDelete')
-                                            : t('actions.delete')}
-                                </Button>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <Button
+                                        onClick={() => (isConfirmingDelete ? setIsConfirmingDelete(false) : setIsEditing(true))}
+                                        variant={isConfirmingDelete ? 'secondary' : 'default'}
+                                        className="w-full rounded-2xl h-12"
+                                    >
+                                        {isConfirmingDelete ? t('actions.cancel') : t('actions.edit')}
+                                    </Button>
+                                    <Button
+                                        onClick={handleDeleteClick}
+                                        disabled={deleteChannel.isPending}
+                                        variant="destructive"
+                                        className="w-full rounded-2xl h-12"
+                                    >
+                                        <Trash2 className={`size-4 transition-transform ${isConfirmingDelete ? 'scale-110' : ''}`} />
+                                        {deleteChannel.isPending
+                                            ? t('actions.deleting')
+                                            : isConfirmingDelete
+                                                ? t('actions.confirmDelete')
+                                                : t('actions.delete')}
+                                    </Button>
+                                </div>
                             </div>
                     </TabsContent>
 
@@ -391,6 +404,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                             cancelText={t('actions.cancel')}
                             idPrefix="channel"
                         />
+                    </TabsContent>
+                    <TabsContent value="callDetail">
+                        <CallDetail channelName={channel.name} onBack={() => setShowCallDetail(false)} />
                     </TabsContent>
                 </Tabs>
             </MorphingDialogDescription>

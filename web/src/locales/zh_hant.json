@@ -420,7 +420,8 @@
         "detail": {
             "title": {
                 "edit": "編輯供應源",
-                "view": "供應源詳情"
+                "view": "供應源詳情",
+                "callDetail": "呼叫詳情"
             },
             "sections": {
                 "requests": "請求詳情",
@@ -446,7 +447,8 @@
                 "saving": "儲存中...",
                 "delete": "刪除",
                 "confirmDelete": "確認刪除",
-                "deleting": "刪除中..."
+                "deleting": "刪除中...",
+                "callDetail": "呼叫詳情"
             },
             "test": {
                 "title": "連通性測試",
@@ -495,6 +497,19 @@
             "autoSync": "自動同步",
             "matchRegex": "匹配正規",
             "matchRegexPlaceholder": "可選：用於匹配請求模型名稱的正規表示式"
+        },
+        "callDetail": {
+            "back": "返回",
+            "refresh": "重新整理",
+            "total": "總嘗試數",
+            "status": {
+                "success": "成功",
+                "failed": "失敗",
+                "skipped": "跳過"
+            },
+            "error": "載入呼叫明細失敗",
+            "empty": "記憶體視窗內無呼叫記錄",
+            "finalChannel": "最終供應源"
         }
     }
 }
