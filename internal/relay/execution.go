@@ -3,6 +3,7 @@ package relay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -19,7 +21,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 )
 
-var requestIDs atomic.Uint64 // requestIDs 分配进程内严格递增的请求 ID。
+var requestIDs atomic.Uint64                             // requestIDs 分配进程内严格递增的请求 ID。
 var errNoActiveChannel = errors.New("no active channel") // errNoActiveChannel 表示分组尚未选择活动渠道。
 
 // execution 保存单个客户端请求的全部可变执行状态。
@@ -171,6 +173,14 @@ func (e *execution) resolveTarget(ctx context.Context) (model.GroupItem, *model.
 
 // executeAttempt 执行当前渠道的一次上游尝试，提交前失败时交回外层继续重试。
 func (e *execution) executeAttempt(ctx context.Context, item model.GroupItem, channel *model.Channel) (bool, error) {
+	// ⑦ 熔断器:活动渠道被熔断时推进到下一个渠道,本次跳过(复用 ⑥ recordUnavailableTarget)。
+	// 只在 trip 后推进:连续失败 < threshold 时 IsTripped 返回 false,正常重试同渠道(保留瞬时抖动容忍)。
+	if tripped, remaining := balancer.IsTripped(channel.ID, item.ModelName); tripped {
+		op.GroupAdvanceActiveItem(item.GroupID, item.ID, ctx)
+		err := fmt.Errorf("circuit breaker open, %v remaining", remaining)
+		e.recordUnavailableTarget(item, channel, err)
+		return false, err
+	}
 	client, err := helper.ChannelHttpClient(channel)
 	if err != nil {
 		e.recordUnavailableTarget(item, channel, err)
@@ -226,6 +236,8 @@ func (e *execution) handleAttemptFailure(ctx context.Context, item model.GroupIt
 	}
 	e.log.Error = attempt.Error
 	e.emit(LogEventAttemptFinished, attempt)
+	// ⑦ 熔断器:真实上游失败才计数(取消/中断是非渠道健康问题,走各自分支提前 return,不会到这)。
+	balancer.RecordFailure(channel.ID, item.ModelName)
 	return false, result.err
 }
 
@@ -235,6 +247,8 @@ func (e *execution) commitAttempt(ctx, attemptCtx context.Context, item model.Gr
 	attempt.Status = AttemptSuccess
 	attempt.Duration = time.Since(startedAt).Milliseconds()
 	e.emit(LogEventResponseCommitted, attempt)
+	// ⑦ 熔断器:进入 commitAttempt 表示上游已成功响应,渠道健康 → 重置熔断状态(HalfOpen 探测成功 → Closed)。
+	balancer.RecordSuccess(channel.ID, item.ModelName)
 
 	commit := result.response.Commit(attemptCtx, e.ctx)
 	result.response.Close()

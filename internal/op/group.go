@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/bestruirui/octopus/internal/db"
@@ -16,7 +17,7 @@ var groupCache = cache.New[int, model.Group](16)
 var groupMap = cache.New[string, model.Group](16)
 
 var (
-	groupActiveItemMu      sync.Mutex       // groupActiveItemMu 保护活动项变更通知通道。
+	groupActiveItemMu      sync.Mutex            // groupActiveItemMu 保护活动项变更通知通道。
 	groupActiveItemChanged = make(chan struct{}) // groupActiveItemChanged 在任一分组活动项变化时广播通知。
 )
 
@@ -228,6 +229,45 @@ func GroupActiveItemUpdate(groupID int, req *model.GroupActiveItemUpdateRequest,
 	notifyGroupActiveItemChanged()
 	updated, _ := groupCache.Get(groupID)
 	return &updated, nil
+}
+
+// GroupAdvanceActiveItem 在当前活动渠道被熔断时,把活动项推进到下一个优先级的渠道。
+// fromItemID 用于 CAS:仅当当前 ActiveItemID 仍等于 fromItemID 时才推进,避免并发请求重复跳过渠道。
+// 返回是否推进成功(无可推进 / CAS 失败均返回 false,不报错)。
+func GroupAdvanceActiveItem(groupID, fromItemID int, ctx context.Context) bool {
+	group, ok := groupCache.Get(groupID)
+	if !ok || len(group.Items) == 0 {
+		return false
+	}
+	// 按 priority 升序复制一份,避免就地排序污染缓存对象底层数组。
+	items := make([]model.GroupItem, len(group.Items))
+	copy(items, group.Items)
+	sort.Slice(items, func(i, j int) bool { return items[i].Priority < items[j].Priority })
+
+	cur := -1
+	for i, it := range items {
+		if it.ID == fromItemID {
+			cur = i
+			break
+		}
+	}
+	if cur < 0 {
+		return false // 当前活动项不在列表里,不推进
+	}
+	next := items[(cur+1)%len(items)]
+	if next.ID == fromItemID {
+		return false // 只有一个项,无可推进
+	}
+	// CAS:仅当当前活动项仍为 fromItemID 时才推进,并发请求里只有第一个生效。
+	res := db.GetDB().WithContext(ctx).Model(&model.Group{}).
+		Where("id = ? AND active_item_id = ?", groupID, fromItemID).
+		Update("active_item_id", next.ID)
+	if res.Error != nil || res.RowsAffected == 0 {
+		return false
+	}
+	groupRefreshCacheByID(groupID, ctx)
+	notifyGroupActiveItemChanged()
+	return true
 }
 
 func GroupDel(id int, ctx context.Context) error {
