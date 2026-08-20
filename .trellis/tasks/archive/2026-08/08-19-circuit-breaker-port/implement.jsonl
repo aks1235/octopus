@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端编码规范索引,实现 circuit.go/op/execution.go 前查约定"}
+{"file": ".trellis/tasks/08-19-octopus-route-a-migration/design.md", "reason": "父任务设计:§7 X/Y 硬关卡、§2 上游架构事实、§5 跨子任务集成点(⑦ 接入 execution.go 与 ⑥ 冲突契约)"}

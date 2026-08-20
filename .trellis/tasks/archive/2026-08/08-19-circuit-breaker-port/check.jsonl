@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规范,check 阶段对照风格/日志/错误处理约定"}
+{"file": ".trellis/tasks/08-19-circuit-breaker-port/design.md", "reason": "本任务设计:§6 接入点行号、§7 权衡、§11 与 ⑥ 冲突复核,check 时逐条核对"}
