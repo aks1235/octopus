@@ -23,7 +23,7 @@ export function CreateDialogContent() {
         model: '',
         custom_model: '',
         auto_sync: false,
-        auto_group: AutoGroupType.None,
+        auto_group: AutoGroupType.Regex,
         enabled: true,
         proxy: false,
         match_regex: '',

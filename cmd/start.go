@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/db"
+	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server"
 	"github.com/bestruirui/octopus/internal/task"
@@ -42,6 +45,10 @@ var startCmd = &cobra.Command{
 			log.Errorf("user init error: %v", err)
 			return
 		}
+
+		// 全量自动分组:启动时就对已开启自动分组的渠道重跑一次,
+		// 让上游新增模型立即写入对应分组,无需等待周期同步任务。
+		helper.ChannelAutoGroupAll(context.Background())
 
 		if err := server.Start(); err != nil {
 			log.Errorf("server start error: %v", err)

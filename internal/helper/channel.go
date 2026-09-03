@@ -65,6 +65,7 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 	if channel.AutoGroup == model.AutoGroupTypeNone {
 		return
 	}
+
 	groups, err := op.GroupListRaw(ctx)
 	if err != nil {
 		log.Warnf("get group list failed: %v", err)
@@ -137,5 +138,23 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 				log.Warnf("group item batch add failed (channel=%d group=%d): %v", channel.ID, group.ID, err)
 			}
 		}
+	}
+}
+
+// ChannelAutoGroupAll 对全部已开启自动分组的渠道重跑一次自动分组。
+// 用于启动时让上游新模型无需等待周期同步就能立即写入对应分组。
+// ChannelAutoGroup 对同一匹配是 upsert 幂等的,不会误删既有分组项,可安全重复执行。
+func ChannelAutoGroupAll(ctx context.Context) {
+	channels, err := op.ChannelList(ctx)
+	if err != nil {
+		log.Warnf("list channels for auto group failed: %v", err)
+		return
+	}
+	for i := range channels {
+		ch := &channels[i]
+		if ch.AutoGroup == model.AutoGroupTypeNone {
+			continue
+		}
+		ChannelAutoGroup(ch, ctx)
 	}
 }

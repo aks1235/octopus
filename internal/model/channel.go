@@ -26,7 +26,7 @@ type Channel struct {
 	CustomModel   string         `json:"custom_model"`
 	Proxy         bool           `json:"proxy" gorm:"default:false"`
 	AutoSync      bool           `json:"auto_sync" gorm:"default:false"`
-	AutoGroup     AutoGroupType  `json:"auto_group" gorm:"default:0"`
+	AutoGroup     AutoGroupType  `json:"auto_group" gorm:"default:3"`
 	CustomHeader  []CustomHeader `json:"custom_header" gorm:"serializer:json"`
 	ParamOverride *string        `json:"param_override"`
 	ChannelProxy  *string        `json:"channel_proxy"`
