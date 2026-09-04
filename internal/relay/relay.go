@@ -397,7 +397,11 @@ func (ra *relayAttempt) attempt() attemptResult {
 	})
 
 	// 熔断器：记录失败
-	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+	// 客户端在首 token 前断开(errClientDisconnected)是客户端行为，不代表渠道不健康，
+	// 不计入熔断阈值，避免正常渠道被客户端取消请求误熔断。
+	if !errors.Is(fwdErr, errClientDisconnected) {
+		balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+	}
 
 	written := ra.c.Writer.Written()
 	if written {
@@ -584,9 +588,19 @@ func (ra *relayAttempt) handleStreamResponse(ctx context.Context, response *http
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("client disconnected, stopping stream")
+			// 客户端上下文结束：可能是真断开，也可能是上游发完 [DONE] 后
+			// 客户端正常关闭连接，此时 ctx.Done() 与 results 通道关闭在 select 中
+			// 随机竞争，会被误记为 client disconnected（见 transformStreamData 注释）。
+			// 已向客户端写过数据(firstToken==false)说明流在正常交付，
+			// 无论客户端是真断开还是 [DONE] 竞态，都不视为渠道失败，按成功结束。
 			_ = response.Body.Close()
-			return errClientDisconnected
+			if firstToken {
+				// 一个字节未写就 ctx.Done()：客户端在首 token 前断开
+				log.Infof("client disconnected before first token")
+				return errClientDisconnected
+			}
+			log.Infof("stream ended (client ctx done after data written)")
+			return nil
 		case <-firstTokenC:
 			log.Warnf("first token timeout (%ds), switching channel", ra.firstTokenTimeOutSec)
 			_ = response.Body.Close()
