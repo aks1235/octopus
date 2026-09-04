@@ -1,6 +1,6 @@
 services:
   octopus:
-    image: raynmy/octopus:v1.0.5
+    image: raynmy/octopus:v1.0.6
     build:
       context: .
       dockerfile: scripts/dockerfiles/Dockerfile.alpine
