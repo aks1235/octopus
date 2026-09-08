@@ -6,7 +6,11 @@ static/out/*
 .vscode
 .ace-tool/
 .claude/
-.trellis/
+.trellis/.backup-*
+.trellis/worktrees/
+.trellis/.template-hashes.json
+.trellis/.runtime/
+.trellis/.cache/
 web/.pnpm-store/
 .pnpm-store/
 .octopus-verified

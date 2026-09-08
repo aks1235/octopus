@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/09-04-utls-cloudflare-1010/design.md", "reason": "技术设计:方案选型(C-safe 推荐)、uTLS 拨号实现、客户端缓存键升级、代理交互、回归面、风险回滚。实现前必读。"}
+{"file": ".trellis/tasks/09-04-utls-cloudflare-1010/implement.md", "reason": "有序执行清单 S1-S8 + 验证命令 + review gates + 回滚点。"}
+{"file": "internal/client/http.go", "reason": "唯一 transport 构造点,三个函数(GetHTTPClientSystemProxy/GetHTTPClientCustomProxy)在此,uTLS 接入主文件。"}
+{"file": "internal/helper/channel.go", "reason": "ChannelHttpClient 派发器,需加 channel.UTLS 分支;含 socks5 现有逻辑可复用。"}
+{"file": "internal/model/channel.go", "reason": "Channel struct,新增 UTLS bool 字段处。"}

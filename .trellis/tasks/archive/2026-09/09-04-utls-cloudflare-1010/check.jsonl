@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/09-04-utls-cloudflare-1010/prd.md", "reason": "验收标准(6 条):1010 渠道转 2xx+SSE、非 Cloudflare 不回归、代理/CA 生效、SSE 无退化、单测、octopus-verify。check 据此核对。"}
+{"file": ".trellis/tasks/09-04-utls-cloudflare-1010/design.md", "reason": "check 重点:C-safe 是否落实(NextProtos=[http/1.1])、曲线过滤、uconn.Conn.Handshake() 用法、共享 client 兼容、代理下沉到 dial 函数。"}

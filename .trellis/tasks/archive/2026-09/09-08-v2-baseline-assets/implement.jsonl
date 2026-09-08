@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": "docs/adr/0008-deploy-assets-port-and-repo-pointer.md", "reason": "部署资产与仓库指向决策"}
+{"file": "docs/adr/0001-dev-v2-baseline-and-branch-strategy.md", "reason": "基线决策"}
+{"file": ".trellis/tasks/archive/2026-08/08-21-fix-sse-spinning-and-repo-info/prd.md", "reason": "仓库指向4处的历史定位与方案"}

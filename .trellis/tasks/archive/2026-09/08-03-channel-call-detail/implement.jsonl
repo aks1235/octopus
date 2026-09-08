@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "后端查询走 DB(非缓存)的依据:relayLogCache 只是 ≤20 条 flush 缓冲,7 天历史在 DB;attempts 是 serializer:json 字段无法 SQL 展开,需 Go 层展开。本任务复用 relay_log_keep_period 不新增 setting 键,故不触发 setting 三处契约。"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨层(DB→Go 展开→HTTP→前端):attempts JSON 在 DB/Go/前端三处字段含义需一致(ChannelID 为本次尝试渠道,非 relay_logs.channel 最终渠道);ChannelAttempt 在前后端有同名类型需对齐。"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "前端需抽 RequestDetailDialog 复刻 LogDetailPanels;新增 useChannelAttempts hook 复用现有 ChannelAttempt/AttemptStatus 类型。复用前先搜索现有实现。"}
