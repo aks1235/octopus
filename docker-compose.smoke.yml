@@ -1,0 +1,19 @@
+# 冒烟环境:与生产完全隔离。
+# - 独立端口 8081、独立容器名、独立数据目录 data-v2(空目录首启自动建库跑迁移链)
+# - 不触碰生产容器 octopus-new(8080, ./data)
+# - name 固定项目名:两个 compose 同目录时默认项目名同为目录名,up 会把对方容器当旧实例重建掉(2026-09-08 实际踩过)
+name: octopus-v2-smoke
+services:
+  octopus:
+    image: raynmy/octopus:v2.0.0
+    build:
+      context: .
+      dockerfile: scripts/dockerfiles/Dockerfile.alpine
+      args:
+        TARGETPLATFORM: linux/amd64
+    ports:
+       - '8081:8080'
+    volumes:
+       - './data-v2:/app/data'
+    container_name: octopus-v2-smoke
+    restart: unless-stopped

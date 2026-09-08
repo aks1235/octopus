@@ -18,9 +18,11 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const (
-	updateUrl    = "https://github.com/bestruirui/octopus/releases/latest/download"
-	updateApiUrl = "https://api.github.com/repos/bestruirui/octopus/releases/latest"
+// 更新地址由 conf.Repo 拼接:ldflags 注入或默认值兜底,保证在线更新始终指向自有仓库。
+var (
+	repoSlug     = strings.TrimPrefix(strings.TrimSuffix(conf.Repo, "/"), "https://github.com/")
+	updateUrl    = "https://github.com/" + repoSlug + "/releases/latest/download"
+	updateApiUrl = "https://api.github.com/repos/" + repoSlug + "/releases/latest"
 )
 
 type LatestInfo struct {

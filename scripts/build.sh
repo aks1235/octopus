@@ -7,9 +7,10 @@ readonly VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')" #
 readonly COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" # 当前提交短哈希。
 readonly LDFLAGS="-X 'github.com/bestruirui/${APP_NAME}/internal/conf.Version=${VERSION}' \
                   -X 'github.com/bestruirui/${APP_NAME}/internal/conf.BuildTime=$(TZ='Asia/Shanghai' date +'%F %T %z')' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Author=bestrui' \
+                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Author=aks1235' \
+                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Repo=https://github.com/aks1235/octopus' \
                   -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Commit=${COMMIT}' \
-                  -s -w" # 注入版本信息并缩小发布二进制。
+                  -s -w" # 注入版本信息(含仓库指向)并缩小发布二进制。
 
 build_standard() {
     # 标准矩阵直接使用 GOOS/GOARCH，arm 固定输出 ARMv7 指令集。

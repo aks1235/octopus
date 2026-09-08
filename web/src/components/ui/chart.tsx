@@ -4,6 +4,9 @@ import type { TooltipValueType } from "recharts"
 
 import { cn } from "@/lib/utils"
 
+// shadcn 图表组件文件:常量与组件同文件导出是上游模板形态,关闭 fast-refresh 规则。
+/* eslint-disable react-refresh/only-export-components */
+
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const
 
