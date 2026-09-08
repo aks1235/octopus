@@ -22,7 +22,7 @@
 ## 任务地图(子任务,按依赖序)
 
 1. `09-08-v2-baseline-assets` — ✅ 完成(2026-09-08,commit `e86d8d9`:基线+资产+指向+lint 修复;smoke 8081 验证过,marker 已写;生产 compose 事故已复盘——同目录 compose 项目名冲突,已用独立 name 修复)
-2. `09-08-v2-db-migration` — 转换脚本+副本演练(可与 3 并行;输入已就绪:`data-v2/data.db` 为迁移链跑完的真实 v2 schema,15 表)
+2. `09-08-v2-db-migration` — ✅ 完成(2026-09-08:`scripts/migrate_v1_to_v2.py` 落地;副本演练对账全绿 117/117/2236/2236/10/233;容器加载+真实上游选路 200;幂等+新快照重跑通过;发现并修复 base_url `/v1` 双叠坑(echo 实验实证);条件携带路径已用合成模板实测 1285 条;用户页面检查通过)
 3. `09-08-v2-feat-ops-obs` — 运维刚需组+可观测组
 4. `09-08-v2-feat-log-persistence` — 日志持久化包(须拦截 migrate/009 删表)
 5. `09-08-v2-feat-client-theme` — 客户端识别+主题+思考等级

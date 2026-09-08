@@ -203,6 +203,13 @@ ChannelEnabled bool   `json:"channel_enabled" gorm:"-"`
 **原因**:`!channel.Enabled` 判定解禁,无 `AutoDisabled` 标记区分。
 **修复**:解禁条件 `AutoDisabled && !Enabled`;运维启停一律清 `auto_disabled=false`。
 
+### 错误:channels.base_url 带 `/v1` 后缀(2026-09-08 迁移实测)
+
+**症状**:渠道请求全部失败,但客户端表现为**无限挂起不报错**;渠道 `request_failed` 统计持续增长。
+**原因**:axonhub 出站转换器对 `BaseURL + EndpointPath` **朴素拼接**;v2 三个协议路径列(openai_chat_completion_path 等)自带 `/v1` 前缀,base_url 再带 `/v1` 后缀即拼出 `/v1/v1/chat/completions`,上游 404。叠加 relay 的设计(全成员失败后无限等待重试,不向客户端返回错误,见 `internal/relay/handler.go` 的 for 循环),故障被掩盖成挂死。
+**修复**:base_url 存**站点根**(如 `https://new.xkool.cfd`),版本前缀只存在于路径列。迁移脚本 `scripts/migrate_v1_to_v2.py` 已做归一化(去结尾 `/v1`)。
+**预防**:新增/编辑渠道时校验 base_url 不得以 `/v1` 结尾;排查"客户端挂死"先看渠道 `request_failed` 是否在涨,再用本地 echo 服务器承接出站请求看实际拼接路径。
+
 ---
 
 ## 相关

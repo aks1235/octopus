@@ -1,6 +1,7 @@
 data
 data-v2
-build
+/build
+__pycache__/
 static/out/*
 !static/out/README.md
 .vscode
