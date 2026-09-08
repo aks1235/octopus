@@ -44,3 +44,24 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 2: v2-db-migration 完成:fork→v2 转换脚本+演练+冒烟
+
+**Date**: 2026-09-08
+**Task**: v2-db-migration 完成:fork→v2 转换脚本+演练+冒烟
+**Branch**: `dev-v2`
+
+### Summary
+
+交付 scripts/migrate_v1_to_v2.py(DB→DB,backup API 快照,逐表对账)。演练终态 117 渠道/2236 模型/10 组/233 组员,FK 0 违规,幂等 md5 一致;容器加载无迁移重跑,组9 真实上游选路 200。关键发现:①base_url /v1 后缀+axonhub 朴素拼接→/v1/v1 双叠 404→客户端挂死不报错(echo 实验证实,已归一化并沉淀 spec);②fork 路由本就精确名匹配,正则退化不存在,D2 终裁不建别名组;③条件携带路径用合成模板实测 1285 条可用。trellis-check 4 处修复(含 backup 重试窗口漏洞)。父任务地图 2/8。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cc9f4a0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
