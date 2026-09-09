@@ -116,10 +116,12 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				continue
 			}
 
-			// 成员指向的授权缺失, 凭据被停用或两侧已被删除时等待, 该成员可能很快被改回可用配置。
-			// ChannelGrantGet 一次校验齐这几种情况, 取到的授权必然可直接转发, 无需再逐项检查。
+			// 成员指向的授权缺失, 渠道或凭据被停用, 或两侧已被删除时等待, 该成员可能很快被改回可用配置。
+			// 选路已在 pickGroupItem 剔除不可选成员, 此处校验仅兜底同轮内的变更; ChannelGrantGet 一次校验齐这几种情况。
+			// 成员若在选出后恰好占用恢复探测, 此处归还名额, 免得禁用期间其他冷却到期的成员无从探测。
 			grant, err := op.ChannelGrantGet(item.ChannelGrantID)
 			if err != nil {
+				releaseRouteProbe(group, item.ID)
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
 					return
 				}
@@ -131,6 +133,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
 			channel, err := op.ChannelGet(channelModel.ChannelID)
 			if err != nil {
+				releaseRouteProbe(group, item.ID)
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
 					return
 				}

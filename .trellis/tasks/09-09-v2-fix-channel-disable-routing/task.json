@@ -3,7 +3,7 @@
   "name": "v2-fix-channel-disable-routing",
   "title": "修复:渠道禁用(人工/自动)在选路转发链不生效",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

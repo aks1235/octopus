@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 )
 
 // RouteState 是一个分组的进程内路由状态; 跨该分组的全部请求共享。
@@ -64,10 +65,12 @@ func ResetRouteState(groupID int) {
 }
 
 // pickGroupItem 按分组模式选择本轮目标成员, 没有可用成员时返回零值; group.Items 已按 Priority 升序排列。
-// 渠道是否可用不在此判断: 渠道禁用或缺少密钥由调用方发现并作为一轮失败上报, 该成员随即进入冷却而在后续轮次被跳过。
+// 选路前先剔除不可选成员: 渠道或凭据被禁用以及授权两侧缺失与冷却同级, 直接不进入选路,
+// 不产生失败计数, 不占用恢复探测名额; 禁用不等于删除, 成员仍在分组里, 界面以 Available 标记不可用。
 func pickGroupItem(group model.Group) model.GroupItem {
+	items := selectableGroupItems(group)
 	if group.Mode == model.GroupModeManual {
-		for _, item := range group.Items {
+		for _, item := range items {
 			if item.ID == group.ActiveItemID {
 				return item
 			}
@@ -84,12 +87,17 @@ func pickGroupItem(group model.Group) model.GroupItem {
 		route.AffinityUntil = 0
 	}
 
-	// 亲和期内沿用当前成员, 不提前探测已恢复的高优先级成员。
+	// 亲和期内沿用当前成员, 不提前探测已恢复的高优先级成员; 当前成员已不可选(如渠道被禁用)时亲和立即失效, 重新选路。
+	if route.CurrentItemID != 0 && route.AffinityUntil > now && itemOf(items, route.CurrentItemID).ID == 0 {
+		route.CurrentItemID = 0
+		route.AffinityUntil = 0
+		publishRouteLocked(route)
+	}
 	if route.CurrentItemID != 0 && route.AffinityUntil > now {
-		return itemOf(group, route.CurrentItemID)
+		return itemOf(items, route.CurrentItemID)
 	}
 
-	for _, item := range group.Items {
+	for _, item := range items {
 		// 遍历到当前成员说明比它优先级更高的成员都不可选, 沿用当前成员。
 		if item.ID == route.CurrentItemID {
 			break
@@ -112,9 +120,22 @@ func pickGroupItem(group model.Group) model.GroupItem {
 		return item
 	}
 	if route.CurrentItemID != 0 {
-		return itemOf(group, route.CurrentItemID)
+		return itemOf(items, route.CurrentItemID)
 	}
 	return model.GroupItem{}
+}
+
+// selectableGroupItems 返回分组内当前可选路的成员, 保持原有优先级顺序。
+// 可选与界面 Available 同口径: ChannelGrantGet 能取得授权, 即渠道与凭据均启用且授权两侧均在。
+// 转发每轮重读分组后调用, 只查内存缓存, 不引入新的缓存副本。
+func selectableGroupItems(group model.Group) []model.GroupItem {
+	items := make([]model.GroupItem, 0, len(group.Items))
+	for _, item := range group.Items {
+		if _, err := op.ChannelGrantGet(item.ChannelGrantID); err == nil {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 // recordRouteSuccess 上报一轮成功: 结束该成员的冷却与探测占用, 并在故障切换后按配置开始亲和。
@@ -228,9 +249,9 @@ func groupRouteLocked(group model.Group) *RouteState {
 	return route
 }
 
-// itemOf 返回分组内指定 ID 的成员, 不存在时返回零值。
-func itemOf(group model.Group, itemID int) model.GroupItem {
-	for _, item := range group.Items {
+// itemOf 返回成员列表内指定 ID 的成员, 不存在时返回零值。
+func itemOf(items []model.GroupItem, itemID int) model.GroupItem {
+	for _, item := range items {
 		if item.ID == itemID {
 			return item
 		}
