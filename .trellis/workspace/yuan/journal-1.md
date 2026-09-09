@@ -108,3 +108,25 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 渠道禁用选路修复+容器实测闭环
+
+**Date**: 2026-09-09
+**Task**: 渠道禁用选路修复+容器实测闭环
+**Branch**: `dev-v2`
+
+### Summary
+
+修复渠道级禁用不生效:ChannelGrantGet 补渠道 Enabled 校验,pickGroupItem 选路前过滤不可选成员(不选/不探测/不计数),亲和期内被禁立即失效重选,校验失败分支归还探测名额。新增 5 用例单测,沉淀 relay-routing.md spec。octopus-verify 全闭环+容器实测(禁用立即切流 keyAAA→keyBBB、恢复回选、全禁挂起不刷日志)。发现存量问题:./data/data.db 迁移 11 中途损坏(channel_models 缺失,11|failed 死循环),当前代码任何容器用该目录都起不来,需独立任务决策;本次验证改用 data-verify 隔离目录。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9b42b6d` | (see git log) |
+| `16d62c6` | (see git log) |
+
+### Status
+
+[OK] **Completed**
