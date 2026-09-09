@@ -65,3 +65,24 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: v2-feat-ops-obs 完成:健康检查+分组正则成员
+
+**Date**: 2026-09-09
+**Task**: v2-feat-ops-obs 完成:健康检查+分组正则成员
+**Branch**: `dev-v2`
+
+### Summary
+
+任务3(运维刚需+可观测)范围经实地核对后重裁定(ADR-0002 勘误):上游 6e736b4 已删周期同步与自动分组,①重想象为渠道健康检查(internal/probe 抽探测共用,任一KEY×端点通=健康,阈值禁用/恢复解禁/人工接管),③重做为分组侧 member_regex 自动吸纳移除,②⑤验证上游原生覆盖(FK CASCADE+原生DTO)不移植,⑥渠道调用详情页挪任务4。AC1-7 全实测过(19/19 脚本断言+人审UI),trellis-check 修复正则建组漏 sortGroupItems 契约缺陷,octopus-verify 闭环 marker=f932754。父任务 3/7,下一个任务4(日志持久化,须拦 migrate/009 删表)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f932754` | (see git log) |
+
+### Status
+
+[OK] **Completed**
