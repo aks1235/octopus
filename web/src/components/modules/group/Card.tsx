@@ -37,6 +37,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
                     name: group.name,
                     mode: group.mode,
                     relay_config: group.relay_config,
+                    member_regex: group.member_regex,
                     members: displayMembers,
                 }}
                 submitText={t('detail.actions.save')}
@@ -112,6 +113,8 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
 
         if (values.name !== group.name) payload.name = values.name;
         if (values.mode !== group.mode) payload.mode = values.mode;
+        // 空串是有意义的值(改回手动分组), 与其余可选字段一样只在变化时提交。
+        if (values.member_regex !== group.member_regex) payload.member_regex = values.member_regex;
         if (
             values.relay_config.member_max_attempts !== group.relay_config.member_max_attempts ||
             values.relay_config.member_retry_interval_seconds !== group.relay_config.member_retry_interval_seconds ||

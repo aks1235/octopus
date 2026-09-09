@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
+	"github.com/dlclark/regexp2"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 )
@@ -175,6 +178,11 @@ func createGroup(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	req.MemberRegex = strings.TrimSpace(req.MemberRegex)
+	if err := validateMemberRegex(req.MemberRegex); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	group, err := op.GroupCreate(&req, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -183,6 +191,18 @@ func createGroup(c *gin.Context) {
 	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
 	publishGroupEvent(groupEvent{Name: "changed", Data: response})
 	resp.Success(c, response)
+}
+
+// validateMemberRegex 校验分组成员正则的可编译性; 语法与渠道的过滤正则一致(regexp2 ECMAScript),
+// 在入口拦下坏正则, 免得定时重算任务反复撞上无法编译的表达式。空串表示纯手动分组, 无需校验。
+func validateMemberRegex(memberRegex string) error {
+	if memberRegex == "" {
+		return nil
+	}
+	if _, err := regexp2.Compile(memberRegex, regexp2.ECMAScript); err != nil {
+		return fmt.Errorf("invalid member regex: %w", err)
+	}
+	return nil
 }
 
 // updateGroup 更新分组配置, 成员和手动模式的当前成员。
@@ -198,6 +218,14 @@ func updateGroup(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
+	}
+	if req.MemberRegex != nil {
+		memberRegex := strings.TrimSpace(*req.MemberRegex)
+		req.MemberRegex = &memberRegex
+		if err := validateMemberRegex(memberRegex); err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	oldGroup, err := op.GroupGet(id)
 	if err != nil {

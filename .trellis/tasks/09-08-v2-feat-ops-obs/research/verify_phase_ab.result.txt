@@ -1,0 +1,14 @@
+=== Phase A: ②⑤ 原生覆盖 ===
+  PASS: 测试渠道创建 t1=1 t2=2
+  PASS: ⑤ 分组成员 DTO 带 channel_name=ac-t1
+  PASS: ⑤ 成员 available 初始 True
+  PASS: ⑤ 禁用渠道后成员 available=False
+  PASS: ② 删渠道后组员级联清理,余:[('ac-t2', False)] (前:2)
+=== Phase B: AC5/AC6 分组正则 ===
+  PASS: AC5 建正则组即吸纳 rxm-1 全渠道授权: ['rx-t3', 'rx-t4']
+  PASS: AC5 多凭据全纳入+模型增补即时入组 (成员=3)
+  PASS: AC5 渠道失配模型自动移除 (余=['rx-t3'])
+  PASS: AC6 手动组零影响 (成员=1)
+  PASS: AC5 删渠道后正则组自动清空
+
+==== 结果: PASS=10 FAIL=0 ====

@@ -62,6 +62,7 @@ type Group struct {
 	ID           int              `json:"id" gorm:"primaryKey"`                                                          // 分组主键。
 	Name         string           `json:"name" gorm:"unique;not null"`                                                   // 客户端请求使用的模型名称。
 	Mode         GroupMode        `json:"mode" gorm:"not null;default:manual" binding:"omitempty,oneof=manual failover"` // 选择成员的模式。
+	MemberRegex  string           `json:"member_regex" gorm:"not null;default:''"`                                       // 成员匹配正则; 空串表示纯手动分组, 非空时成员由正则在全部渠道模型上重算得出, 手工增删会被重算覆盖。
 	ActiveItemID int              `json:"active_item_id" gorm:"not null;default:0"`                                      // 手动模式指定的成员, 故障转移模式忽略该值, 0 表示未指定; 写入侧字段, 读取一律用响应中的 runtime.current_item_id, 出 JSON 仅为让备份转储带上它。
 	RelayConfig  GroupRelayConfig `json:"relay_config" gorm:"serializer:json"`                                           // 该分组的 Relay 路由配置。
 	Items        []GroupItem      `json:"items" gorm:"foreignKey:GroupID;constraint:OnDelete:CASCADE"`                   // 该分组可手动选择或故障转移的分组项; 读取时恒为数组, 空集合也给出以免各消费方各自兜底。
@@ -90,6 +91,7 @@ type GroupItem struct {
 type GroupCreateRequest struct {
 	Name        string           `json:"name" binding:"required"`                        // 客户端请求使用的模型名称。
 	Mode        GroupMode        `json:"mode" binding:"omitempty,oneof=manual failover"` // 选择成员的模式, 留空按手动。
+	MemberRegex string           `json:"member_regex,omitempty"`                         // 成员匹配正则, 可选; 非空时创建后立即按正则吸纳成员, 提交的初始成员被替换。
 	RelayConfig GroupRelayConfig `json:"relay_config"`                                   // Relay 路由配置, 零值由后端补默认。
 	Items       []GroupItemInput `json:"items"`                                          // 初始成员集合。
 }
@@ -99,6 +101,7 @@ type GroupCreateRequest struct {
 type GroupUpdateRequest struct {
 	Name         *string           `json:"name,omitempty"`                                           // Name 仅在名称变更时发送。
 	Mode         *GroupMode        `json:"mode,omitempty" binding:"omitempty,oneof=manual failover"` // Mode 仅在选择模式变更时发送。
+	MemberRegex  *string           `json:"member_regex,omitempty"`                                   // 成员正则仅在变更时发送; 空串表示改回纯手动分组, 已吸纳成员保留为手动成员; 用指针以便与"未提交该字段"区分。
 	RelayConfig  *GroupRelayConfig `json:"relay_config,omitempty"`                                   // RelayConfig 仅在 Relay 配置变更时发送完整配置。
 	Items        *[]GroupItemInput `json:"items,omitempty"`                                          // 新的成员集合, 整体替换; 提交顺序即优先级顺序。
 	ActiveItemID *int              `json:"active_item_id,omitempty"`                                 // 手动模式指定的当前成员, 0 表示取消选择; 用指针以便与"未提交该字段"区分。

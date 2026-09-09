@@ -13,6 +13,8 @@ export const SettingKey = {
     ProxyURL: 'proxy_url',
     StatsSaveInterval: 'stats_save_interval',
     ModelInfoUpdateInterval: 'model_info_update_interval',
+    HealthCheckInterval: 'health_check_interval',
+    HealthFailThreshold: 'health_fail_threshold',
     CORSAllowOrigins: 'cors_allow_origins',
 } as const;
 

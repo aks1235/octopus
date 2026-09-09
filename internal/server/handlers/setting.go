@@ -70,6 +70,14 @@ func setSetting(c *gin.Context) {
 			return
 		}
 		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
+	case model.SettingKeyHealthCheckInterval:
+		minutes, err := strconv.Atoi(setting.Value)
+		if err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		// 任务名即设置键, 传 0 会移除任务, 健康检查随之关闭。
+		task.Update(string(setting.Key), time.Duration(minutes)*time.Minute)
 	}
 	resp.Success(c, setting)
 }

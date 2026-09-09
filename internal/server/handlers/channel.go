@@ -2,11 +2,8 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +11,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
-	"github.com/bestruirui/octopus/internal/rhttp"
+	"github.com/bestruirui/octopus/internal/probe"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -207,24 +204,13 @@ func fetchModel(c *gin.Context) {
 		return
 	}
 
-	var httpClient *http.Client
-	var err error
-	switch {
-	case !target.Proxy:
-		httpClient, err = rhttp.Direct()
-	case target.ChannelProxy == "":
-		httpClient, err = rhttp.Proxy()
-	default:
-		httpClient, err = rhttp.New(target.ChannelProxy)
-		// 渠道专用代理的客户端不再共享, 探测完就得关掉空闲连接; 探测收的是未落库的输入, 留着也无从复用。
-		if httpClient != nil {
-			defer httpClient.CloseIdleConnections()
-		}
-	}
+	httpClient, closeClient, err := probe.NewClient(target)
 	if err != nil {
 		resp.Error(c, http.StatusBadGateway, err.Error())
 		return
 	}
+	// 渠道专用代理的客户端不再共享, 探测完关掉空闲连接; 探测收的是未落库的输入, 留着也无从复用。
+	defer closeClient()
 
 	var openaiModels, anthropicModels []string
 	var openaiErr, anthropicErr error
@@ -232,11 +218,11 @@ func fetchModel(c *gin.Context) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		openaiModels, openaiErr = fetchOpenAIModels(httpClient, ctx, target, request.Key, modelsURL(target.BaseURL, target.OpenAIResponsePath))
+		openaiModels, openaiErr = probe.FetchOpenAIModels(httpClient, ctx, target, request.Key, probe.ModelsURL(target.BaseURL, target.OpenAIResponsePath))
 	}()
 	go func() {
 		defer wg.Done()
-		anthropicModels, anthropicErr = fetchAnthropicModels(httpClient, ctx, target, request.Key, modelsURL(target.BaseURL, target.AnthropicMessagePath))
+		anthropicModels, anthropicErr = probe.FetchAnthropicModels(httpClient, ctx, target, request.Key, probe.ModelsURL(target.BaseURL, target.AnthropicMessagePath))
 	}()
 	wg.Wait()
 
@@ -297,109 +283,4 @@ func fetchModel(c *gin.Context) {
 		models = append(models, model.ChannelFetchModel{Name: name, Protocols: protocolsByModel[name]})
 	}
 	resp.Success(c, models)
-}
-
-// modelsURL 取协议请求路径的父级目录, 与地址拼成同级的 /models 地址。
-// 例如 /v1/chat/completions 与 /v1/messages 都得到 /v1/models, /chat/completions 得到 /models。
-func modelsURL(baseURL, protocolPath string) string {
-	parent := path.Dir(strings.TrimRight(protocolPath, "/"))
-	// Anthropic 的 /v1/messages 只有一层, 父级即 /v1; Chat 的 /v1/chat/completions 需要再上一层。
-	if strings.HasSuffix(parent, "/chat") {
-		parent = path.Dir(parent)
-	}
-	if parent == "." || parent == "/" {
-		parent = ""
-	}
-	return strings.TrimRight(baseURL, "/") + parent + "/models"
-}
-
-// refer: https://platform.openai.com/docs/api-reference/models/list
-func fetchOpenAIModels(httpClient *http.Client, ctx context.Context, target model.ChannelConfig, key, url string) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	for _, header := range target.CustomHeader {
-		if header.HeaderKey != "" {
-			req.Header.Set(header.HeaderKey, header.HeaderValue)
-		}
-	}
-
-	response, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	result, err := decodeModelList[model.OpenAIModelList](response)
-	if err != nil {
-		return nil, err
-	}
-
-	models := make([]string, 0, len(result.Data))
-	for _, m := range result.Data {
-		models = append(models, m.ID)
-	}
-	return models, nil
-}
-
-// refer: https://platform.claude.com/docs
-func fetchAnthropicModels(httpClient *http.Client, ctx context.Context, target model.ChannelConfig, key, url string) ([]string, error) {
-	var allModels []string
-	var afterID string
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("X-Api-Key", key)
-		req.Header.Set("Anthropic-Version", "2023-06-01")
-		for _, header := range target.CustomHeader {
-			if header.HeaderKey != "" {
-				req.Header.Set(header.HeaderKey, header.HeaderValue)
-			}
-		}
-		if afterID != "" {
-			q := req.URL.Query()
-			q.Set("after_id", afterID)
-			req.URL.RawQuery = q.Encode()
-		}
-
-		response, err := httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		// 分页时每轮都会新建响应, 必须当轮读完即关; 用 defer 会攒到整个函数返回才释放。
-		result, err := decodeModelList[model.AnthropicModelList](response)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range result.Data {
-			allModels = append(allModels, m.ID)
-		}
-		if !result.HasMore {
-			break
-		}
-		afterID = result.LastID
-	}
-	return allModels, nil
-}
-
-// decodeModelList 关闭响应并把响应体解成模型列表; 非 2xx 时按上游错误返回。
-// 两侧解析流程一致, 只有目标结构不同, 故用类型参数收敛; 分页调用要求当轮读完即关, 关闭点放在此处最稳。
-func decodeModelList[T any](response *http.Response) (T, error) {
-	defer response.Body.Close()
-	var result T
-	// 上游报错时响应体常是能被正常解码的 JSON, 若不先拦下, 模型列表会解成空列表并当作成功;
-	// 响应体截断到 512 字节: 部分上游在鉴权失败时返回整页 HTML, 全文带到界面上无用。
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		body, err := io.ReadAll(io.LimitReader(response.Body, 512))
-		if err != nil {
-			return result, fmt.Errorf("upstream %s", response.Status)
-		}
-		return result, fmt.Errorf("upstream %s: %s", response.Status, strings.TrimSpace(string(body)))
-	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return result, err
-	}
-	return result, nil
 }

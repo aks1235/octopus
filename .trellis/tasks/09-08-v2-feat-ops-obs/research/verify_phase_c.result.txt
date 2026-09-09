@@ -1,0 +1,20 @@
+宿主网关(容器视角): 172.20.0.1
+mock 上游就绪
+=== AC4 前置+加速:间隔=1分钟 阈值=2 ===
+  PASS: 间隔设置生效
+  PASS: 阈值设置生效
+=== AC1 坏渠道自动禁用 ===
+  PASS: 坏渠道创建 id=5
+  等待探测轮(最长4分钟)…
+  PASS: AC1 自动禁用: enabled=False auto_disabled=True fail=2 err=key
+=== AC2 修复后自动解禁 ===
+  等待下一轮(最长3分钟)…
+  PASS: AC2 自动解禁: enabled=True auto_disabled=False fail=0
+=== AC3 人工禁用不被翻回;人工启用清标记 ===
+  PASS: AC3a 人工禁用渠道探测成功仍保持禁用
+  PASS: AC3b 人工启用生效
+=== AC4 间隔=0 关闭任务 ===
+  PASS: 间隔设0
+  PASS: AC4 任务移除日志确认
+
+==== 结果: PASS=9 FAIL=0 ====

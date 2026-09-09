@@ -42,11 +42,18 @@ type ChannelConfig struct {
 
 // 单个上游渠道的共享配置; 路径按协议分别配置, 凭据由 ChannelKey 提供。
 type Channel struct {
-	ID            int            `json:"id" gorm:"primaryKey"`                                      // 渠道主键。
+	ID            int            `json:"id" gorm:"primaryKey"` // 渠道主键。
 	ChannelConfig                // 可编辑配置, 平铺为 channels 的各列。
 	Keys          []ChannelKey   `json:"-" gorm:"foreignKey:ChannelID;constraint:OnDelete:CASCADE"` // 渠道下的上游凭据; 不出 JSON, 读取走 ChannelDetail。
 	Models        []ChannelModel `json:"-" gorm:"foreignKey:ChannelID;constraint:OnDelete:CASCADE"` // 渠道提供的模型; 不出 JSON, 读取走 ChannelDetail。
 	StatsMetrics                 // 渠道自身的累计统计。
+
+	// 健康状态列不在 ChannelConfig: 它们由健康检查任务维护而非用户编辑, 表单无从给出;
+	// 不出 JSON: 编辑形态不携带只读状态, 读取侧统一走 ChannelStats 的同名字段。
+	HealthFailCount int    `json:"-" gorm:"not null;default:0"`  // 连续健康检查失败次数; 探测成功后清零。
+	LastHealthError string `json:"-" gorm:"not null;default:''"` // 最近一次健康检查的失败原因; 探测成功后清空。
+	LastHealthAt    int64  `json:"-" gorm:"not null;default:0"`  // 最近一次健康检查完成的 unix 秒; 0 表示尚未检查过。
+	AutoDisabled    bool   `json:"-" gorm:"not null;default:0"`  // 是否因连续健康检查失败被自动禁用; 人工重新启用时清除。
 }
 
 // 渠道凭据的可编辑配置; 名称在渠道内唯一, 整体替换时以它为匹配依据。
@@ -89,7 +96,7 @@ type ChannelGrant struct {
 // 凭据与模型只给界面用得上的字段: 两者在渠道内按名称唯一, 提交时也按名称引用, 主键与统计都无从使用。
 // 集合字段恒为数组, 读取侧承诺不为 null。
 type ChannelDetail struct {
-	ID            int                  `json:"id"`     // 渠道主键; 创建时提交 0, 由数据库分配。
+	ID            int                  `json:"id"` // 渠道主键; 创建时提交 0, 由数据库分配。
 	ChannelConfig                      // 渠道自身的可编辑配置。
 	Keys          []ChannelKeyConfig   `json:"keys"`   // 渠道下的上游凭据。
 	Models        []string             `json:"models"` // 渠道提供的上游模型名称。
@@ -115,6 +122,11 @@ type ChannelStats struct {
 	Enabled      bool                `json:"enabled"`      // 渠道是否可用, 供列表页的开关与过滤使用。
 	Models       []ChannelModelStats `json:"models"`       // 该渠道各模型的独立统计, 恒为数组; 长度即渠道的模型个数。
 	StatsMetrics                     // 渠道自身的累计统计。
+
+	HealthFailCount int    `json:"health_fail_count"` // 连续健康检查失败次数; 探测成功后清零。
+	LastHealthError string `json:"last_health_error"` // 最近一次健康检查的失败原因; 探测成功后清空。
+	LastHealthAt    int64  `json:"last_health_at"`    // 最近一次健康检查完成的 unix 秒; 0 表示尚未检查过。
+	AutoDisabled    bool   `json:"auto_disabled"`     // 是否因连续健康检查失败被自动禁用; 人工重新启用时清除。
 }
 
 // 单个渠道模型的累计统计。
@@ -156,4 +168,15 @@ type ChannelFetchModelRequest struct {
 type ChannelFetchModel struct {
 	Name      string   `json:"name"`      // 上游模型名称。
 	Protocols Protocol `json:"protocols"` // 由探测结果得出的协议位掩码。
+}
+
+// 健康检查任务的单个候选渠道: 探测所需的渠道配置与启用凭据, 加判定自动禁用/解禁所需的当前健康状态。
+// 候选为启用中或已被自动禁用的渠道, 人工禁用的渠道不在其列; 由此探测成功也不会把人工禁用翻回启用。
+// 只在进程内由 op 构建后交给健康检查任务, 不出 JSON。
+type ChannelHealthCandidate struct {
+	ID              int                // 渠道主键。
+	ChannelConfig                      // 探测所需的地址, 路径, 代理与 Header; 其中的 Enabled 供解禁判定使用。
+	Keys            []ChannelKeyConfig // 探测使用的凭据, 已剔除禁用凭据。
+	HealthFailCount int                // 当前连续健康检查失败次数。
+	AutoDisabled    bool               // 是否已被自动禁用; 自动禁用的渠道继续探测以便恢复。
 }

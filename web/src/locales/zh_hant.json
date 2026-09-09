@@ -153,6 +153,16 @@
             "label": "統計保存週期（分鐘）",
             "placeholder": "請輸入週期（分鐘）"
         },
+        "healthCheck": {
+            "interval": {
+                "label": "健康檢查間隔（分鐘）",
+                "placeholder": "0 表示關閉"
+            },
+            "threshold": {
+                "label": "連續失敗閾值",
+                "placeholder": "連續失敗多少次後自動停用"
+            }
+        },
         "corsAllowOrigins": {
             "label": "CORS 跨網域白名單",
             "hint": "為空禁止跨網域，* 允許所有",
@@ -344,7 +354,13 @@
             "items": "成員順序",
             "addItem": "新增模型",
             "autoAdd": "自動新增",
-            "clear": "清空"
+            "clear": "清空",
+            "memberRegex": "成員正則",
+            "memberRegexHint": "非空時自動匹配全部渠道中模型名命中該正則的授權並保持同步，手動增刪會被重算覆蓋",
+            "memberRegexInvalid": "正規表示式無效",
+            "absorb": "按正則吸納",
+            "regexMembersHint": "成員由正則自動維護",
+            "regexMatchCount": "目前正則命中 {count} 條授權"
         }
     },
     "model": {
@@ -423,6 +439,12 @@
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
+            },
+            "health": {
+                "failing": "失敗 {count} 次",
+                "autoDisabled": "已自動停用",
+                "lastCheck": "最近檢查：{time}",
+                "neverChecked": "尚未檢查"
             }
         },
         "stats": {

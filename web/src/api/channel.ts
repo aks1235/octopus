@@ -84,10 +84,15 @@ export type ChannelModelStats = StatsMetrics & {
 // ChannelStats 是单个渠道及其模型的累计统计，自带名称与启停状态。
 // 这一份同时充当渠道列表项：列表页要展示的名称、启停与模型个数（即 models.length）都在此，
 // 故没有单独的渠道概览接口，整份配置在点开编辑时由 useChannelDetail 单独取。
+// 健康状态是后端定时探测的只读结果，只随统计查询外出，不属于编辑形态 ChannelDetail。
 export type ChannelStats = StatsMetrics & {
     channel_id: number;
     channel_name: string;
     enabled: boolean;
+    health_fail_count: number; // 连续健康检查失败次数；探测成功后清零。
+    last_health_error: string; // 最近一次健康检查的失败原因；探测成功后清空。
+    last_health_at: number; // 最近一次健康检查完成的 unix 秒；0 表示尚未检查过。
+    auto_disabled: boolean; // 是否因连续健康检查失败被自动禁用。
     models: ChannelModelStats[];
 };
 
@@ -105,6 +110,10 @@ export type ChannelStatsFormatted = {
     channel_id: number;
     channel_name: string;
     enabled: boolean;
+    health_fail_count: number;
+    last_health_error: string;
+    last_health_at: number;
+    auto_disabled: boolean;
     models: ChannelModelStatsFormatted[];
     formatted: StatsMetricsFormatted;
 };
@@ -146,6 +155,10 @@ const channelStatsFormattedQueryOptions = queryOptions({
         channel_id: item.channel_id,
         channel_name: item.channel_name,
         enabled: item.enabled,
+        health_fail_count: item.health_fail_count,
+        last_health_error: item.last_health_error,
+        last_health_at: item.last_health_at,
+        auto_disabled: item.auto_disabled,
         models: item.models.map((channelModel) => ({
             model_id: channelModel.model_id,
             model_name: channelModel.model_name,

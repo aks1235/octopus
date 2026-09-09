@@ -49,12 +49,18 @@ func ChannelStatsList() []model.ChannelStats {
 		if models == nil {
 			models = []model.ChannelModelStats{}
 		}
+		// 健康状态字段取自缓存条目的副本并随新元素给出, 不就地改缓存对象:
+		// GetAll 返回的元素是共享快照, 就地改写会把只读状态漏进其他读取方。
 		stats = append(stats, model.ChannelStats{
-			ChannelID:    channel.ID,
-			ChannelName:  channel.Name,
-			Enabled:      channel.Enabled,
-			Models:       models,
-			StatsMetrics: channel.StatsMetrics,
+			ChannelID:       channel.ID,
+			ChannelName:     channel.Name,
+			Enabled:         channel.Enabled,
+			Models:          models,
+			StatsMetrics:    channel.StatsMetrics,
+			HealthFailCount: channel.HealthFailCount,
+			LastHealthError: channel.LastHealthError,
+			LastHealthAt:    channel.LastHealthAt,
+			AutoDisabled:    channel.AutoDisabled,
 		})
 	}
 	return stats
@@ -83,6 +89,10 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := reloadChannelChildren(ctx, channel.ID); err != nil {
 		return nil, err
 	}
+	// 新渠道的模型可能命中分组成员正则, 重算正则分组以即时吸纳。
+	if err := GroupRegexSync(ctx); err != nil {
+		return nil, fmt.Errorf("failed to sync regex groups: %w", err)
+	}
 	created := channelDetail(channel)
 	return &created, nil
 }
@@ -101,10 +111,15 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
 		// 而统计列由转发累加, 不在提交范围内, 整行覆盖会把它抹回提交时的旧值。
+		// 人工提交启用即接管渠道, 随提交一并清掉自动禁用标记; 提交禁用则保留标记, 让自动禁用的渠道继续探测以便恢复。
+		columns := []string{"name", "dialect", "enabled", "base_url",
+			"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
+			"proxy", "channel_proxy", "custom_header", "param_override", "match_regex"}
+		if detail.Enabled {
+			columns = append(columns, "auto_disabled")
+		}
 		if err := tx.Model(&model.Channel{}).Where("id = ?", detail.ID).
-			Select("name", "dialect", "enabled", "base_url",
-				"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
-				"proxy", "channel_proxy", "custom_header", "param_override", "match_regex").
+			Select(columns).
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
 			return fmt.Errorf("failed to update channel: %w", err)
 		}
@@ -113,11 +128,19 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 		return nil, err
 	}
 
-	// 缓存条目由提交的配置重建, 统计从原条目搬过来: 它含本轮尚未落库的累加, 比库内的行更新。
+	// 缓存条目由提交的配置重建, 统计与健康状态从原条目搬过来: 统计含本轮尚未落库的累加,
+	// 健康状态由健康检查任务维护且不在提交范围内, 两者都比库内的行或提交的表单更新。
 	channelStatsNeedUpdateLock.Lock()
 	channel := model.Channel{ID: detail.ID, ChannelConfig: detail.ChannelConfig}
 	if cached, ok := channelCache.Get(detail.ID); ok {
 		channel.StatsMetrics = cached.StatsMetrics
+		channel.HealthFailCount = cached.HealthFailCount
+		channel.LastHealthError = cached.LastHealthError
+		channel.LastHealthAt = cached.LastHealthAt
+		channel.AutoDisabled = cached.AutoDisabled
+	}
+	if detail.Enabled {
+		channel.AutoDisabled = false
 	}
 	channelCache.Set(detail.ID, channel)
 	channelStatsNeedUpdateLock.Unlock()
@@ -128,6 +151,10 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	}
 	if err := groupRefreshCache(ctx); err != nil {
 		return nil, fmt.Errorf("failed to refresh groups: %w", err)
+	}
+	// 模型与授权的增删会改变正则分组的命中集合, 重算以即时吸纳与移除。
+	if err := GroupRegexSync(ctx); err != nil {
+		return nil, fmt.Errorf("failed to sync regex groups: %w", err)
 	}
 	updated := channelDetail(channel)
 	return &updated, nil
@@ -212,17 +239,137 @@ func syncChannelChildren(tx *gorm.DB, channelID int, detail *model.ChannelDetail
 }
 
 // ChannelEnabled 更新渠道启用状态。
+// 人工重新启用即接管渠道: 一并清掉自动禁用标记, 此后健康检查不再对它自动启停;
+// 人工禁用不动失败计数, 计数由之后的探测自行归零。
 func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	channel, ok := channelCache.Get(id)
 	if !ok {
 		return fmt.Errorf("channel not found")
 	}
-	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+	updates := map[string]any{"enabled": enabled}
+	if enabled {
+		updates["auto_disabled"] = false
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return err
 	}
 	channel.Enabled = enabled
+	if enabled {
+		channel.AutoDisabled = false
+	}
+	channelCache.Set(id, channel)
+	// 启停不改模型集合, 正则命中不会变化, 重算只是按约定兜底, 保持分组与渠道状态一致。
+	if err := GroupRegexSync(ctx); err != nil {
+		return fmt.Errorf("failed to sync regex groups: %w", err)
+	}
+	return nil
+}
+
+// ChannelHealthFail 落库一次健康检查失败: 记录递增后的连续失败次数, 失败原因与完成时间。
+// disable 由调用方按阈值判定给出: 为真时渠道被置为禁用并打上自动禁用标记, 供列表页展示与后续自动解禁。
+// 与 ChannelUpdate 的用户编辑语义分离: 只动健康状态与启停两列, 不触碰其余配置与统计。
+func ChannelHealthFail(id int, failCount int, reason string, checkedAt int64, disable bool, ctx context.Context) error {
+	if _, ok := channelCache.Get(id); !ok {
+		return fmt.Errorf("channel not found")
+	}
+	updates := map[string]any{
+		"health_fail_count": failCount,
+		"last_health_error": reason,
+		"last_health_at":    checkedAt,
+	}
+	if disable {
+		updates["enabled"] = false
+		updates["auto_disabled"] = true
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update channel health: %w", err)
+	}
+	// 改库成功后再改缓存副本, 顺序与 ChannelEnabled 一致; 持有统计待写锁再改写,
+	// 与统计累加互斥, 免得改写丢掉本轮尚未落库的累加。
+	channelStatsNeedUpdateLock.Lock()
+	defer channelStatsNeedUpdateLock.Unlock()
+	channel, ok := channelCache.Get(id)
+	if !ok {
+		// 渠道在探测与落库之间被并发删除, 缓存已无此条目, 无从改写。
+		return nil
+	}
+	channel.HealthFailCount = failCount
+	channel.LastHealthError = reason
+	channel.LastHealthAt = checkedAt
+	if disable {
+		channel.Enabled = false
+		channel.AutoDisabled = true
+	}
 	channelCache.Set(id, channel)
 	return nil
+}
+
+// ChannelHealthSuccess 落库一次健康检查成功: 清零连续失败次数与失败原因。
+// reenable 由调用方按"自动禁用且未启用"判定后给出: 为真时恢复启用并清掉自动禁用标记;
+// 人工禁用的渠道本就不会成为探测候选, 由此不会经此被翻回启用。
+func ChannelHealthSuccess(id int, checkedAt int64, reenable bool, ctx context.Context) error {
+	if _, ok := channelCache.Get(id); !ok {
+		return fmt.Errorf("channel not found")
+	}
+	updates := map[string]any{
+		"health_fail_count": 0,
+		"last_health_error": "",
+		"last_health_at":    checkedAt,
+	}
+	if reenable {
+		updates["enabled"] = true
+		updates["auto_disabled"] = false
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update channel health: %w", err)
+	}
+	channelStatsNeedUpdateLock.Lock()
+	defer channelStatsNeedUpdateLock.Unlock()
+	channel, ok := channelCache.Get(id)
+	if !ok {
+		// 渠道在探测与落库之间被并发删除, 缓存已无此条目, 无从改写。
+		return nil
+	}
+	channel.HealthFailCount = 0
+	channel.LastHealthError = ""
+	channel.LastHealthAt = checkedAt
+	if reenable {
+		channel.Enabled = true
+		channel.AutoDisabled = false
+	}
+	channelCache.Set(id, channel)
+	return nil
+}
+
+// ChannelHealthCandidates 返回健康检查的候选渠道及其探测所需数据。
+// 候选为启用中或已被自动禁用的渠道, 附带各渠道的启用凭据: 前者探测失败时递增计数,
+// 后者继续探测以便恢复后自动解禁; 人工禁用的渠道不在其列, 由此不会被误翻。
+func ChannelHealthCandidates() []model.ChannelHealthCandidate {
+	keysByChannel := make(map[int][]model.ChannelKeyConfig, channelKeyCache.Len())
+	for _, channelKey := range channelKeyCache.GetAll() {
+		if !channelKey.Enabled {
+			continue
+		}
+		keysByChannel[channelKey.ChannelID] = append(keysByChannel[channelKey.ChannelID], channelKey.ChannelKeyConfig)
+	}
+	candidates := make([]model.ChannelHealthCandidate, 0, channelCache.Len())
+	for _, channel := range channelCache.GetAll() {
+		if !channel.Enabled && !channel.AutoDisabled {
+			continue
+		}
+		keys := keysByChannel[channel.ID]
+		if keys == nil {
+			keys = []model.ChannelKeyConfig{}
+		}
+		candidates = append(candidates, model.ChannelHealthCandidate{
+			ID:              channel.ID,
+			ChannelConfig:   channel.ChannelConfig,
+			Keys:            keys,
+			HealthFailCount: channel.HealthFailCount,
+			AutoDisabled:    channel.AutoDisabled,
+		})
+	}
+	return candidates
 }
 
 // ChannelDel 删除渠道及其凭据, 模型与渠道授权, 关联分组项由数据库外键级联删除。
@@ -271,6 +418,10 @@ func ChannelDel(id int, ctx context.Context) error {
 	channelGrantCache.Del(grantIDs...)
 	if err := groupRefreshCache(ctx); err != nil {
 		return fmt.Errorf("failed to refresh groups: %w", err)
+	}
+	// 成员行已由外键级联删除, 重算正则分组只兜意外漏删, 目标集合本就不含已删渠道的授权。
+	if err := GroupRegexSync(ctx); err != nil {
+		return fmt.Errorf("failed to sync regex groups: %w", err)
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
-import { Monitor, Globe, Clock, Shield, HelpCircle, X } from 'lucide-react';
+import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
@@ -14,17 +14,23 @@ export function SettingSystem() {
 
     const [proxyUrl, setProxyUrl] = useState('');
     const [statsSaveInterval, setStatsSaveInterval] = useState('');
+    const [healthCheckInterval, setHealthCheckInterval] = useState('');
+    const [healthFailThreshold, setHealthFailThreshold] = useState('');
     const [corsAllowOrigins, setCorsAllowOrigins] = useState('');
     const [corsInputValue, setCorsInputValue] = useState('');
 
     const initialProxyUrl = useRef('');
     const initialStatsSaveInterval = useRef('');
+    const initialHealthCheckInterval = useRef('');
+    const initialHealthFailThreshold = useRef('');
     const initialCorsAllowOrigins = useRef('');
 
     useEffect(() => {
         if (settings) {
             const proxy = settings.find(s => s.key === SettingKey.ProxyURL);
             const interval = settings.find(s => s.key === SettingKey.StatsSaveInterval);
+            const healthInterval = settings.find(s => s.key === SettingKey.HealthCheckInterval);
+            const healthThreshold = settings.find(s => s.key === SettingKey.HealthFailThreshold);
             const cors = settings.find(s => s.key === SettingKey.CORSAllowOrigins);
             if (proxy) {
                 queueMicrotask(() => setProxyUrl(proxy.value));
@@ -33,6 +39,14 @@ export function SettingSystem() {
             if (interval) {
                 queueMicrotask(() => setStatsSaveInterval(interval.value));
                 initialStatsSaveInterval.current = interval.value;
+            }
+            if (healthInterval) {
+                queueMicrotask(() => setHealthCheckInterval(healthInterval.value));
+                initialHealthCheckInterval.current = healthInterval.value;
+            }
+            if (healthThreshold) {
+                queueMicrotask(() => setHealthFailThreshold(healthThreshold.value));
+                initialHealthFailThreshold.current = healthThreshold.value;
             }
             if (cors) {
                 queueMicrotask(() => setCorsAllowOrigins(cors.value));
@@ -51,6 +65,10 @@ export function SettingSystem() {
                     initialProxyUrl.current = value;
                 } else if (key === SettingKey.StatsSaveInterval) {
                     initialStatsSaveInterval.current = value;
+                } else if (key === SettingKey.HealthCheckInterval) {
+                    initialHealthCheckInterval.current = value;
+                } else if (key === SettingKey.HealthFailThreshold) {
+                    initialHealthFailThreshold.current = value;
                 } else if (key === SettingKey.CORSAllowOrigins) {
                     initialCorsAllowOrigins.current = value;
                 }
@@ -146,6 +164,38 @@ export function SettingSystem() {
                     onChange={(e) => setStatsSaveInterval(e.target.value)}
                     onBlur={() => handleSave('stats_save_interval', statsSaveInterval, initialStatsSaveInterval.current)}
                     placeholder={t('statsSaveInterval.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </div>
+
+            {/* 渠道健康检查间隔, 0 表示关闭定时探测 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <HeartPulse className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('healthCheck.interval.label')}</span>
+                </div>
+                <Input
+                    type="number"
+                    value={healthCheckInterval}
+                    onChange={(e) => setHealthCheckInterval(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.HealthCheckInterval, healthCheckInterval, initialHealthCheckInterval.current)}
+                    placeholder={t('healthCheck.interval.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </div>
+
+            {/* 连续失败多少次后自动禁用渠道 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <ShieldAlert className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('healthCheck.threshold.label')}</span>
+                </div>
+                <Input
+                    type="number"
+                    value={healthFailThreshold}
+                    onChange={(e) => setHealthFailThreshold(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.HealthFailThreshold, healthFailThreshold, initialHealthFailThreshold.current)}
+                    placeholder={t('healthCheck.threshold.placeholder')}
                     className="w-48 rounded-xl"
                 />
             </div>

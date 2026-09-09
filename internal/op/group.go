@@ -10,6 +10,8 @@ import (
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
+	"github.com/charmbracelet/log"
+	"github.com/dlclark/regexp2"
 	"gorm.io/gorm"
 )
 
@@ -70,7 +72,7 @@ func GroupGetByName(name string) (model.Group, error) {
 }
 
 // GroupCreate 创建分组及其成员并刷新缓存, 返回创建后的分组。
-// 成员的提交顺序即优先级顺序。
+// 成员的提交顺序即优先级顺序; 提交了成员正则时按正则重算成员, 创建响应即带上吸纳后的成员集合。
 func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Group, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -79,6 +81,7 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 	group := model.Group{
 		Name:        name,
 		Mode:        req.Mode,
+		MemberRegex: strings.TrimSpace(req.MemberRegex),
 		RelayConfig: req.RelayConfig,
 		Items:       make([]model.GroupItem, len(req.Items)),
 	}
@@ -92,6 +95,20 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 	if err := db.GetDB().WithContext(ctx).Create(&group).Error; err != nil {
 		return nil, err
 	}
+	// 成员正则非空时按正则整体替换初始成员: 正则分组的成员由正则决定, 手工提交的初始集合会被覆盖。
+	if group.MemberRegex != "" {
+		if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return syncRegexGroupItems(tx, group.ID, group.MemberRegex)
+		}); err != nil {
+			return nil, err
+		}
+		if err := db.GetDB().WithContext(ctx).Preload("Items").First(&group, group.ID).Error; err != nil {
+			return nil, fmt.Errorf("failed to load created group: %w", err)
+		}
+	}
+	// 按正则重载的成员不带排序, 顺序须按优先级定稿: 缓存与响应都承诺成员按 Priority 升序,
+	// 故障转移的成员遍历也依赖这一顺序; 手动路径本就按提交顺序落库, 排序对它是空操作。
+	sortGroupItems(group.Items)
 	groupCache.Set(group.ID, group)
 	groupNameIndex.Set(group.Name, group.ID)
 	snapshot := groupSnapshot(group)
@@ -120,6 +137,13 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 		selectFields = append(selectFields, "mode")
 		updates.Mode = *req.Mode
 	}
+	// 成员正则的最终值: 未提交该字段维持原值; 提交空串表示改回纯手动分组, 已吸纳成员保留为手动成员。
+	memberRegex := oldGroup.MemberRegex
+	if req.MemberRegex != nil {
+		memberRegex = strings.TrimSpace(*req.MemberRegex)
+		selectFields = append(selectFields, "member_regex")
+		updates.MemberRegex = memberRegex
+	}
 	if req.RelayConfig != nil {
 		config := *req.RelayConfig
 		model.NormalizeGroupRelayConfig(&config)
@@ -136,6 +160,12 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 		}
 		if req.Items != nil {
 			if err := syncGroupItems(tx, id, *req.Items); err != nil {
+				return err
+			}
+		}
+		// 正则分组的成员由正则定稿: 手工成员(若提交)先落地, 再按正则整体替换; 改回手动分组则不重算, 已吸纳成员原地保留。
+		if req.MemberRegex != nil && memberRegex != "" {
+			if err := syncRegexGroupItems(tx, id, memberRegex); err != nil {
 				return err
 			}
 		}
@@ -218,6 +248,85 @@ func syncGroupItems(tx *gorm.DB, groupID int, requested []model.GroupItemInput) 
 		return fmt.Errorf("failed to delete group items: %w", err)
 	}
 	return nil
+}
+
+// GroupRegexSync 重算全部正则分组的成员并刷新分组缓存。
+// 渠道增删改后的即时触发与定时兜底共用本入口; 没有正则分组时只做一次查询即返回。
+// 单个分组的失败(如导入库带入无法编译的正则)只记日志不中断其余分组: 兜底任务不应被一个坏分组拖垮。
+func GroupRegexSync(ctx context.Context) error {
+	groups := []model.Group{}
+	if err := db.GetDB().WithContext(ctx).Where("member_regex <> ''").Find(&groups).Error; err != nil {
+		return fmt.Errorf("failed to load regex groups: %w", err)
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	for _, group := range groups {
+		if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return syncRegexGroupItems(tx, group.ID, group.MemberRegex)
+		}); err != nil {
+			log.Warnf("failed to sync members of regex group %q: %v", group.Name, err)
+		}
+	}
+	return groupRefreshCache(ctx)
+}
+
+// syncRegexGroupItems 按分组成员正则重算目标成员集合, 并在事务内整体替换现有成员。
+// 匹配对象是缓存中全部渠道的全部模型名, 不看渠道与凭据的启停: 禁用不等于删除, 可用性由成员展示层的 Available 表达;
+// 命中模型的全部授权纳入成员, 同渠道同模型的多个凭据一并纳入。目标成员按 (渠道, 模型, 凭据) 稳定排序,
+// 提交顺序即优先级顺序。整体替换复用 syncGroupItems: 按授权主键匹配, 既有成员的主键与统计得以保留,
+// 被正则淘汰的成员随之删除, 指向它的当前成员选择也被清空。
+func syncRegexGroupItems(tx *gorm.DB, groupID int, memberRegex string) error {
+	re, err := regexp2.Compile(memberRegex, regexp2.ECMAScript)
+	if err != nil {
+		return fmt.Errorf("failed to compile member regex: %w", err)
+	}
+
+	type memberRef struct {
+		channelID int    // 排序键: 授权所属渠道主键。
+		modelName string // 排序键: 授权引用的模型名称。
+		keyName   string // 排序键: 授权引用的凭据名称。
+		grantID   int    // 分组成员按它引用授权。
+	}
+	members := make([]memberRef, 0, channelGrantCache.Len())
+	for _, grant := range channelGrantCache.GetAll() {
+		channelModel, ok := channelModelCache.Get(grant.ChannelModelID)
+		if !ok {
+			continue
+		}
+		matched, err := re.MatchString(channelModel.Name)
+		if err != nil {
+			return fmt.Errorf("failed to match model name %q: %w", channelModel.Name, err)
+		}
+		if !matched {
+			continue
+		}
+		channelKey, ok := channelKeyCache.Get(grant.ChannelKeyID)
+		if !ok {
+			continue
+		}
+		members = append(members, memberRef{
+			channelID: channelModel.ChannelID,
+			modelName: channelModel.Name,
+			keyName:   channelKey.Name,
+			grantID:   grant.ID,
+		})
+	}
+	sort.Slice(members, func(i, j int) bool {
+		if members[i].channelID != members[j].channelID {
+			return members[i].channelID < members[j].channelID
+		}
+		if members[i].modelName != members[j].modelName {
+			return members[i].modelName < members[j].modelName
+		}
+		return members[i].keyName < members[j].keyName
+	})
+
+	inputs := make([]model.GroupItemInput, len(members))
+	for i, member := range members {
+		inputs[i] = model.GroupItemInput{ChannelGrantID: member.grantID}
+	}
+	return syncGroupItems(tx, groupID, inputs)
 }
 
 // GroupDel 删除分组及其成员，成员删除不会影响被其他分组引用的渠道授权。

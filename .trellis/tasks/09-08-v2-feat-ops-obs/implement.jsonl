@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "构建/验证/容器编排契约:容器内编译签名(CGO/buildvcs)、vite outDir 挂载、compose 项目名隔离"}
+{"file": "docs/adr/0002-feature-migration-scope.md", "reason": "本任务范围的上游决策;实现时须保持与勘误后范围一致(①③重想象/②⑤验证/⑥挪任务4)"}
+{"file": "docs/adr/0007-baseline-first-batched-execution.md", "reason": "分批执行节奏与每步可构建起容器、迁移演练影响说明的父级要求"}

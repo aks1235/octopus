@@ -153,6 +153,16 @@
             "label": "统计保存周期（分钟）",
             "placeholder": "请输入周期（分钟）"
         },
+        "healthCheck": {
+            "interval": {
+                "label": "健康检查间隔（分钟）",
+                "placeholder": "0 表示关闭"
+            },
+            "threshold": {
+                "label": "连续失败阈值",
+                "placeholder": "连续失败多少次后自动禁用"
+            }
+        },
         "corsAllowOrigins": {
             "label": "CORS 跨域白名单",
             "hint": "为空禁止跨域，* 允许所有",
@@ -344,7 +354,13 @@
             "items": "成员顺序",
             "addItem": "添加模型",
             "autoAdd": "自动添加",
-            "clear": "清空"
+            "clear": "清空",
+            "memberRegex": "成员正则",
+            "memberRegexHint": "非空时自动匹配全部渠道中模型名命中该正则的授权并保持同步，手动增删会被重算覆盖",
+            "memberRegexInvalid": "正则表达式无效",
+            "absorb": "按正则吸纳",
+            "regexMembersHint": "成员由正则自动维护",
+            "regexMatchCount": "当前正则命中 {count} 条授权"
         }
     },
     "model": {
@@ -423,6 +439,12 @@
             "toast": {
                 "enabled": "渠道已启用",
                 "disabled": "渠道已禁用"
+            },
+            "health": {
+                "failing": "失败 {count} 次",
+                "autoDisabled": "已自动禁用",
+                "lastCheck": "最近检查：{time}",
+                "neverChecked": "尚未检查"
             }
         },
         "stats": {

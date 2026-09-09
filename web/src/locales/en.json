@@ -153,6 +153,16 @@
             "label": "Stats Save Interval",
             "placeholder": "Enter interval in minutes"
         },
+        "healthCheck": {
+            "interval": {
+                "label": "Health Check Interval (min)",
+                "placeholder": "0 disables health check"
+            },
+            "threshold": {
+                "label": "Auto Disable Threshold",
+                "placeholder": "Consecutive failures before auto disable"
+            }
+        },
         "corsAllowOrigins": {
             "label": "CORS Allowed Origins",
             "hint": "Empty = deny all, * = allow all",
@@ -344,7 +354,13 @@
             "items": "Member Order",
             "addItem": "Add Model",
             "autoAdd": "Auto Add",
-            "clear": "Clear"
+            "clear": "Clear",
+            "memberRegex": "Member Regex",
+            "memberRegexHint": "When set, members are auto-matched from all channel models by this regex and kept in sync; manual changes are overwritten on resync",
+            "memberRegexInvalid": "Invalid regex",
+            "absorb": "Match Now",
+            "regexMembersHint": "Members are maintained by the regex",
+            "regexMatchCount": "{count} grant(s) match the current regex"
         }
     },
     "model": {
@@ -423,6 +439,12 @@
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"
+            },
+            "health": {
+                "failing": "Failing {count}",
+                "autoDisabled": "Auto Disabled",
+                "lastCheck": "Last check: {time}",
+                "neverChecked": "Not checked yet"
             }
         },
         "stats": {

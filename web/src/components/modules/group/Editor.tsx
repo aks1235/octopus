@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, HelpCircle, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Check, ChevronDownIcon, HelpCircle, Layers, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { Protocol, useChannelGrantList } from '@/api/channel';
@@ -21,6 +21,7 @@ export type GroupEditorValues = {
     name: string;
     mode: GroupMode;
     relay_config: GroupRelayConfig;
+    member_regex: string;
     members: SelectedMember[];
 };
 
@@ -298,6 +299,105 @@ function SortSection({
     );
 }
 
+// ReadOnlyMemberRow 渲染正则分组里一条只读成员, 视觉与可拖拽成员行保持一致, 但没有拖拽与移除。
+// 正则分组的成员由重算定稿, 手动增删会被覆盖, 界面不允许编辑是诚实的表达。
+function ReadOnlyMemberRow({ member }: { member: SelectedMember }) {
+    const { Icon, className: iconClassName } = getModelIcon(member.name);
+    const isDisabled = member.enabled === false;
+
+    return (
+        <div
+            className={cn(
+                'flex items-center gap-2 rounded-lg bg-background px-2.5 py-2 select-none',
+                isDisabled && 'opacity-60 grayscale'
+            )}
+        >
+            <span className={cn(isDisabled && 'opacity-70')}>
+                <Icon aria-hidden="true" className={iconClassName} width={18} height={18} />
+            </span>
+            <div className="flex flex-col min-w-0 flex-1">
+                <span className={cn(
+                    'w-fit max-w-full text-sm font-medium truncate leading-tight',
+                    isDisabled && 'text-muted-foreground'
+                )}>
+                    {member.name}
+                </span>
+                <span className="text-[10px] text-muted-foreground truncate leading-tight">
+                    {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+// RegexMemberSection 是正则分组的成员区: 只读成员列表 + 正则说明 + 一键吸纳(按正则立即预览吸纳结果)。
+// 吸纳只是编辑态预览: 保存后后端按同一正则重算, 与预览保持一致。
+function RegexMemberSection({
+    members,
+    matchCount,
+    showMatchCount,
+    onAbsorb,
+    absorbDisabled,
+}: {
+    members: SelectedMember[];
+    matchCount: number;
+    showMatchCount: boolean;
+    onAbsorb: () => void;
+    absorbDisabled: boolean;
+}) {
+    const t = useTranslations('group');
+
+    return (
+        <div className="rounded-xl border border-border/50 bg-muted/30 flex flex-col min-h-0">
+            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/30 bg-muted/50">
+                <span className="min-w-0 text-sm font-medium text-foreground">
+                    {t('form.items')}
+                    {members.length > 0 && (
+                        <span className="ml-1.5 text-xs text-muted-foreground font-normal">({members.length})</span>
+                    )}
+                </span>
+
+                <button
+                    type="button"
+                    onClick={onAbsorb}
+                    disabled={absorbDisabled}
+                    className={cn(
+                        'justify-end shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors',
+                        absorbDisabled
+                            ? 'text-muted-foreground/50 cursor-not-allowed'
+                            : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                    )}
+                >
+                    <Sparkles className="size-3.5" />
+                    <span>{t('form.absorb')}</span>
+                </button>
+            </div>
+
+            <div className="px-3 py-2 border-b border-border/30 space-y-0.5">
+                <p className="text-xs text-muted-foreground">{t('form.regexMembersHint')}</p>
+                {showMatchCount && (
+                    <p className="text-xs text-muted-foreground">{t('form.regexMatchCount', { count: matchCount })}</p>
+                )}
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                {members.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                        <Layers className="size-10 opacity-40" />
+                        <span className="text-sm">{t('card.empty')}</span>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-1.5">
+                        {members.map((member) => (
+                            <ReadOnlyMemberRow key={member.id} member={member} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export function GroupEditor({
     initial,
     submitText,
@@ -310,6 +410,7 @@ export function GroupEditor({
         name?: string;
         mode?: GroupMode;
         relay_config?: Partial<GroupRelayConfig>;
+        member_regex?: string;
         members?: SelectedMember[];
     };
     submitText: string;
@@ -337,10 +438,24 @@ export function GroupEditor({
         ...defaultRelayConfig,
         ...initial?.relay_config,
     }));
+    const [memberRegex, setMemberRegex] = useState(initial?.member_regex ?? '');
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
 
     const groupKey = normalizeKey(groupName);
+    const trimmedMemberRegex = memberRegex.trim();
+    const isRegexGroup = trimmedMemberRegex.length > 0;
+
+    // 前端只做正则的可编译性预检拦截明显笔误; 后端以 regexp2(ECMAScript 语法)做权威校验, 不一致时返回 400。
+    const memberRegexValid = useMemo(() => {
+        if (!isRegexGroup) return true;
+        try {
+            new RegExp(trimmedMemberRegex);
+            return true;
+        } catch {
+            return false;
+        }
+    }, [isRegexGroup, trimmedMemberRegex]);
 
     const matchedModelChannels = useMemo(() => {
         if (!groupKey) return [];
@@ -372,6 +487,22 @@ export function GroupEditor({
         });
     }, [matchedModelChannels]);
 
+    // 按正则吸纳的预览口径与后端重算一致: 全部授权中模型名命中(部分匹配)的整组纳入,
+    // 候选列表本身已按渠道、模型、凭据排序, 过滤即保持后端成员的优先级顺序。
+    const regexMatchedMembers = useMemo(() => {
+        if (!isRegexGroup || !memberRegexValid) return [];
+        try {
+            const re = new RegExp(trimmedMemberRegex);
+            return grantMembers.filter((member) => re.test(member.name));
+        } catch {
+            return [];
+        }
+    }, [isRegexGroup, memberRegexValid, trimmedMemberRegex, grantMembers]);
+
+    const handleAbsorbByRegex = useCallback(() => {
+        setSelectedMembers(regexMatchedMembers.map((member) => ({ ...member, id: memberKey(member) })));
+    }, [regexMatchedMembers]);
+
     const handleRemoveMember = useCallback((id: string) => {
         setRemovingIds((prev) => new Set(prev).add(id));
         setTimeout(() => {
@@ -385,7 +516,9 @@ export function GroupEditor({
         setRemovingIds(new Set());
     }, []);
 
-    const isValid = groupKey.length > 0 && selectedMembers.length > 0;
+    // 正则分组允许暂无成员: 正则匹配的模型可能尚未配置, 保存后由后端定时与渠道变更重算自动吸纳;
+    // 手动分组维持必须有成员的既有约束。
+    const isValid = groupKey.length > 0 && memberRegexValid && (isRegexGroup || selectedMembers.length > 0);
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -394,6 +527,7 @@ export function GroupEditor({
             name: groupName,
             mode,
             relay_config: relayConfig,
+            member_regex: trimmedMemberRegex,
             members: selectedMembers,
         });
     };
@@ -433,6 +567,24 @@ export function GroupEditor({
                         </Field>
                     </div>
 
+                    {/* 成员正则: 非空时分组转为正则分组, 成员由正则在全部渠道模型上自动同步。 */}
+                    <Field>
+                        <FieldLabel htmlFor="group-member-regex">
+                            {t('form.memberRegex')}
+                            <FieldHelp text={t('form.memberRegexHint')} />
+                        </FieldLabel>
+                        <Input
+                            id="group-member-regex"
+                            value={memberRegex}
+                            onChange={(e) => setMemberRegex(e.target.value)}
+                            placeholder="^deepseek-v4-pro$"
+                            className="rounded-xl font-mono text-sm"
+                        />
+                        {isRegexGroup && !memberRegexValid && (
+                            <p className="text-xs text-destructive">{t('form.memberRegexInvalid')}</p>
+                        )}
+                    </Field>
+
                     <Tabs defaultValue="members" className="flex flex-1 min-h-0">
                         <TabsList className="grid w-full shrink-0 grid-cols-2">
                             <TabsTrigger value="members">{t('form.members')}</TabsTrigger>
@@ -440,22 +592,32 @@ export function GroupEditor({
                         </TabsList>
 
                         <TabsContent value="members" className="min-h-0 overflow-hidden">
-                            <div className="grid h-full min-h-0 grid-cols-1 gap-4 md:grid-cols-2">
-                                <ModelPickerSection
-                                    grantMembers={grantMembers}
-                                    selectedMembers={selectedMembers}
-                                    onAdd={handleAddMember}
-                                    onAutoAdd={handleAutoAdd}
-                                    autoAddDisabled={autoAddDisabled}
-                                />
-                                <SortSection
+                            {isRegexGroup ? (
+                                <RegexMemberSection
                                     members={selectedMembers}
-                                    onReorder={setSelectedMembers}
-                                    onRemove={handleRemoveMember}
-                                    removingIds={removingIds}
-                                    onClear={handleClearMembers}
+                                    matchCount={regexMatchedMembers.length}
+                                    showMatchCount={memberRegexValid}
+                                    onAbsorb={handleAbsorbByRegex}
+                                    absorbDisabled={!memberRegexValid}
                                 />
-                            </div>
+                            ) : (
+                                <div className="grid h-full min-h-0 grid-cols-1 gap-4 md:grid-cols-2">
+                                    <ModelPickerSection
+                                        grantMembers={grantMembers}
+                                        selectedMembers={selectedMembers}
+                                        onAdd={handleAddMember}
+                                        onAutoAdd={handleAutoAdd}
+                                        autoAddDisabled={autoAddDisabled}
+                                    />
+                                    <SortSection
+                                        members={selectedMembers}
+                                        onReorder={setSelectedMembers}
+                                        onRemove={handleRemoveMember}
+                                        removingIds={removingIds}
+                                        onClear={handleClearMembers}
+                                    />
+                                </div>
+                            )}
                         </TabsContent>
 
                         <TabsContent value="relay" className="min-h-0 overflow-y-auto px-1">

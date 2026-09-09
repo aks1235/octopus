@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/morphing-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, DollarSign, Layers, MessageSquare, XCircle } from 'lucide-react';
+import dayjs from 'dayjs';
 import { type ChannelStatsFormatted, useEnableChannel } from '@/api/channel';
 import { usePageActionsStore } from '@/components/common/PageActions';
 import { ChannelStats } from './Stats';
@@ -56,6 +57,37 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
         );
     };
 
+    // 健康徽标三态: 健康渠道不渲染徽标, 失败中显橙色次数, 连续失败达阈值被自动禁用后显红色。
+    // 手动禁用的渠道不再探测, 其失败计数停留在最后一次检查, 徽标照实展示并由 tooltip 的时间说明新鲜度。
+    const showHealthBadge = channel.auto_disabled || channel.health_fail_count > 0;
+    const healthBadge = showHealthBadge && (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span
+                    className={
+                        channel.auto_disabled
+                            ? 'rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive'
+                            : 'rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-600 dark:text-orange-400'
+                    }
+                >
+                    {channel.auto_disabled
+                        ? t('health.autoDisabled')
+                        : t('health.failing', { count: channel.health_fail_count })}
+                </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={10} align="center">
+                <div className="max-w-64 space-y-1 text-xs">
+                    {channel.last_health_error && <p className="break-all">{channel.last_health_error}</p>}
+                    <p className="text-muted-foreground">
+                        {channel.last_health_at > 0
+                            ? t('health.lastCheck', { time: dayjs.unix(channel.last_health_at).format('YYYY-MM-DD HH:mm:ss') })
+                            : t('health.neverChecked')}
+                    </p>
+                </div>
+            </TooltipContent>
+        </Tooltip>
+    );
+
     return (
         <MorphingDialog>
             <MorphingDialogTrigger className="w-full">
@@ -73,6 +105,7 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                             </TooltipContent>
                         </Tooltip>
                         <div className="flex shrink-0 items-center gap-1">
+                            {healthBadge}
                             <Switch
                                 checked={channel.enabled}
                                 onCheckedChange={handleEnableChange}
