@@ -76,8 +76,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		}
 
 		// 登记进程内请求状态, 返回的记录是后续全部状态写入和前端可视化推送的入口。
+		// 客户端识别与思考等级在创建时一次定稿: 两值全轮不变, 状态流与落库日志共用。
 		apiKeyID := c.GetInt("api_key_id")
-		request := newRequestState(metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID)
+		userAgent := c.Request.UserAgent()
+		reasoningEffort := extractReasoningEffort(format, raw.Body)
+		request := newRequestState(metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID, userAgent, reasoningEffort)
 		ctx := c.Request.Context()
 		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
 		failures := 0     // 该成员包含首次请求的连续失败次数。
@@ -86,9 +89,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		// 终态出函数时统一组装落库。闭包捕获变量本身, 终值即为全量。
 		var attempts []model.ChannelAttempt
 		var firstValidAt time.Time // 首次取得可提交响应的时刻, 作为日志的首字时间。
-		userAgent := c.Request.UserAgent()
 		defer func() {
-			relayLogFinalize(request, metadata.Model, attempts, apiKeyID, userAgent, firstValidAt)
+			relayLogFinalize(request, metadata.Model, attempts, apiKeyID, userAgent, reasoningEffort, firstValidAt)
 		}()
 
 		for {
@@ -390,7 +392,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 // relayLogFinalize 在请求终态后组装一条转发日志并落库。
 // 上游请求状态(RequestState)只在内存保留最近若干条, 历史回溯与渠道调用明细依赖此处的持久化;
 // 取消与失败的请求同样落库, 与 fork 语义一致(空 attempts 表示请求未真正发往任何上游)。
-func relayLogFinalize(request *RequestState, requestModel string, attempts []model.ChannelAttempt, apiKeyID int, userAgent string, firstValidAt time.Time) {
+func relayLogFinalize(request *RequestState, requestModel string, attempts []model.ChannelAttempt, apiKeyID int, userAgent, reasoningEffort string, firstValidAt time.Time) {
 	relayLog := model.RelayLog{
 		Time:             request.StartedAt.Unix(),
 		RequestModelName: requestModel,
@@ -398,7 +400,9 @@ func relayLogFinalize(request *RequestState, requestModel string, attempts []mod
 		TotalAttempts:    len(attempts),
 		UseTime:          int(request.Duration.Milliseconds()),
 		Error:            request.Error,
-		UserAgent:        userAgent, // 客户端识别(UA 解析)属客户端主题包, 此处仅留痕原始头, client_name 暂空。
+		UserAgent:        userAgent,
+		ClientName:       detectClient(userAgent),
+		ReasoningEffort:  reasoningEffort,
 		RequestContent:   request.body,
 		ResponseContent:  request.responseBody,
 	}

@@ -23,6 +23,11 @@
       const root = document.documentElement;
       root.classList.toggle('dark', isDark);
       root.style.colorScheme = isDark ? 'dark' : 'light';
+      // 风格(Claude)同样预打标记, 避免 React 挂载前首帧闪回默认调色板; zustand persist 键为 octopus-settings。
+      try {
+        const settings = JSON.parse(localStorage.getItem('octopus-settings') ?? '{}');
+        if (settings?.state?.themeStyle === 'claude') root.dataset.theme = 'claude';
+      } catch { /* 损坏的本地存储按默认风格处理 */ }
       document.querySelector('meta[name="theme-color"]')?.setAttribute(
         'content',
         isDark ? '#413a2c' : '#eae9e3',

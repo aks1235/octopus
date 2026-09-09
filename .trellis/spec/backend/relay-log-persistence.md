@@ -12,6 +12,8 @@
 
 **写库挂钩**:`internal/relay/handler.go` Forward 闭包——本地 `attempts []model.ChannelAttempt` 按轮 append(等待型 continue 不记),`defer relayLogFinalize(...)` 终态组装(成功/失败/取消全落库;token/cost 取 RequestState 定稿值,不重算)。**新增请求生命周期埋点照此模式,不要在 state.go 的 mark* 内插桩**(持全局锁不做 I/O)。
 
+**任务5(09-08-v2-feat-client-theme)已落地的列写值**:`client_name` = `detectClient(userAgent)`(internal/relay/client_detect.go,40 客户端规则,移植 fork 最终版);`reasoning_effort` = `extractReasoningEffort(format, raw.Body)`(internal/relay/reasoning.go,三协议提取,anthropic 按 budget 阈值反推,**只读不改请求**)。两值在 `newRequestState` 创建时一次定稿并进 RequestState(JSON 字段 `client_name`/`reasoning_effort`),实时状态流与落库日志同源;持锁内仅纯内存字符串运算,不违上述契约。分组覆盖思考等级经用户决策不移植(见 ADR-0002 勘误 2026-09-09)。前端客户端图标优先 `@thesvg/react` 官方品牌图标(mono 强制 currentColor,规则 `.client-icon-badge`),无官方图标才 lucide 兜底——与上游 model-icons.tsx 的图标体系一致。
+
 **API(全部挂 Auth 组;上游 5 个既有接口零改动)**:
 
 | 路由 | 方法 | 说明 |

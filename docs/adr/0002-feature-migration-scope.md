@@ -45,3 +45,15 @@ dev(fork)自 2026-04 基点后累计 180+ 自有/chenjh commit。经逐项与上
 | 渠道调用详情页(`f551b95`) | 上游日志纯内存 SSE(v0.13.2),无持久化 | 挪入日志持久化包(依赖其 relay_logs 底座,避免查询层做两遍) |
 
 其余功能包(日志持久化、识别+主题+思考等级、Codex/Usage/渠道包)范围不变。
+
+## 勘误(2026-09-09):「识别+主题+思考等级」包范围收缩
+
+任务 `09-08-v2-feat-client-theme` 规划期与用户对齐后调整:
+
+| 原项 | 调整 | 理由 |
+|---|---|---|
+| 分组覆盖思考等级(`c912f5e` 的 Group 字段+编辑器+请求改写) | **不移植** | fork 落地后 4 个月零后续使用痕迹(仅一个 Select 空值崩溃修复);单人部署下等级在客户端可控(Claude Code MAX_THINKING_TOKENS 等),服务端强制覆盖是重复控制点;真实需求出现时纯增量补回(relay_logs.reasoning_effort 列已在 fork 完整形状中冻结,RelayConfig 加字段向后兼容) |
+| 思考等级对齐 xhigh/max(`7a37d98`) | **不移植代码** | axonhub 已原生支持 xhigh/max 全链映射(anthropic/gemini/openai),由库白拿 |
+| 日志思考等级展示(Badge) | **保留** | 纯可观测性:relay_logs.reasoning_effort 写客户端实际携带等级(含 fork 迁移历史存量值的展示) |
+
+客户端 UA 识别+图标、Claude 主题+选择器范围不变。

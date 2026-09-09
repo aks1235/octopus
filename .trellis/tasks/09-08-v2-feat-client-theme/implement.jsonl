@@ -1,1 +1,5 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "任务4 契约:relay_logs 23 列冻结(本任务只写值)、relayLogFinalize 挂钩模式(新增列值照此扩展)、前端 queryKey 纪律"}
+{"file": ".trellis/tasks/09-08-v2-feat-client-theme/research/fork_client_detect.go", "reason": "fork 客户端识别规则表原文(35+ 客户端+词边界匹配),移植蓝本"}
+{"file": ".trellis/tasks/09-08-v2-feat-client-theme/research/fork_client_detect_test.go", "reason": "fork 识别规则单测原文,移植蓝本"}
+{"file": ".trellis/tasks/09-08-v2-feat-client-theme/research/fork_ClientIcon.tsx", "reason": "fork 前端客户端图标组件原文(client→lucide 图标+品牌色+i18n),移植蓝本"}
+{"file": ".trellis/tasks/09-08-v2-feat-client-theme/research/fork_globals_css_after_theme.diff.txt", "reason": "fork Claude 主题 globals.css 完整 diff(light+dark 变量),移植蓝本"}

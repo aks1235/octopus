@@ -67,7 +67,7 @@ func TestRelayLogFinalize_assemblesFromTerminalState(t *testing.T) {
 
 	firstValidAt := time.Now().Add(-1 * time.Second)
 
-	relayLogFinalize(request, "grp-x", attempts, 0, "ua-test", firstValidAt)
+	relayLogFinalize(request, "grp-x", attempts, 0, "claude-code/1.0.6", "xhigh", firstValidAt)
 
 	logs := flushAndLoad(t)
 	if len(logs) != 1 {
@@ -97,8 +97,14 @@ func TestRelayLogFinalize_assemblesFromTerminalState(t *testing.T) {
 	if got.RequestContent != "RAW-REQUEST" || got.ResponseContent != "RESP-BODY" {
 		t.Errorf("content = %q/%q, want RAW-REQUEST/RESP-BODY", got.RequestContent, got.ResponseContent)
 	}
-	if got.UserAgent != "ua-test" {
-		t.Errorf("user agent = %q, want ua-test", got.UserAgent)
+	if got.UserAgent != "claude-code/1.0.6" {
+		t.Errorf("user agent = %q, want claude-code/1.0.6", got.UserAgent)
+	}
+	if got.ClientName != "claude-code" {
+		t.Errorf("client name = %q, want claude-code", got.ClientName)
+	}
+	if got.ReasoningEffort != "xhigh" {
+		t.Errorf("reasoning effort = %q, want xhigh", got.ReasoningEffort)
 	}
 	if got.Ftut <= 0 {
 		t.Errorf("ftut = %d, want > 0", got.Ftut)
@@ -125,7 +131,7 @@ func TestRelayLogFinalize_allFailedFallsBackToLastAttempt(t *testing.T) {
 	}
 	request.Error = "all members failed"
 
-	relayLogFinalize(request, "grp-y", attempts, 0, "", time.Time{})
+	relayLogFinalize(request, "grp-y", attempts, 0, "", "", time.Time{})
 
 	logs := flushAndLoad(t)
 	if len(logs) != 1 {
@@ -156,7 +162,7 @@ func TestRelayLogFinalize_emptyAttemptsModelFallback(t *testing.T) {
 	}
 	request.Error = "context canceled"
 
-	relayLogFinalize(request, "grp-z", nil, 0, "", time.Time{})
+	relayLogFinalize(request, "grp-z", nil, 0, "", "", time.Time{})
 
 	logs := flushAndLoad(t)
 	if len(logs) != 1 {

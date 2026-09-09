@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { RequestDetailDialog } from './RequestDetailDialog';
+import { ClientIconBadge, ReasoningEffortBadge } from './ClientIcon';
 
 const PAGE_SIZE = 20;
 
@@ -38,7 +39,9 @@ function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
             className="w-full text-left rounded-2xl border border-border bg-card p-4 transition-colors hover:bg-muted/40 cursor-pointer"
         >
             <div className="flex flex-wrap items-center gap-2">
+                <ClientIconBadge clientName={log.client_name} className="size-4" />
                 <span className="text-sm font-medium">{log.request_model_name}</span>
+                <ReasoningEffortBadge effort={log.reasoning_effort} />
                 {log.actual_model_name && log.actual_model_name !== log.request_model_name && (
                     <span className="text-xs text-muted-foreground">→ {log.actual_model_name}</span>
                 )}

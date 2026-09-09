@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useSettingStore } from '@/stores/setting';
 
 type Theme = 'light' | 'dark' | 'system';
 type ResolvedTheme = Exclude<Theme, 'system'>;
@@ -44,6 +45,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         );
         localStorage.setItem('theme', theme);
     }, [resolvedTheme, theme]);
+
+    // 风格(Claude)与明暗模式正交: 仅在非默认风格时打 data-theme 标记, 默认不带任何标记。
+    const themeStyle = useSettingStore((state) => state.themeStyle);
+    useEffect(() => {
+        document.documentElement.dataset.theme = themeStyle === 'claude' ? 'claude' : '';
+    }, [themeStyle]);
 
     const setTheme = (value: string) => {
         if (value === 'light' || value === 'dark' || value === 'system') {

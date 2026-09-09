@@ -33,6 +33,8 @@ export interface RelayLogOverview {
     target_protocol: number;
     sending: boolean;
     error?: string;
+    client_name?: string;
+    reasoning_effort?: string;
 }
 
 // useClearLogs 清空已完成的内存日志。

@@ -319,6 +319,11 @@
             },
             "clearHistorySuccess": "历史日志已清空",
             "clearHistoryFailed": "历史日志清空失败"
+        },
+        "themeStyle": {
+            "label": "风格",
+            "default": "默认",
+            "claude": "Claude"
         }
     },
     "group": {
@@ -476,6 +481,48 @@
             "noMore": "已加载 {loaded} 条",
             "requestTitle": "请求详情",
             "debugInfo": "调试信息"
+        },
+        "client": {
+            "claudeCode": "Claude Code",
+            "cline": "Cline",
+            "rooCode": "Roo Code",
+            "cursor": "Cursor",
+            "windsurf": "Windsurf",
+            "copilot": "GitHub Copilot",
+            "aider": "Aider",
+            "codex": "OpenAI Codex",
+            "continue": "Continue",
+            "amazonQ": "Amazon Q",
+            "augment": "Augment",
+            "amp": "Amp",
+            "autoCoder": "Auto-Coder",
+            "codebuddy": "CodeBuddy",
+            "codebuff": "CodeBuff",
+            "codegpt": "CodeGPT",
+            "crush": "Crush",
+            "factoryDroid": "Factory Droid",
+            "geminiCli": "Gemini CLI",
+            "geminiCodeAssist": "Gemini Code Assist",
+            "goose": "Goose",
+            "jules": "Jules",
+            "junie": "Junie",
+            "kiloCode": "Kilo Code",
+            "kiro": "Kiro",
+            "opencode": "OpenCode",
+            "openhands": "OpenHands",
+            "qoder": "Qoder",
+            "qwenCode": "Qwen Code",
+            "replit": "Replit",
+            "rovidev": "RovoDev",
+            "tabnine": "Tabnine",
+            "trae": "Trae",
+            "warp": "Warp",
+            "zed": "Zed",
+            "baiduComate": "文心快码",
+            "tongyiLingma": "通义灵码",
+            "anthropicTs": "Anthropic SDK",
+            "openaiPython": "OpenAI Python SDK",
+            "openaiJs": "OpenAI JS SDK"
         }
     },
     "channel": {

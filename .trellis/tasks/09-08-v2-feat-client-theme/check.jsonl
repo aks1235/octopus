@@ -1,1 +1,2 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/09-08-v2-feat-client-theme/prd.md", "reason": "验收标准清单(R1 图标落值/R2 主题组合/R3 覆盖与透传)与 D1 fork 原样语义决策"}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "检查红线:relay_logs 列形状与迁移未动、finalize 挂钩模式未被破坏、queryKey 纪律"}

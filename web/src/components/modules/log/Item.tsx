@@ -9,6 +9,7 @@ import { type RelayLogOverview, useLogRequestBody, useLogResponseBody, useStopRo
 import { useGroup, useUpdateGroup } from '@/api/group';
 import { Protocol } from '@/api/channel';
 import { getModelIcon } from '@/lib/model-icons';
+import { ClientIconBadge, ReasoningEffortBadge } from '@/components/modules/log/ClientIcon';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
@@ -180,9 +181,13 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
         <MorphingDialogContent className="relative w-[calc(100vw-2rem)] md:w-[80vw] bg-card text-card-foreground px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
             <MorphingDialogClose className="top-4 right-5 text-muted-foreground hover:text-foreground transition-colors" />
             <MorphingDialogTitle className="flex items-center gap-2 mb-3 text-sm">
-                <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
+                <span className="relative inline-flex shrink-0">
+                    <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
+                    <ClientIconBadge clientName={log.client_name} className="absolute -bottom-1 -right-1.5 size-3.5 rounded-full bg-card" />
+                </span>
                 <span className="text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
                 <span className="font-semibold text-card-foreground">{log.model || t('unknownModel')}</span>
+                <ReasoningEffortBadge effort={log.reasoning_effort} />
                 {log.status === 'running' || responseCommitted
                     ? <Loader2 className="size-3.5 animate-spin text-muted-foreground/50" />
                     : <ArrowRight className="size-3.5 text-muted-foreground/50" />}
@@ -423,13 +428,17 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                 )}
             >
                 <div className={cn("p-4 grid grid-cols-[auto_1fr] gap-4", requestFailed ? "items-start" : "items-center")}>
-                    <Icon aria-hidden="true" className={iconClassName} width={40} height={40} />
+                    <span className="relative inline-flex shrink-0">
+                        <Icon aria-hidden="true" className={iconClassName} width={40} height={40} />
+                        <ClientIconBadge clientName={log.client_name} className="absolute -bottom-1 -right-1.5 size-4 rounded-full bg-card" />
+                    </span>
                     <div className="min-w-0 flex flex-col gap-3">
                         <div className="flex items-center gap-2 min-w-0 text-sm">
                             <span className="shrink-0 text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
                             <span className="font-semibold text-card-foreground truncate">
                                 {log.model || t('unknownModel')}
                             </span>
+                            <ReasoningEffortBadge effort={log.reasoning_effort} />
                             {requestRunning
                                 ? <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground/50" />
                                 : <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />}

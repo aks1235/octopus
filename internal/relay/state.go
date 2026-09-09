@@ -35,6 +35,9 @@ type RequestState struct {
 	Usage     llm.Usage      `json:"usage"`      // 请求结束时写入的展示用量。
 	Cost      float64        `json:"cost"`       // 请求结束时写入的累计费用。
 
+	ClientName      string `json:"client_name,omitempty"`      // 从 User-Agent 识别的客户端标识, 如 claude-code; 未知为空。
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // 客户端请求携带的思考等级; 非推理请求为空。
+
 	Round          int            `json:"round"`            // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
 	TargetChannel  string         `json:"target_channel"`   // 最新一轮选中的渠道名称。
 	TargetModel    string         `json:"target_model"`     // 最新一轮实际请求上游的模型名称。
@@ -59,19 +62,21 @@ var (
 )
 
 // newRequestState 分配请求 ID 并登记初始运行状态; 返回的记录是本请求后续全部状态写入的入口。
-func newRequestState(modelName string, groupID int, protocol model.Protocol, body string, apiKeyID int) *RequestState {
+func newRequestState(modelName string, groupID int, protocol model.Protocol, body string, apiKeyID int, userAgent, reasoningEffort string) *RequestState {
 	mu.Lock()
 	defer mu.Unlock()
 
 	request := &RequestState{
-		ID:        idSeq.Add(1),
-		Status:    StatusRunning,
-		StartedAt: time.Now(),
-		Model:     modelName,
-		Protocol:  protocol,
-		GroupID:   groupID,
-		body:      body,
-		apiKeyID:  apiKeyID,
+		ID:              idSeq.Add(1),
+		Status:          StatusRunning,
+		StartedAt:       time.Now(),
+		Model:           modelName,
+		Protocol:        protocol,
+		GroupID:         groupID,
+		ClientName:      detectClient(userAgent),
+		ReasoningEffort: reasoningEffort,
+		body:            body,
+		apiKeyID:        apiKeyID,
 	}
 	requests[request.ID] = request
 	publishRequestLocked(request)
