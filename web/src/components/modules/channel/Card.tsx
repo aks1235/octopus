@@ -6,13 +6,15 @@ import {
     MorphingDialogDescription,
 } from '@/components/ui/morphing-dialog';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, DollarSign, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { CheckCircle2, DollarSign, History, Layers, MessageSquare, XCircle } from 'lucide-react';
 import dayjs from 'dayjs';
 import { type ChannelStatsFormatted, useEnableChannel } from '@/api/channel';
 import { usePageActionsStore } from '@/components/common/PageActions';
 import { ChannelStats } from './Stats';
 import { ChannelForm } from './Form';
+import { useChannelViewStore } from './detail-store';
 import { useTranslations } from 'use-intl';
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
@@ -21,6 +23,8 @@ import { useState } from 'react';
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
 export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     const t = useTranslations('channel.card');
+    const tCallDetail = useTranslations('channel.callDetail');
+    const setView = useChannelViewStore((s) => s.setView);
     // 布局是渠道页共享的视图选项, 直接取用而不由列表层层传入。
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
     const enableChannel = useEnableChannel();
@@ -106,6 +110,31 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                         </Tooltip>
                         <div className="flex shrink-0 items-center gap-1">
                             {healthBadge}
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-7"
+                                        aria-label={tCallDetail('open')}
+                                        onClick={(e) => {
+                                            // 阻止冒泡到 MorphingDialogTrigger, 避免同时打开渠道编辑弹窗。
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            setView({
+                                                mode: 'detail',
+                                                channelID: channel.channel_id,
+                                                channelName: channel.channel_name,
+                                            });
+                                        }}
+                                    >
+                                        <History className="size-3.5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={10} align="center">
+                                    {tCallDetail('open')}
+                                </TooltipContent>
+                            </Tooltip>
                             <Switch
                                 checked={channel.enabled}
                                 onCheckedChange={handleEnableChange}

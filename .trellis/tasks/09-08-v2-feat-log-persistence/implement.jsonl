@@ -1,1 +1,4 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/tasks/09-08-v2-feat-log-persistence/research/upstream-relay-hook.md", "reason": "上游 relay 主流程、终态调用点、attempts 插桩点、task/settings 机制——后端挂钩设计的直接依据"}
+{"file": ".trellis/tasks/09-08-v2-feat-log-persistence/research/frontend-log-modules.md", "reason": "两侧前端 log 模块对照、可平移文件清单、morph 旁路、融合改动面——前端实现直接依据"}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "dev-v2 构建/验证硬契约:容器内构建命令、ldflags 五注入点、-a 与挂载根目录等坑、octopus-verify 全流程"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本任务跨 DB/op/relay/handler/前端四层且新增 SSE/JSON 形状,跨层数据流自查"}

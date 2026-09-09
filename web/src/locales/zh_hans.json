@@ -304,7 +304,21 @@
                 "clearing": "清空中..."
             },
             "clearSuccess": "日志已清空",
-            "clearFailed": "清空失败"
+            "clearFailed": "清空失败",
+            "keep": {
+                "label": "保留历史日志"
+            },
+            "keepPeriod": {
+                "label": "保留天数",
+                "placeholder": "天数",
+                "invalid": "保留天数须为非负整数"
+            },
+            "clearLive": {
+                "label": "清空实时日志",
+                "button": "清空"
+            },
+            "clearHistorySuccess": "历史日志已清空",
+            "clearHistoryFailed": "历史日志清空失败"
         }
     },
     "group": {
@@ -426,7 +440,42 @@
             "stopFailed": "停止当前轮次失败",
             "waitingChannelSelection": "正在等待选择渠道",
             "waitingResponse": "正在等待上游响应",
-            "responseStreaming": "上游已响应，流式传输正在进行"
+            "responseStreaming": "上游已响应，流式传输正在进行",
+            "attempts": "{count} 次尝试",
+            "cached": "缓存 {count}",
+            "ftut": "首字"
+        },
+        "tabs": {
+            "live": "实时",
+            "history": "历史"
+        },
+        "history": {
+            "filterAPIKey": "API Key",
+            "filterModel": "模型",
+            "searchPlaceholder": "搜索...",
+            "filterEmpty": "无匹配项",
+            "selectAll": "全选",
+            "deselectAll": "取消全选",
+            "onlyErrors": "仅看错误",
+            "refresh": "刷新",
+            "loadFailed": "历史日志加载失败",
+            "empty": "暂无历史日志",
+            "clear": "清空历史",
+            "clearing": "清空中...",
+            "noMore": "已加载 {loaded} 条"
+        },
+        "channelAttempts": {
+            "total": "共 {count} 次调用",
+            "statusSuccess": "成功",
+            "statusFailed": "失败",
+            "statusCircuitBreak": "熔断",
+            "statusSkipped": "跳过",
+            "truncatedTip": "数量较多,仅展示最近记录",
+            "loadFailed": "加载失败",
+            "loadMore": "加载更多",
+            "noMore": "已加载 {loaded} 条",
+            "requestTitle": "请求详情",
+            "debugInfo": "调试信息"
         }
     },
     "channel": {
@@ -505,6 +554,14 @@
             "grantClearAll": "清空全部模型",
             "modelRemove": "移除模型",
             "grantRemove": "移除该凭据的授权"
+        },
+        "callDetail": {
+            "back": "返回",
+            "empty": "保留期内暂无调用记录",
+            "open": "调用详情",
+            "openRequestHint": "查看请求详情",
+            "stickyHint": "会话保持",
+            "title": "调用详情"
         }
     }
 }

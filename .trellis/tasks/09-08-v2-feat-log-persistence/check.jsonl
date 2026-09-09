@@ -1,1 +1,3 @@
-{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "验证阶段对照构建契约:容器编译、前端 lint+build、smoke 8081、marker 规则"}
+{"file": ".trellis/tasks/09-08-v2-feat-log-persistence/prd.md", "reason": "AC1-8 逐条验收清单"}
+{"file": ".trellis/tasks/09-08-v2-feat-log-persistence/design.md", "reason": "§7 行为差异与 §9 验收映射,检查实现未偏离设计(尤其上游接口零改动、行级 SSE 不移植)"}

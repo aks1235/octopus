@@ -304,7 +304,21 @@
                 "clearing": "清空中..."
             },
             "clearSuccess": "日誌已清空",
-            "clearFailed": "清空失敗"
+            "clearFailed": "清空失敗",
+            "keep": {
+                "label": "保留歷史日誌"
+            },
+            "keepPeriod": {
+                "label": "保留天數",
+                "placeholder": "天數",
+                "invalid": "保留天數須為非負整數"
+            },
+            "clearLive": {
+                "label": "清空即時日誌",
+                "button": "清空"
+            },
+            "clearHistorySuccess": "歷史日誌已清空",
+            "clearHistoryFailed": "歷史日誌清空失敗"
         }
     },
     "group": {
@@ -426,7 +440,42 @@
             "stopFailed": "停止目前輪次失敗",
             "waitingChannelSelection": "正在等待選擇供應源",
             "waitingResponse": "正在等待上游回應",
-            "responseStreaming": "上游已回應，串流傳輸正在進行"
+            "responseStreaming": "上游已回應，串流傳輸正在進行",
+            "attempts": "{count} 次嘗試",
+            "cached": "快取 {count}",
+            "ftut": "首字"
+        },
+        "tabs": {
+            "live": "即時",
+            "history": "歷史"
+        },
+        "history": {
+            "filterAPIKey": "API Key",
+            "filterModel": "模型",
+            "searchPlaceholder": "搜尋...",
+            "filterEmpty": "無匹配項",
+            "selectAll": "全選",
+            "deselectAll": "取消全選",
+            "onlyErrors": "僅看錯誤",
+            "refresh": "重新整理",
+            "loadFailed": "歷史日誌載入失敗",
+            "empty": "暫無歷史日誌",
+            "clear": "清空歷史",
+            "clearing": "清空中...",
+            "noMore": "已載入 {loaded} 條"
+        },
+        "channelAttempts": {
+            "total": "共 {count} 次調用",
+            "statusSuccess": "成功",
+            "statusFailed": "失敗",
+            "statusCircuitBreak": "熔斷",
+            "statusSkipped": "跳過",
+            "truncatedTip": "數量較多,僅展示最近記錄",
+            "loadFailed": "載入失敗",
+            "loadMore": "載入更多",
+            "noMore": "已載入 {loaded} 條",
+            "requestTitle": "請求詳情",
+            "debugInfo": "除錯資訊"
         }
     },
     "channel": {
@@ -505,6 +554,14 @@
             "grantClearAll": "清空全部模型",
             "modelRemove": "移除模型",
             "grantRemove": "移除該憑據的授權"
+        },
+        "callDetail": {
+            "back": "返回",
+            "empty": "保留期內暫無調用記錄",
+            "open": "調用詳情",
+            "openRequestHint": "查看請求詳情",
+            "stickyHint": "會話保持",
+            "title": "調用詳情"
         }
     }
 }

@@ -15,11 +15,16 @@ const (
 	TaskStatsSave      = "stats_save"
 	TaskCleanLLM       = "clean_llm"
 	TaskGroupRegexSync = "group_regex_sync"
+	TaskRelayLogSave   = "relay_log_save"
 )
 
 // groupRegexSyncInterval 分组成员正则兜底任务的重算间隔。
 // 常量间隔不暴露设置: 渠道增删改与分组编辑已有即时重算, 定时只兜漏算, 无需人工调参。
 const groupRegexSyncInterval = 5 * time.Minute
+
+// relayLogSaveInterval 转发日志周期落盘间隔。
+// 缓冲满 20 条的主动 flush 是主路径, 定时只兜低流量时段的滞留与按保留期清理, 无需人工调参。
+const relayLogSaveInterval = time.Minute
 
 func Init() {
 	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
@@ -61,4 +66,7 @@ func Init() {
 		return
 	}
 	Register(string(model.SettingKeyHealthCheckInterval), time.Duration(healthCheckIntervalMinutes)*time.Minute, false, ChannelHealthCheckTask)
+
+	// 注册转发日志周期落盘任务: flush 滞留缓冲 + 按保留期清理过期行。
+	Register(TaskRelayLogSave, relayLogSaveInterval, false, op.RelayLogSaveDBTask)
 }

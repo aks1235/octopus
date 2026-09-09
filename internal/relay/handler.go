@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/charmbracelet/log"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
@@ -74,10 +76,20 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		}
 
 		// 登记进程内请求状态, 返回的记录是后续全部状态写入和前端可视化推送的入口。
-		request := newRequestState(metadata.Model, group.ID, requestProtocol, string(raw.Body), c.GetInt("api_key_id"))
+		apiKeyID := c.GetInt("api_key_id")
+		request := newRequestState(metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID)
 		ctx := c.Request.Context()
 		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
 		failures := 0     // 该成员包含首次请求的连续失败次数。
+
+		// 转发日志的采集与落库: attempts 记录每轮实际发起的上游尝试(等待型轮次不记),
+		// 终态出函数时统一组装落库。闭包捕获变量本身, 终值即为全量。
+		var attempts []model.ChannelAttempt
+		var firstValidAt time.Time // 首次取得可提交响应的时刻, 作为日志的首字时间。
+		userAgent := c.Request.UserAgent()
+		defer func() {
+			relayLogFinalize(request, metadata.Model, attempts, apiKeyID, userAgent, firstValidAt)
+		}()
 
 		for {
 			if ctx.Err() != nil {
@@ -195,6 +207,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			if err != nil {
 				// 记录本轮上游调用已经结束及其失败原因。
 				request.finishRound(err.Error())
+				attempts = append(attempts, model.ChannelAttempt{
+					ChannelID:        channel.ID,
+					ChannelKeyID:     channelKey.ID,
+					ChannelName:      channel.Name,
+					ChannelKeyRemark: channelKey.Name,
+					ModelName:        channelModel.Name,
+					AttemptNum:       len(attempts) + 1,
+					Status:           model.AttemptFailed,
+					Duration:         int(time.Since(roundStartedAt).Milliseconds()),
+					Msg:              err.Error(),
+				})
 				// 父上下文结束说明客户端已经取消, 归还探测占用并以取消终态结束请求。
 				if ctx.Err() != nil {
 					releaseRouteProbe(group, item.ID)
@@ -232,6 +255,19 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			// 记录本轮已经取得可提交的上游响应。
 			request.finishRound("")
 			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式响应只统计等待首帧的时间。
+			if firstValidAt.IsZero() {
+				firstValidAt = time.Now()
+			}
+			attempts = append(attempts, model.ChannelAttempt{
+				ChannelID:        channel.ID,
+				ChannelKeyID:     channelKey.ID,
+				ChannelName:      channel.Name,
+				ChannelKeyRemark: channelKey.Name,
+				ModelName:        channelModel.Name,
+				AttemptNum:       len(attempts) + 1,
+				Status:           model.AttemptSuccess,
+				Duration:         int(roundWaitTime),
+			})
 			// 上游成功后解除该成员的冷却与探测占用, 并按路由配置开始亲和。
 			recordRouteSuccess(group, item.ID)
 			// 同协议透传时原样返回上游响应头; 跨协议响应没有需要透传的响应头。
@@ -345,6 +381,69 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			request.markSucceeded(string(responseBody), result.usage)
 			return
 		}
+	}
+}
+
+// relayLogFinalize 在请求终态后组装一条转发日志并落库。
+// 上游请求状态(RequestState)只在内存保留最近若干条, 历史回溯与渠道调用明细依赖此处的持久化;
+// 取消与失败的请求同样落库, 与 fork 语义一致(空 attempts 表示请求未真正发往任何上游)。
+func relayLogFinalize(request *RequestState, requestModel string, attempts []model.ChannelAttempt, apiKeyID int, userAgent string, firstValidAt time.Time) {
+	relayLog := model.RelayLog{
+		Time:             request.StartedAt.Unix(),
+		RequestModelName: requestModel,
+		Attempts:         attempts,
+		TotalAttempts:    len(attempts),
+		UseTime:          int(request.Duration.Milliseconds()),
+		Error:            request.Error,
+		UserAgent:        userAgent, // 客户端识别(UA 解析)属客户端主题包, 此处仅留痕原始头, client_name 暂空。
+		RequestContent:   request.body,
+		ResponseContent:  request.responseBody,
+	}
+
+	// 最终渠道取最后一次成功尝试, 无成功尝试时取最后一次尝试, 与 fork saveLog 语义一致。
+	lastID, lastName, actualModel := 0, "", ""
+	for _, a := range attempts {
+		if a.Status == model.AttemptSuccess {
+			lastID, lastName, actualModel = a.ChannelID, a.ChannelName, a.ModelName
+		}
+	}
+	if lastID == 0 && len(attempts) > 0 {
+		last := attempts[len(attempts)-1]
+		lastID, lastName, actualModel = last.ChannelID, last.ChannelName, last.ModelName
+	}
+	if lastName == "" && lastID > 0 {
+		lastName = fmt.Sprintf("channel_%d", lastID)
+	}
+	relayLog.ChannelId = lastID
+	relayLog.ChannelName = lastName
+	if actualModel == "" {
+		actualModel = requestModel
+	}
+	relayLog.ActualModelName = actualModel
+
+	if apiKeyID > 0 {
+		if apiKey, err := op.APIKeyGet(apiKeyID, context.Background()); err == nil {
+			relayLog.RequestAPIKeyName = apiKey.Name
+		}
+	}
+
+	// 用量与费用取请求状态定稿值, 不重算; 缓存命中/写入拆自 PromptTokensDetails。
+	usage := request.Usage
+	relayLog.InputTokens = int(usage.PromptTokens)
+	relayLog.OutputTokens = int(usage.CompletionTokens)
+	relayLog.Cost = request.Cost
+	if usage.PromptTokensDetails != nil {
+		relayLog.CachedTokens = int(usage.PromptTokensDetails.CachedTokens)
+		relayLog.CacheCreationTokens = int(usage.PromptTokensDetails.WriteCachedTokens)
+	}
+
+	// 首字时间为首次取得可提交响应的时刻, 多轮重试时含前面轮次的耗时, 与 fork 语义一致。
+	if !firstValidAt.IsZero() {
+		relayLog.Ftut = int(firstValidAt.Sub(request.StartedAt).Milliseconds())
+	}
+
+	if err := op.RelayLogAdd(context.Background(), relayLog); err != nil {
+		log.Warnf("failed to save relay log: %v", err)
 	}
 }
 

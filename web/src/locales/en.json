@@ -304,7 +304,21 @@
                 "clearing": "Clearing..."
             },
             "clearSuccess": "Logs cleared",
-            "clearFailed": "Failed to clear logs"
+            "clearFailed": "Failed to clear logs",
+            "keep": {
+                "label": "Keep history logs"
+            },
+            "keepPeriod": {
+                "label": "Retention days",
+                "placeholder": "days",
+                "invalid": "Retention days must be a non-negative integer"
+            },
+            "clearLive": {
+                "label": "Clear live logs",
+                "button": "Clear"
+            },
+            "clearHistorySuccess": "History logs cleared",
+            "clearHistoryFailed": "Failed to clear history logs"
         }
     },
     "group": {
@@ -426,7 +440,42 @@
             "stopFailed": "Failed to stop current round",
             "waitingChannelSelection": "Waiting for channel selection",
             "waitingResponse": "Waiting for upstream response",
-            "responseStreaming": "Upstream responded; streaming is in progress"
+            "responseStreaming": "Upstream responded; streaming is in progress",
+            "attempts": "{count} attempts",
+            "cached": "Cached {count}",
+            "ftut": "FTUT"
+        },
+        "tabs": {
+            "live": "Live",
+            "history": "History"
+        },
+        "history": {
+            "filterAPIKey": "API Key",
+            "filterModel": "Model",
+            "searchPlaceholder": "Search...",
+            "filterEmpty": "No matches",
+            "selectAll": "Select all",
+            "deselectAll": "Deselect all",
+            "onlyErrors": "Errors only",
+            "refresh": "Refresh",
+            "loadFailed": "Failed to load history",
+            "empty": "No history logs",
+            "clear": "Clear history",
+            "clearing": "Clearing...",
+            "noMore": "{loaded} entries loaded"
+        },
+        "channelAttempts": {
+            "total": "{count} calls",
+            "statusSuccess": "Success",
+            "statusFailed": "Failed",
+            "statusCircuitBreak": "Circuit break",
+            "statusSkipped": "Skipped",
+            "truncatedTip": "Too many records, only recent ones shown",
+            "loadFailed": "Failed to load",
+            "loadMore": "Load more",
+            "noMore": "{loaded} entries loaded",
+            "requestTitle": "Request Detail",
+            "debugInfo": "Debug Info"
         }
     },
     "channel": {
@@ -505,6 +554,14 @@
             "grantClearAll": "Clear all models",
             "modelRemove": "Remove model",
             "grantRemove": "Remove this key’s grant"
+        },
+        "callDetail": {
+            "back": "Back",
+            "empty": "No calls within retention period",
+            "open": "Call detail",
+            "openRequestHint": "View request detail",
+            "stickyHint": "Sticky session",
+            "title": "Call Detail"
         }
     }
 }

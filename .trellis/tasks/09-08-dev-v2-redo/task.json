@@ -25,7 +25,8 @@
     "09-08-v2-feat-log-persistence",
     "09-08-v2-feat-client-theme",
     "09-08-v2-feat-codex-usage",
-    "09-08-v2-smoke-switch"
+    "09-08-v2-smoke-switch",
+    "09-09-v2-fix-channel-disable-routing"
   ],
   "parent": null,
   "relatedFiles": [],

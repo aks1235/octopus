@@ -6,6 +6,8 @@ import { PageActions, usePageActionsStore } from '@/components/common/PageAction
 import { MorphingDialogDescription } from '@/components/ui/morphing-dialog';
 import { Card } from './Card';
 import { ChannelForm } from './Form';
+import { ChannelCallDetail } from './CallDetail';
+import { useChannelViewStore } from './detail-store';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 
 // ChannelActions 向稳定顶栏提供渠道页面的搜索、视图选项和创建入口。
@@ -53,8 +55,9 @@ export function ChannelActions() {
     );
 }
 
-// Channel 渲染渠道列表正文。
+// Channel 渲染渠道列表正文; 调用详情视图(detail)时整页替换, 模块内自路由不动主导航。
 export function Channel() {
+    const view = useChannelViewStore((s) => s.view);
     const { data: statsData } = useChannelStats();
     const searchTerm = usePageActionsStore((state) => state.searchTerms.channel || '');
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
@@ -79,6 +82,9 @@ export function Channel() {
     }, [statsData, searchTerm, filter, sortOrder]);
 
     return (
+        view.mode === 'detail' ? (
+            <ChannelCallDetail channelID={view.channelID} channelName={view.channelName} />
+        ) : (
         <VirtualizedGrid
             items={visibleChannels}
             layout={layout}
@@ -89,5 +95,6 @@ export function Channel() {
                 <Card channel={channel} />
             )}
         />
+        )
     );
 }

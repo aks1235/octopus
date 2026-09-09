@@ -24,7 +24,7 @@
 1. `09-08-v2-baseline-assets` — ✅ 完成(2026-09-08,commit `e86d8d9`:基线+资产+指向+lint 修复;smoke 8081 验证过,marker 已写;生产 compose 事故已复盘——同目录 compose 项目名冲突,已用独立 name 修复)
 2. `09-08-v2-db-migration` — ✅ 完成(2026-09-08:`scripts/migrate_v1_to_v2.py` 落地;副本演练对账全绿 117/117/2236/2236/10/233;容器加载+真实上游选路 200;幂等+新快照重跑通过;发现并修复 base_url `/v1` 双叠坑(echo 实验实证);条件携带路径已用合成模板实测 1285 条;用户页面检查通过)
 3. `09-08-v2-feat-ops-obs` — ✅ 完成(2026-09-09:渠道健康检查+失败自动禁用/解禁、分组正则成员落地;②⑤验证上游原生覆盖关闭;范围裁定详见 ADR-0002 勘误;AC1-7 全实测过,人审 UI 确认)
-4. `09-08-v2-feat-log-persistence` — 日志持久化包(须拦截 migrate/009 删表;含渠道调用详情页——2026-09-09 自任务3 挪入,对照 `f551b95`)
+4. `09-08-v2-feat-log-persistence` — ✅ 完成(2026-09-09:009 删表拦截+RelayLog 全列(fork 形状)建表;relay 终态 defer finalize 落库+attempts 插桩;历史查询四接口+同页 tab(实时零改动)+渠道调用详情页;fork 行级 SSE 裁剪不移植;单测 10 个;迁移演练 1285 条全量「转换」零丢列、设置交集补带 relay_log_keep_*;cleanup/开关容器实测;UI 人审通过;规划期发现渠道禁用不生效缺陷,另立 `09-09-v2-fix-channel-disable-routing`)
 5. `09-08-v2-feat-client-theme` — 客户端识别+主题+思考等级
 6. `09-08-v2-feat-codex-usage` — Codex OAuth+Usage Card+渠道包
 7. `09-08-v2-smoke-switch` — 冒烟矩阵+停机切换发 v2.0.0(最终前置:1-6 全部完成)

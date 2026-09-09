@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import { Loader2, Logs } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useLogs } from '@/api/log';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LogCard } from './Item';
+import { HistoryPanel } from './HistoryPanel';
 
-// Log 展示进程内日志概览，并按 RequestID 实时更新卡片。
-export function Log() {
+/** 实时区: 进程内日志概览, 按 RequestID 实时更新卡片(上游原生形态, 零改动)。 */
+function LivePanel() {
     const t = useTranslations('log');
     const { logs, isLoading, error } = useLogs();
 
@@ -44,6 +47,27 @@ export function Log() {
                     renderItem={(log) => <LogCard log={log} />}
                 />
             </div>
+        </div>
+    );
+}
+
+// Log 页: 实时流(进程内概览) + 历史(持久化日志回溯)两个视角。
+export function Log() {
+    const t = useTranslations('log');
+    const [tab, setTab] = useState<'live' | 'history'>('live');
+
+    return (
+        <div className="flex h-full min-h-0 flex-col gap-3">
+            <Tabs value={tab} onValueChange={(value) => setTab(value as 'live' | 'history')} className="flex h-full min-h-0 flex-col gap-3">
+                <TabsList variant="text" className="p-0 self-start shrink-0">
+                    <TabsTrigger value="live">{t('tabs.live')}</TabsTrigger>
+                    <TabsTrigger value="history">{t('tabs.history')}</TabsTrigger>
+                </TabsList>
+                <div className="min-h-0 flex-1">
+                    {tab === 'live' && <LivePanel />}
+                    {tab === 'history' && <HistoryPanel />}
+                </div>
+            </Tabs>
         </div>
     );
 }

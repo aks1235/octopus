@@ -62,6 +62,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.GroupItem{},
 		&model.LLMInfo{},
 		&model.APIKey{},
+		&model.RelayLog{},
 		&model.Setting{},
 		&model.StatsTotal{},
 		&model.StatsDaily{},

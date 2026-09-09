@@ -44,6 +44,9 @@ SETTINGS_INTERSECTION = (
     "stats_save_interval",
     "cors_allow_origins",
     "model_info_update_interval",
+    # 日志保留设置随日志持久化包(任务4)落地后加入交集, fork 侧用户的保留天数偏好随之带走
+    "relay_log_keep_enabled",
+    "relay_log_keep_period",
 )
 
 # v2 relay_config 六字段默认值(见 internal/model/group.go DefaultGroupRelayConfig)
@@ -93,8 +96,8 @@ DROPPED_FIELDS_SUMMARY = (
     " first_token_time_out/retry_interval/session_keep_time 语义并入 relay_config",
     "group_items   : weight",
     "llm_infos     : context_length, max_output_tokens",
-    "settings      : 其余 8 键属功能包(sync_llm_interval/relay_log_keep_period/"
-    "relay_log_keep_enabled/circuit_breaker_*/sync_fail_threshold/group_reconcile_interval)",
+    "settings      : 其余 6 键属功能包(sync_llm_interval/circuit_breaker_*/"
+    "sync_fail_threshold/group_reconcile_interval)",
     "统计          : fork 8 张 stats 历史表不带(ADR-0005),渠道/凭据/模型统计列全部置 0",
 )
 
