@@ -86,3 +86,25 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: 任务4:日志持久化+渠道调用详情页移植完成
+
+**Date**: 2026-09-09
+**Task**: 任务4:日志持久化+渠道调用详情页移植完成
+**Branch**: `dev-v2`
+
+### Summary
+
+完成 09-08-v2-feat-log-persistence 全流程:规划(prd/design/implement+双调研落盘)→实施(009 拦截、RelayLog 23 列、relay 终态 defer finalize 落库+attempts 插桩、历史查询四接口、前端同页 tab+渠道调用详情、i18n 三语、迁移脚本设置交集补带)→验证(13 单测、迁移演练 1285 条全量转换零丢列、cleanup/开关实测、SSE 回归、octopus-verify 闭环+两轮人审)。规划期发现渠道级禁用在选路链无检查(任务3 缺陷,自动禁用无实际止损),另立 09-09-v2-fix-channel-disable-routing。spec 沉淀 backend/relay-log-persistence.md(表形状冻结/回滚规程/条件携带迁移,任务5/6/7 依赖)。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cfb1091` | (see git log) |
+| `6d92dc4` | (see git log) |
+
+### Status
+
+[OK] **Completed**
