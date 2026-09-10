@@ -47,6 +47,8 @@ ldflags 注入点(module 路径 `github.com/bestruirui/octopus`,五个全注,缺
 | `go test ./...` 全输出 `[no test files]` | 上游 v0.13.2 无任何测试,**这是正常输出但不是质量证明**;回归验证只能靠 octopus-verify 冒烟闭环 |
 | 上游文件出现 lint 错 | 上游 CI 不跑 lint(v0.13.2 自带 3 错已修:`ItemList.tsx` 未用变量、`chart.tsx` fast-refresh)。新出现的按最小修复原则处理并记录偏离 |
 | vite build 后 `git status` 出现 `D static/out/README.md` | emptyOutDir 清掉跟踪占位,提交前 `git checkout -- static/out/README.md` 还原(已知噪音) |
+| 只跑 `docker compose build` 就起容器 | **镜像里还是旧代码**。Dockerfile.alpine 仅 `COPY build/docker/${TARGETPLATFORM}/octopus` 预编译二进制(前端经 go:embed 嵌入),compose build 不编译任何东西——改代码后必须先走「前端构建→后端 `-a` 编译产出该路径二进制」,再 compose build(2026-09-10 冒烟实测踩中,服务旧 UI) |
+| 验证"服务端跑的是新代码"只看 index.html 引用的 JS | 懒加载分包(如 `channel-*.js`)不在 index.html 里,且同前缀有多分包(1KB/26KB 各一)。按宿主 `static/out/assets/` 产物名逐个 curl 验证,取内容命中的那个 |
 
 ### 5. Good/Base/Bad Cases
 

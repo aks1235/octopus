@@ -57,7 +57,8 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         keys: channel.keys.map(({ name, key, enabled }) => ({ name, key, enabled })),
         models: [...channel.models],
         grants: new Map(channel.grants.map((g) => [grantKey(g.model_name, g.key_name), g.protocols])),
-        custom_header: channel.custom_header,
+        // 后端 nil 切片会序列化成 null(迁移库 101/118 渠道如此), 归一成空数组, 否则高级步骤的 .map 与测试路径的 .filter 会在 null 上崩溃。
+        custom_header: channel.custom_header ?? [],
         channel_proxy: channel.channel_proxy,
         param_override: channel.param_override,
         match_regex: channel.match_regex,
@@ -83,20 +84,25 @@ export function toChannelConfig(state: ChannelFormState) {
     };
 }
 
+// toGrantConfigs 生成表单状态里的授权清单; 提交与凭据测试共用, 测试按它精确取「模型 x 凭据」的协议位。
+// 协议位为空的条目不是授权, 在此丢弃。
+export function toGrantConfigs(state: ChannelFormState) {
+    return [...state.grants]
+        .filter(([, protocols]) => protocols !== 0)
+        .map(([mapKey, protocols]) => {
+            const [model_name, key_name] = mapKey.split('\0');
+            return { model_name, key_name, protocols };
+        });
+}
+
 // toChannelDetail 把表单状态还原为提交用的完整配置; 创建时 id 取 0, 由后端分配。
 // 读写同构, 提交即全量: 无需与原渠道逐字段比对, 表单本就一次给出完整配置。
-// 协议位为空的条目不是授权, 在此丢弃。
 export function toChannelDetail(state: ChannelFormState, id: number): ChannelDetail {
     return {
         ...toChannelConfig(state),
         id,
         keys: state.keys.map(({ name, key, enabled }) => ({ name: name.trim(), key: key.trim(), enabled })),
         models: [...state.models],
-        grants: [...state.grants]
-            .filter(([, protocols]) => protocols !== 0)
-            .map(([mapKey, protocols]) => {
-                const [model_name, key_name] = mapKey.split('\0');
-                return { model_name, key_name, protocols };
-            }),
+        grants: toGrantConfigs(state),
     };
 }

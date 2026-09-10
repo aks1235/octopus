@@ -556,7 +556,9 @@
             "edit": "Edit",
             "delete": "Delete",
             "confirmDelete": "Confirm Delete",
-            "cancel": "Cancel"
+            "cancel": "Cancel",
+            "keys": "Credentials",
+            "keyDisabled": "Disabled"
         },
         "form": {
             "stepPreset": "Start",
@@ -600,7 +602,11 @@
             "backToStats": "Back to Stats",
             "grantClearAll": "Clear all models",
             "modelRemove": "Remove model",
-            "grantRemove": "Remove this key’s grant"
+            "grantRemove": "Remove this key’s grant",
+            "keyTest": "Test",
+            "keyTestAll": "Test all models",
+            "keyTestFailed": "Test request failed",
+            "keyTestRetest": "Retest this model"
         },
         "callDetail": {
             "back": "Back",

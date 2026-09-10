@@ -556,7 +556,9 @@
             "edit": "編輯",
             "delete": "刪除",
             "confirmDelete": "確認刪除",
-            "cancel": "取消"
+            "cancel": "取消",
+            "keys": "憑證",
+            "keyDisabled": "已停用"
         },
         "form": {
             "stepPreset": "開始",
@@ -600,7 +602,11 @@
             "backToStats": "返回統計",
             "grantClearAll": "清空全部模型",
             "modelRemove": "移除模型",
-            "grantRemove": "移除該憑據的授權"
+            "grantRemove": "移除該憑據的授權",
+            "keyTest": "測試",
+            "keyTestAll": "測全部模型",
+            "keyTestFailed": "測試請求失敗",
+            "keyTestRetest": "重測該模型"
         },
         "callDetail": {
             "back": "返回",

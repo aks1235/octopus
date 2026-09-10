@@ -12,6 +12,7 @@ import (
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/probe"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -30,6 +31,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/stats", http.MethodGet).
 				Handle(listChannelStats),
+		).
+		AddRoute(
+			router.NewRoute("/key-stats/:id", http.MethodGet).
+				Handle(getChannelKeyStats),
 		).
 		AddRoute(
 			router.NewRoute("/grants", http.MethodGet).
@@ -54,6 +59,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/fetch-model", http.MethodPost).
 				Handle(fetchModel),
+		).
+		AddRoute(
+			router.NewRoute("/test-key", http.MethodPost).
+				Handle(testKey),
 		)
 }
 
@@ -77,6 +86,22 @@ func getChannelDetail(c *gin.Context) {
 // 不带整份配置: 统计每次转发都在变, 界面按更短的间隔刷新它, 而路径, 代理与凭据明文只在编辑时用得上。
 func listChannelStats(c *gin.Context) {
 	resp.Success(c, op.ChannelStatsList())
+}
+
+// getChannelKeyStats 返回单个渠道各凭据的累计统计, 供统计页按凭据维度查看。
+// 与渠道统计同口径: 直接给出转发链路累加的原始七列, 不做聚合与趋势。
+func getChannelKeyStats(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	keys, err := op.ChannelKeyStatsList(id)
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	resp.Success(c, keys)
 }
 
 // listChannelGrant 返回全部渠道授权候选, 供分组页选取成员。
@@ -283,4 +308,46 @@ func fetchModel(c *gin.Context) {
 		models = append(models, model.ChannelFetchModel{Name: name, Protocols: protocolsByModel[name]})
 	}
 	resp.Success(c, models)
+}
+
+// testKey 按提交的渠道配置与凭据对指定模型逐个发起最小真实请求, 返回逐模型的连通性结果。
+// 请求经转发链路同一套出站构造(buildOutbound)发往上游, 测到的即真实转发的可用性;
+// 与凭据探测(GET /models 拉列表)互补: 探测确认"列得出模型", 此处确认"调得通模型"。
+// 协议位按提交授权里"模型 x 凭据"的实际位精确试测, 逐模型各落一条测试日志(客户端标识"面板测试")。
+// 测试请求产生真实计费消耗(生成上限 1 token 量级), 仅由人工在界面上触发, 无定时任务调用。
+func testKey(c *gin.Context) {
+	var request model.ChannelTestKeyRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	ctx := c.Request.Context()
+	// 测试收的是尚未落库的提交配置, 不经 normalizeChannelConfig, 故在此自行去空白;
+	// 其中只有地址是硬需求: 渠道尚未命名时也可测试, 模型清单由调用方按单模型或全模型给出。
+	target := request.Channel
+	target.BaseURL = strings.TrimSpace(target.BaseURL)
+	target.ChannelProxy = strings.TrimSpace(target.ChannelProxy)
+	if target.BaseURL == "" {
+		resp.Error(c, http.StatusBadRequest, "channel base url is required")
+		return
+	}
+	key := strings.TrimSpace(request.Key)
+	if key == "" {
+		resp.Error(c, http.StatusBadRequest, "key is required")
+		return
+	}
+	models := make([]string, 0, len(request.Models))
+	for _, modelName := range request.Models {
+		if modelName = strings.TrimSpace(modelName); modelName != "" {
+			models = append(models, modelName)
+		}
+	}
+	if len(models) == 0 {
+		resp.Error(c, http.StatusBadRequest, "models are required")
+		return
+	}
+
+	// 表单渠道尚未保存时主键为 0, 名称用表单名: 测试日志照写, 凭据名与授权一并携带供协议位精确化。
+	results := relay.TestChannelKey(ctx, model.Channel{ID: request.ChannelID, ChannelConfig: target}, key, request.KeyName, models, request.Grants)
+	resp.Success(c, results)
 }

@@ -205,7 +205,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                         </div>
                     )}
 
-                    {step === 'keys' && <FormKeys state={state} setState={setState} />}
+                    {step === 'keys' && <FormKeys state={state} setState={setState} channelId={channel?.id ?? 0} />}
                     {step === 'grants' && <FormGrants state={state} setState={setState} />}
 
                     {step === 'advanced' && (

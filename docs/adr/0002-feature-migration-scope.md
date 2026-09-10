@@ -46,6 +46,25 @@ dev(fork)自 2026-04 基点后累计 180+ 自有/chenjh commit。经逐项与上
 
 其余功能包(日志持久化、识别+主题+思考等级、Codex/Usage/渠道包)范围不变。
 
+## 勘误(2026-09-09):「Codex/Usage/渠道包」范围收缩
+
+任务 `09-08-v2-feat-codex-usage` 规划期经 fork 生产库只读核对(usage_cards 0 行、o_auth_sessions 0 行、JSON 凭证 key 0 条——117 个 key 全为普通 API key,5 个名字带 codex 的渠道均为中转站渠道)与用户两轮对齐:
+
+| 原项 | 调整 | 理由 |
+|---|---|---|
+| Codex OAuth 渠道(`c9ba27f` 系) | **推迟,不移植** | 生产零 OAuth 账号、用户无官方 Codex 订阅;axonhub/llm 库白拿复活路径已存档(任务 research/upstream-v2-reality.md §6),复活时授权模式预选设备码流 |
+| Usage Card(`73a13a2`/`c9ba27f`/`4237d00`/`e873006`) | **推迟,不移植** | 生产 0 张卡片;表不建,迁移条件携带(migrate_v1_to_v2.py CONDITIONAL_TABLES)自然跳过 |
+| auth 文件导入(`c9ba27f`/`ef1a854`/`6f5d8e9`) | **推迟,不移植** | 依附 Codex 渠道,同命运 |
+| Key 轮询(`ba5deca` 轮询语义) | **不做** | 用户无多账号、无摊配额需求(生产 key:channel≈1:1);上游 sticky+冷却原生兜底 |
+| 密钥行 Switch(`bb33f79`) | **不移植,原生关闭** | 上游 FormKeys.tsx:113 凭据行已有 enabled Switch |
+| 模型连通性测试+选择对话框(`f9534b5`) | **对话框不移植**(探测结果自动合并已消解挑选);「发真实请求」并入单 Key 测试交付 | probe.ts:34-42;上游 probe 只 GET /models 不发真实请求 |
+| (渠道内穷举重试 `9c06c03`) | **不移植** | 上游 grant 级 failover 原生覆盖且更细(cooldown/恢复探测/亲和) |
+| (Provider 预设 `4d569fc`) | **排除** | v2 无 provider 概念;预设已前端化(channel-presets.tsx);OAuth 若复活走库 |
+
+**保留交付**(收缩后即「渠道 Key 运营包」):Key 级统计读侧(写侧 StatsMetrics 原生完整,仅缺端点/UI)+ 单 Key 连通性测试(经 relay 构请求路径发最小真实请求)。
+
+后果:本包从最大的功能包收缩为两个小件;推迟项零半成品(不建表、不预留接口),真实需求出现时按 research/ 存档增量补回。
+
 ## 勘误(2026-09-09):「识别+主题+思考等级」包范围收缩
 
 任务 `09-08-v2-feat-client-theme` 规划期与用户对齐后调整:

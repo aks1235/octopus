@@ -103,6 +103,22 @@ export type ChannelModelStatsFormatted = {
     formatted: StatsMetricsFormatted;
 };
 
+// ChannelKeyStats 是单个渠道凭据的累计统计，与渠道/模型统计同一口径。
+// 凭据禁用只影响选路，统计照常保留，enabled 供界面区分展示。
+export type ChannelKeyStats = StatsMetrics & {
+    key_id: number;
+    key_name: string;
+    enabled: boolean;
+};
+
+// ChannelKeyStatsFormatted 是单个渠道凭据的展示用统计。
+export type ChannelKeyStatsFormatted = {
+    key_id: number;
+    key_name: string;
+    enabled: boolean;
+    formatted: StatsMetricsFormatted;
+};
+
 // ChannelStatsFormatted 是单个渠道及其模型的展示用统计，同时充当渠道列表项。
 // 名称与启停随统计一并给出，列表页由此只消费这一条查询：模型个数即 models.length，
 // 整份配置在点开编辑时由 useChannelDetail 单独取。
@@ -133,6 +149,29 @@ type FetchModelRequest = {
 export type FetchModel = {
     name: string;
     protocols: number; // Protocol 位掩码。
+};
+
+// TestKeyRequest 按指定凭据对模型列表逐个发起最小真实请求，测试凭据的模型连通性。
+// 与 FetchModelRequest 同理：渠道尚未保存时也可测试，故携带整份编辑态配置，
+// 测试用的地址、路径、代理与 Header 必须和保存后生效的完全一致。
+// 模型由调用方给出：默认测活只给一个（该凭据有授权的第一个模型），测全部给渠道已配的全部模型，单模型重测只给一个。
+// key_name 与 grants 供后端按「模型 x 凭据」取实际授权协议位精确试测，并把测试凭据名写进测试日志。
+type TestKeyRequest = {
+    channel: Omit<ChannelDetail, 'id' | 'keys' | 'models' | 'grants'>;
+    channel_id: number; // 渠道主键；表单渠道尚未保存时为 0，测试日志照写。
+    key: string;
+    key_name: string;
+    models: string[];
+    grants: ChannelGrant[];
+};
+
+// KeyTestResult 是单个模型的凭据连通性测试结果。
+// 后端按协议优先级逐个尝试出站端点，任一成功即成功并记入 protocol；失败时 error 带截断后的摘要。
+export type KeyTestResult = {
+    model_name: string;
+    success: boolean;
+    protocol: number; // 成功时使用的 Protocol 位；失败时为 0。
+    error: string;
 };
 
 // channelGrantListQueryOptions 供分组页查询可选授权。
@@ -173,6 +212,29 @@ const channelStatsFormattedQueryOptions = queryOptions({
 // useChannelStats 获取全部渠道及其模型的展示用统计, 也是渠道列表页的数据来源。
 export function useChannelStats(enabled = true) {
     return useQuery({ ...channelStatsFormattedQueryOptions, enabled });
+}
+
+/**
+ * 获取单个渠道各凭据的展示用统计 Hook, 供渠道统计页按凭据维度查看。
+ * 与渠道统计同一刷新节奏: 凭据统计由转发链路累加, 每次转发都在变。
+ *
+ * @example
+ * const { data: keys } = useChannelKeyStats(channel.channel_id);
+ */
+export function useChannelKeyStats(id?: number) {
+    return useQuery({
+        queryKey: ['channels', 'key-stats', id],
+        queryFn: () => apiRequest<ChannelKeyStats[]>(`/api/v1/channel/key-stats/${id}`),
+        select: (data) => data.map((item): ChannelKeyStatsFormatted => ({
+            key_id: item.key_id,
+            key_name: item.key_name,
+            enabled: item.enabled,
+            formatted: formatStatsMetrics(item),
+        })),
+        enabled: id !== undefined,
+        refetchInterval: 30000,
+        refetchOnMount: 'always',
+    });
 }
 
 /**
@@ -308,5 +370,33 @@ export function useFetchModel() {
     return useMutation({
         mutationFn: (data: FetchModelRequest) =>
             apiRequest<FetchModel[]>('/api/v1/channel/fetch-model', { method: 'POST', body: data }),
+    });
+}
+
+/**
+ * 按凭据测试模型连通性 Hook。
+ * 每个模型发一次最小真实请求（生成上限 1 token），产生真实计费消耗，仅由人工触发，无定时调用。
+ * 结果逐模型返回：任一协议成功即成功；失败时 error 带上游状态与原文摘要。
+ * 后端逐模型各落一条测试日志（客户端标识「面板测试」），并按 grants 里「模型 x 凭据」的实际协议位精确试测。
+ *
+ * @example
+ * const testKey = useTestChannelKey();
+ *
+ * testKey.mutate({
+ *   channel: toChannelConfig(state),
+ *   channel_id: channel?.id ?? 0,
+ *   key: 'sk-xxx',
+ *   key_name: 'default',
+ *   models: ['gpt-4o'], // 默认测活只给一个，整测给 state.models，重测只给一个
+ *   grants: toGrantConfigs(state),
+ * });
+ *
+ * // onSuccess 中获取逐模型结果
+ * testKey.data // [{ model_name: 'gpt-4o', success: true, protocol: 4, error: '' }]
+ */
+export function useTestChannelKey() {
+    return useMutation({
+        mutationFn: (data: TestKeyRequest) =>
+            apiRequest<KeyTestResult[]>('/api/v1/channel/test-key', { method: 'POST', body: data }),
     });
 }

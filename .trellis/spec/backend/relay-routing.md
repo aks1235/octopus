@@ -36,6 +36,22 @@
 
 ---
 
+## 模式:管理端"测试/探测"类请求经 buildOutbound 合成临时 grant 复用转发构请求路径
+
+**问题**:管理端要做"按凭据×模型发真实请求验证连通性"一类功能时,若另写 HTTP 客户端,测到的地址拼接/凭据注入/代理选择/参数覆盖与真实转发不一致,验证结果失真。
+
+**解法**:`buildOutbound(channel, grant, channelKey, want)` 只消费 `grant.Protocols`(位掩码)与 `grant.ID`(仅错误文案)。合成临时 `ChannelGrant{Protocols: <位>}` 即可按指定协议拿到出站转换器——不查库不落库,零改动 relay 既有文件。凭据探测(probe)与凭据连通性测试(keytest)共用此路径。协议位来源:优先按「模型×凭据」实际授权位(表单 grants),查不到/位 0 回退全协议位。
+
+```go
+// internal/relay/keytest.go
+grant := model.ChannelGrant{Protocols: model.ProtocolAnthropicMessage | ...}
+outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
+```
+
+**边界**:合成 grant 只用于构请求,不得进入选路/统计/日志的 grant 语义(那些仍走 DB 真实对象)。参考实现 `internal/relay/keytest.go` + `keytest_test.go`(含授权位过滤与回退用例)。
+
+---
+
 ## 相关
 
 - 健康检查自动禁用/解禁落库与缓存改写:`op.ChannelHealthFail` / `op.ChannelHealthSuccess` / `op.ChannelEnabled`(只动健康状态与启停两列)

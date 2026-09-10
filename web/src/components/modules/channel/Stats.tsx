@@ -19,7 +19,7 @@ import {
 import { snapdom } from '@zumer/snapdom';
 import { toast } from 'sonner';
 import { useTranslations } from 'use-intl';
-import { type ChannelStatsFormatted, useDeleteChannel } from '@/api/channel';
+import { type ChannelStatsFormatted, useChannelKeyStats, useDeleteChannel } from '@/api/channel';
 import { type StatsMetricsFormatted } from '@/api/stats';
 import { useMorphingDialog } from '@/components/ui/morphing-dialog';
 
@@ -41,6 +41,74 @@ function MetricValue({ metric }: { metric: FormattedMetric }) {
             {metric.formatted.value}
             <span className="ml-0.5 text-xs font-normal text-muted-foreground">{metric.formatted.unit}</span>
         </span>
+    );
+}
+
+// KeyStatsPanel 渠道统计的凭据维度区块: 逐凭据展示与渠道/模型统计同口径的累计计数。
+// 数据单独成查询: 凭据统计只在统计页用得上, 不随渠道列表下发; 五列指标与模型行同形, 两处读法一致。
+function KeyStatsPanel({ channelId }: { channelId: number }) {
+    const t = useTranslations('channel.stats');
+    const { data: keys } = useChannelKeyStats(channelId);
+
+    // 凭据行只在数据到位后出现; 没有凭据的渠道(理论少见)不渲染区块。
+    if (!keys || keys.length === 0) return null;
+
+    return (
+        <section className="flex shrink-0 flex-col gap-2 pt-2">
+            <div className="flex min-h-6 items-center">
+                <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {t('keys')}
+                    <span className="tabular-nums">({keys.length})</span>
+                </h4>
+            </div>
+            <ul className="grid gap-2">
+                {keys.map((channelKey) => {
+                    const metrics = channelKey.formatted;
+                    return (
+                        <li
+                            key={channelKey.key_id}
+                            className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border bg-card p-3"
+                        >
+                            <div className="flex min-w-0 flex-1 items-center gap-2">
+                                <span className="truncate text-sm font-medium text-card-foreground">
+                                    {channelKey.key_name}
+                                </span>
+                                {/* 禁用凭据不参与选路但统计保留, 徽标区分展示状态而不隐藏行。 */}
+                                {!channelKey.enabled && (
+                                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                                        {t('keyDisabled')}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums">
+                                <span className="flex items-center gap-1">
+                                    <MessageSquare className="size-3.5 shrink-0 text-chart-1" />
+                                    <MetricValue metric={metrics.request_count} />
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <CheckCircle2 className="size-3.5 shrink-0 text-accent" />
+                                    <span>
+                                        {successRate(metrics.request_success.raw, metrics.request_failed.raw).toFixed(0)}%
+                                    </span>
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <FileText className="size-3.5 shrink-0 text-chart-3" />
+                                    <MetricValue metric={metrics.total_token} />
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <DollarSign className="size-3.5 shrink-0 text-chart-5" />
+                                    <MetricValue metric={metrics.total_cost} />
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <Clock className="size-3.5 shrink-0 text-primary" />
+                                    <MetricValue metric={metrics.wait_time} />
+                                </span>
+                            </div>
+                        </li>
+                    );
+                })}
+            </ul>
+        </section>
     );
 }
 
@@ -362,6 +430,9 @@ export function ChannelStats({ channel, onEdit }: {
                     )}
                 </section>
             </div>
+
+            {/* 凭据维度: 渠道与模型统计之外的第三个口径, 追加在两列网格下方随弹窗滚动 */}
+            <KeyStatsPanel channelId={channel.channel_id} />
 
             {/* 分享图预览: 覆盖整张弹窗卡片 */}
             {preview && (

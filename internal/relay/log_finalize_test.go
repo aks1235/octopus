@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -22,6 +23,10 @@ func setupRelayLogTest(t *testing.T) {
 	})
 	if err := op.InitCache(); err != nil {
 		t.Fatalf("InitCache() error = %v", err)
+	}
+	// 上一个测试滞留在内存缓冲的日志会随本次 flush 落进新库, 先清空保证逐库断言从零开始。
+	if err := op.RelayLogClear(context.Background()); err != nil {
+		t.Fatalf("clear relay log buffer: %v", err)
 	}
 }
 

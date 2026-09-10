@@ -556,7 +556,9 @@
             "edit": "编辑",
             "delete": "删除",
             "confirmDelete": "确认删除",
-            "cancel": "取消"
+            "cancel": "取消",
+            "keys": "凭据",
+            "keyDisabled": "已禁用"
         },
         "form": {
             "stepPreset": "开始",
@@ -600,7 +602,11 @@
             "backToStats": "返回统计",
             "grantClearAll": "清空全部模型",
             "modelRemove": "移除模型",
-            "grantRemove": "移除该凭据的授权"
+            "grantRemove": "移除该凭据的授权",
+            "keyTest": "测试",
+            "keyTestAll": "测全部模型",
+            "keyTestFailed": "测试请求失败",
+            "keyTestRetest": "重测该模型"
         },
         "callDetail": {
             "back": "返回",

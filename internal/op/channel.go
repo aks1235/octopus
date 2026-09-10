@@ -66,6 +66,30 @@ func ChannelStatsList() []model.ChannelStats {
 	return stats
 }
 
+// ChannelKeyStatsList 返回指定渠道各凭据的累计统计, 供统计页在模型维度之外按凭据维度查看。
+// 与 ChannelStatsList 同一来源与新鲜度: 凭据统计由转发链路在内存累加并定时落库, 此处只读缓存副本, 不做聚合。
+// 不带凭据明文: 统计页只看名称与计数, 明文只在编辑表单里用得上。
+func ChannelKeyStatsList(channelID int) ([]model.ChannelKeyStats, error) {
+	if _, ok := channelCache.Get(channelID); !ok {
+		return nil, fmt.Errorf("channel not found")
+	}
+	keys := make([]model.ChannelKeyStats, 0)
+	for _, channelKey := range channelKeyCache.GetAll() {
+		if channelKey.ChannelID != channelID {
+			continue
+		}
+		keys = append(keys, model.ChannelKeyStats{
+			KeyID:        channelKey.ID,
+			KeyName:      channelKey.Name,
+			Enabled:      channelKey.Enabled,
+			StatsMetrics: channelKey.StatsMetrics,
+		})
+	}
+	// 按名称定序: 缓存遍历顺序随机, 而统计页不提供排序开关, 顺序须由此处定稿(与 channelDetail 的凭据排序一致)。
+	sort.Slice(keys, func(i, j int) bool { return keys[i].KeyName < keys[j].KeyName })
+	return keys, nil
+}
+
 // ChannelCreate 创建渠道及其凭据, 模型与授权, 返回创建后的完整配置。
 // 三者在同一事务内落库: 授权按名称引用两侧, 待凭据与模型拿到主键后由 syncChannelGrants 解析,
 // 由此建一个带授权的渠道只需一趟请求。

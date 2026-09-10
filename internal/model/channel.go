@@ -136,6 +136,15 @@ type ChannelModelStats struct {
 	StatsMetrics        // 该模型自身的累计统计。
 }
 
+// 单个渠道凭据的累计统计。
+// 凭据被禁用只影响选路, 统计照常保留, 故带上启停状态供界面区分展示。
+type ChannelKeyStats struct {
+	KeyID        int    `json:"key_id"`   // 渠道凭据主键。
+	KeyName      string `json:"key_name"` // 凭据名称, 界面展示与人工识别用。
+	Enabled      bool   `json:"enabled"`  // 凭据是否可用。
+	StatsMetrics        // 该凭据自身的累计统计。
+}
+
 // 供分组页选取的一条候选授权, 字段与分组成员的展示字段一一对应。
 // 分组页只需按渠道分组列出可选授权并判断可用性, 由此无需再拉整份渠道列表:
 // 那里带着统计, 路径, 代理与凭据明文, 与选取成员无关。
@@ -168,6 +177,27 @@ type ChannelFetchModelRequest struct {
 type ChannelFetchModel struct {
 	Name      string   `json:"name"`      // 上游模型名称。
 	Protocols Protocol `json:"protocols"` // 由探测结果得出的协议位掩码。
+}
+
+// 按凭据对渠道模型发起最小真实请求的连通性测试请求。
+// 与 ChannelFetchModelRequest 同理: 渠道尚未保存时也可测试, 故随请求携带测试所需的渠道配置,
+// 地址, 路径, 代理与 Header 必须与保存后生效的完全一致; 测试用不上的字段忽略即可。
+// 模型清单由调用方给出: 单模型重测给一个, 按凭据整测给渠道已配的全部模型。
+type ChannelTestKeyRequest struct {
+	ChannelID int                  `json:"channel_id"`             // 渠道主键; 表单渠道尚未保存时为 0, 测试日志照写。
+	Channel   ChannelConfig        `json:"channel"`                // 用于测试的渠道配置, 提供地址, 路径, 代理与 Header。
+	KeyName   string               `json:"key_name"`               // 测试凭据的名称; 授权协议位查找与测试日志标识共用。
+	Key       string               `json:"key" binding:"required"` // 测试使用的上游凭据。
+	Models    []string             `json:"models"`                 // 待测模型名称列表, 非空由处理方校验。
+	Grants    []ChannelGrantConfig `json:"grants"`                 // 渠道授权清单, 按"模型 x 凭据"取实际协议位。
+}
+
+// 单个模型的凭据连通性测试结果。
+type ChannelKeyTestResult struct {
+	ModelName string   `json:"model_name"` // 测试的模型名称。
+	Success   bool     `json:"success"`    // 任一协议取得可解析的 2xx 响应即为成功。
+	Protocol  Protocol `json:"protocol"`   // 成功时使用的上游协议位; 失败时为 0。
+	Error     string   `json:"error"`      // 失败原因摘要, 已截断; 成功时为空。
 }
 
 // 健康检查任务的单个候选渠道: 探测所需的渠道配置与启用凭据, 加判定自动禁用/解禁所需的当前健康状态。
