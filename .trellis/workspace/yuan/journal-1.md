@@ -172,3 +172,25 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: 日志重试可观测性改善+故障转移诊断
+
+**Date**: 2026-09-10
+**Task**: 日志重试可观测性改善+故障转移诊断
+**Branch**: `dev-v2`
+
+### Summary
+
+实时流卡片加round>1琥珀色故障转移标记;历史卡attempts Badge改琥珀色;详情弹窗加完整attempts链路区(渠道/状态/耗时/失败原因);用户反馈历史卡失败摘要太乱已移除。诊断13:02:56那条3次重试'误标失败':实为Grok在流式响应中发error事件(capacity),上游NewAPI只记HTTP层2xx不算流内错误,Octopus行为正确。发现inspectStreamEvent第72行decode失败=终止流是潜在隐患(非JSON的SSE注释行可致误判),待后续处理。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `77fecba` | (see git log) |
+| `6979794` | (see git log) |
+
+### Status
+
+[OK] **Completed**
