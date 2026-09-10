@@ -194,3 +194,35 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+## 2026-09-10 v2-smoke-switch 冒烟矩阵启动
+
+### 发现的问题
+1. **生产 data/ 库数据不一致**: 8080 端口的容器曾用 v2 代码启动过,导致生产库
+   被部分迁移(migration_records 标记成功但 WAL 回滚丢 DDL)。当前 data/ 库:
+   - channels.type/key 列在 WAL 中存在但 checkpoint 后消失
+   - channel_models/channel_grants 表空(0 行)
+   - group_items 有旧列(channel_id/model_name)但 channel_grant_id 全=0
+   - **结论**: data/ 不可用;只有 data-v2/(迁移脚本产物)是正确的
+
+2. **空库首次启动 bug**(已修复):
+   - `group_items.channel_grant_id` NOT NULL 无默认值 → SQLite ALTER TABLE 失败
+     → 修复: 加 `gorm:"not null;default:0"`
+   - GORM AutoMigrate 重建 group_items 时外键检查失败(channel_grant_id=0 不存在)
+     → 修复: db.go 中 AutoMigrate 期间 PRAGMA foreign_keys=OFF
+
+3. **迁移脚本 mode 类型不匹配**(已修复):
+   - v1 库 groups.mode 是 text 类型('3'),GROUP_MODE_MAP key 是 int(3)
+   → 修复: 转 int 后查映射
+
+### 冒烟进展(8081 环境)
+- A1.4 gzip ✅ | A1.5 SSE 实时流 ✅
+- A2.1 DeepSeek thinking(reasoning_content) ✅ | A2.14 SSE [DONE] ✅
+- A3.1 健康检查+自动禁用 ✅ | A3.5 客户端识别 ✅
+- A3.6 Key 统计读侧 ✅
+- A2 Anthropic 冒烟待创建 Claude 分组
+
+### 下一步
+- A2 剩余项(Anthropic/json_schema/跨渠道重试等)
+- A4 迁移脚本最终验证(需纯 v1 源库)
+- Phase B: octopus-verify + octopus-publish

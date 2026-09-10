@@ -407,12 +407,22 @@ def convert(src_path, dst_path, template_path):
             "INSERT INTO users (id, username, password) VALUES (?,?,?)",
             [(u["id"], u["username"], u["password"]) for u in data["users"]])
 
-        # #2 api_keys(原样全列)
+        # #2 api_keys(原样全列, supported_models 逗号分隔→JSON 数组,对齐 migration 12)
+        def convert_supported_models(val):
+            """与 migration 12 相同的转换:已是 JSON 数组则跳过,空值→空数组,否则逗号分隔→JSON 数组。"""
+            if val is None or val.strip() == "":
+                return "[]"
+            val = val.strip()
+            if val.startswith("["):
+                return val
+            names = [n.strip() for n in val.split(",") if n.strip()]
+            return json.dumps(names)
+
         dst.executemany(
             "INSERT INTO api_keys (id, name, api_key, enabled, expire_at, max_cost,"
             " supported_models) VALUES (?,?,?,?,?,?,?)",
             [(a["id"], a["name"], a["api_key"], a["enabled"], a["expire_at"],
-              a["max_cost"], a["supported_models"]) for a in data["api_keys"]])
+              a["max_cost"], convert_supported_models(a["supported_models"])) for a in data["api_keys"]])
 
         # #3 llm_infos(丢 context_length/max_output_tokens)
         dst.executemany(
