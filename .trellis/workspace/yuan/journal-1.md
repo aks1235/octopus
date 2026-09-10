@@ -151,3 +151,24 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 任务6:渠道Key运营包(原Codex/Usage包收缩)完成
+
+**Date**: 2026-09-10
+**Task**: 任务6:渠道Key运营包(原Codex/Usage包收缩)完成
+**Branch**: `dev-v2`
+
+### Summary
+
+研究先行甄别10项:生产库实况核对(usage_cards 0行/JSON凭证0条)推翻原范围,Codex OAuth三件套推迟(复活路径+设备码流预选存档research/)、Switch白拿、轮询不做;交付Key统计读侧(GET /channel/key-stats)+单Key测试(⚡默认单模型测活+测全部入口,协议位按实际授权,测试请求写relay_logs标「面板测试」)。两轮UI反馈修复(重测并发态、custom_header null崩溃);发现并沉淀3条spec(nil切片null契约/预编译二进制陷阱/buildOutbound合成grant模式)。ADR-0002第三次勘误+父任务地图同步。verify闭环smoke 8081人审通过,marker对齐b548e01。剩余:任务7 smoke-switch。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b548e01` | (see git log) |
+
+### Status
+
+[OK] **Completed**
