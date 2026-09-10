@@ -74,7 +74,7 @@ type Group struct {
 type GroupItem struct {
 	ID             int           `json:"id" gorm:"primaryKey"`                                                         // 分组项主键。
 	GroupID        int           `json:"group_id" gorm:"not null;index:idx_group_grant,unique"`                        // 所属分组 ID。
-	ChannelGrantID int           `json:"channel_grant_id" gorm:"not null;index:idx_group_grant,unique"`                // 引用的渠道授权 ID。
+	ChannelGrantID int           `json:"channel_grant_id" gorm:"not null;default:0;index:idx_group_grant,unique"`        // 引用的渠道授权 ID。
 	ChannelGrant   *ChannelGrant `json:"-" gorm:"foreignKey:ChannelGrantID;references:ID;constraint:OnDelete:CASCADE"` // 仅用于声明级联外键, 授权被删除时成员随之删除; 读取时不填充, 展示所需字段见下方。
 	Priority       int           `json:"priority" gorm:"not null"`                                                     // Priority 决定界面展示和故障转移模式下的成员切换顺序。
 

@@ -269,11 +269,12 @@ def load_source(src):
     degraded_poll = []  # 轮询降级清单
     group_relay_json = {}
     for g in data["groups"]:
-        if g["mode"] not in GROUP_MODE_MAP:
+        mode_val = int(g["mode"]) if isinstance(g["mode"], str) else g["mode"]
+        if mode_val not in GROUP_MODE_MAP:
             raise ConvertError(
-                f"分组 {g['id']}({g['name']}) mode={g['mode']} 无映射"
+                f"分组 {g['id']}({g['name']}) mode={mode_val} 无映射"
                 f"(仅支持 3=故障转移/1=轮询),中止")
-        mode, note = GROUP_MODE_MAP[g["mode"]]
+        mode, note = GROUP_MODE_MAP[mode_val]
         if note:
             degraded_poll.append((g["id"], g["name"]))
         cfg_json = build_relay_config(

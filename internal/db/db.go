@@ -52,6 +52,12 @@ func InitDB(dbType, dsn string, debug bool) error {
 	if err := migrate.BeforeAutoMigrate(db); err != nil {
 		return err
 	}
+	// AutoMigrate 期间临时关闭外键检查: GORM 重建表时会先创建临时表再复制数据,
+	// 旧数据中可能存在尚未迁移的外键引用(如 group_items.channel_grant_id = 0),
+	// 开启外键检查会导致 INSERT INTO 临时表失败。关闭后由迁移链保证数据完整性。
+	if db.Dialector != nil && db.Dialector.Name() == "sqlite" {
+		db.Exec("PRAGMA foreign_keys=OFF")
+	}
 	if err := db.AutoMigrate(
 		&model.User{},
 		&model.Channel{},
@@ -71,6 +77,10 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&migrate.MigrationRecord{},
 	); err != nil {
 		return err
+	}
+	// 恢复外键检查
+	if db.Dialector != nil && db.Dialector.Name() == "sqlite" {
+		db.Exec("PRAGMA foreign_keys=ON")
 	}
 	if err := migrate.AfterAutoMigrate(db); err != nil {
 		return err
