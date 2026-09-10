@@ -73,20 +73,6 @@ function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
                     {log.error}
                 </div>
             )}
-            {/* 失败尝试摘要: 有重试时逐条展示失败渠道及原因, 让用户一眼看出故障转移链路。 */}
-            {(log.total_attempts ?? 0) > 1 && log.attempts && (
-                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
-                    {log.attempts
-                        .filter((a) => a.status === 'failed')
-                        .map((a, i) => (
-                            <span key={i} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-400">
-                                <RotateCw className="size-2.5" />
-                                <span className="font-medium truncate max-w-[120px]">{a.channel_name}</span>
-                                {a.msg && <span className="text-amber-600/70 dark:text-amber-400/60 truncate max-w-[160px]">{a.msg}</span>}
-                            </span>
-                        ))}
-                </div>
-            )}
         </button>
     );
 }
