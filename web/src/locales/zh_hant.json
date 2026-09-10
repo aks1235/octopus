@@ -441,6 +441,7 @@
             "tokens": "詞元",
             "retryIndex": "重試 {index}",
             "retryDetails": "重試詳情",
+            "attemptCount": "次嘗試",
             "stopRound": "停止目前輪次",
             "stopFailed": "停止目前輪次失敗",
             "waitingChannelSelection": "正在等待選擇供應源",

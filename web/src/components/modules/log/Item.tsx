@@ -450,6 +450,12 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                             >
                                 {log.target_channel || '-'}
                             </Badge>
+                            {/* 故障转移标记: round>1 表示实时流中发生了重试, 让用户一眼看出这条请求经历了故障转移。 */}
+                            {log.round > 1 && (
+                                <Badge variant="outline" className="shrink-0 text-xs px-1.5 py-0 gap-1 text-amber-600 dark:text-amber-400 border-amber-300/50 dark:border-amber-600/40">
+                                    <AlertCircle className="size-3" />{log.round - 1}
+                                </Badge>
+                            )}
                             <span className="text-muted-foreground truncate">
                                 {actualModel}
                             </span>

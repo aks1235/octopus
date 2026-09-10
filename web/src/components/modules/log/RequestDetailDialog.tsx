@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'use-intl';
-import { Loader2, Send, MessageSquare, AlertCircle, ChevronDown, Clock, Coins } from 'lucide-react';
+import { Loader2, Send, MessageSquare, AlertCircle, ChevronDown, Clock, Coins, RotateCw, CheckCircle2, XCircle } from 'lucide-react';
 import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
 import { githubLightTheme } from '@uiw/react-json-view/githubLight';
@@ -162,6 +162,36 @@ export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDe
                                 </div>
                             </div>
                         </div>
+
+                        {/* 故障转移链路: 逐次尝试的渠道/协议/状态/耗时/失败原因, 请求经历了几轮一目了然。 */}
+                        {detail.attempts && detail.attempts.length > 1 && (
+                            <div className="shrink-0 rounded-2xl border border-border bg-muted/30 overflow-hidden">
+                                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted/50">
+                                    <RotateCw className="size-4 text-amber-500" />
+                                    <span className="text-sm font-medium">{tLog('retryDetails')}</span>
+                                    <Badge variant="outline" className="text-xs">{detail.attempts.length} {tLog('attemptCount')}</Badge>
+                                </div>
+                                <div className="divide-y divide-border max-h-[200px] overflow-auto">
+                                    {detail.attempts.map((a, i) => (
+                                        <div key={i} className="flex items-center gap-2 px-4 py-2 text-xs">
+                                            {a.status === 'success' ? (
+                                                <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+                                            ) : (
+                                                <XCircle className="size-3.5 shrink-0 text-destructive" />
+                                            )}
+                                            <span className="font-medium shrink-0">{a.channel_name}</span>
+                                            {a.channel_key_remark && a.channel_key_remark !== 'default' && (
+                                                <span className="text-muted-foreground shrink-0">· {a.channel_key_remark}</span>
+                                            )}
+                                            <span className="text-muted-foreground shrink-0">{a.duration}ms</span>
+                                            {a.msg && (
+                                                <span className="text-destructive/80 truncate min-w-0 flex-1" title={a.msg}>{a.msg}</span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* 调试信息折叠 */}
                         {detail.debug_content && (

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'use-intl';
-import { Loader2, ScrollText, AlertCircle, Clock, Coins, Zap, KeyRound } from 'lucide-react';
+import { Loader2, ScrollText, AlertCircle, Clock, Coins, Zap, KeyRound, RotateCw } from 'lucide-react';
 import { useLogHistory, useClearLogHistory, type RelayLog } from '@/api/log-history';
 import { apiKeyListQueryOptions, groupListQueryOptions } from '@/api/queries';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
@@ -51,7 +51,9 @@ function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
                     </Badge>
                 )}
                 {(log.total_attempts ?? 0) > 1 && (
-                    <Badge variant="outline">{t('attempts', { count: log.total_attempts ?? 0 })}</Badge>
+                    <Badge variant="outline" className="gap-1 text-amber-600 dark:text-amber-400 border-amber-300/50 dark:border-amber-600/40">
+                        <RotateCw className="size-3" /> {t('attempts', { count: log.total_attempts ?? 0 })}
+                    </Badge>
                 )}
                 <span className="ml-auto text-xs text-muted-foreground font-mono">{formatTime(log.time)}</span>
             </div>
@@ -69,6 +71,20 @@ function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
             {failed && (
                 <div className="mt-2 rounded-lg bg-destructive/10 px-2 py-1 text-xs text-destructive/90 font-mono truncate">
                     {log.error}
+                </div>
+            )}
+            {/* 失败尝试摘要: 有重试时逐条展示失败渠道及原因, 让用户一眼看出故障转移链路。 */}
+            {(log.total_attempts ?? 0) > 1 && log.attempts && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+                    {log.attempts
+                        .filter((a) => a.status === 'failed')
+                        .map((a, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-400">
+                                <RotateCw className="size-2.5" />
+                                <span className="font-medium truncate max-w-[120px]">{a.channel_name}</span>
+                                {a.msg && <span className="text-amber-600/70 dark:text-amber-400/60 truncate max-w-[160px]">{a.msg}</span>}
+                            </span>
+                        ))}
                 </div>
             )}
         </button>
