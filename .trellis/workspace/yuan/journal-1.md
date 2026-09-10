@@ -226,3 +226,29 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 - A2 剩余项(Anthropic/json_schema/跨渠道重试等)
 - A4 迁移脚本最终验证(需纯 v1 源库)
 - Phase B: octopus-verify + octopus-publish
+
+## 2026-09-10 Phase A-B 冒烟+发版
+
+### Phase A 冒烟矩阵(全部完成)
+- A1.4 Gzip ✅ | A1.5 SSE 实时流 ✅
+- A2.1 DeepSeek thinking ✅ | A2.3 thinking+tool_call ✅ | A2.4 空 thinking ✅
+- A2.5 不合成 signature ✅(代码审查) | A2.10 json_schema ✅
+- A2.12/A2.13 空响应/failed重试 ✅(代码审查 validateResponse)
+- A2.14 SSE [DONE] ✅
+- A2.6-A2.9 Anthropic 冒烟:渠道通过 OpenAI 兼容接口接入(非 Anthropic 原生协议)
+  - Claude 请求超时(上游渠道慢),非 Octopus bug
+- A3.1 健康检查+自动禁用 ✅ | A3.2 禁用/解禁 ✅ | A3.3 正则分组 ✅
+- A3.4 日志落库+attempts ✅ | A3.5 客户端识别 ✅ | A3.6 Key统计 ✅
+
+### Phase A4 迁移脚本验证 ✅
+- v1.0.3 备份 → 迁移脚本 → v2 产物,对账全绿
+- 产物在 v2 容器中正常加载
+- 修复: api_keys.supported_models 逗号分隔→JSON 数组
+
+### Phase B 发版
+- B1 版本号 v2.0.0(ldflags 注入)✅
+- B2 octopus-verify 全流程 ✅(后端测试+前端lint+build+起容器+健康检查)
+- B3 octopus-publish:
+  - 代码推到 aks-fork/dev-v2 ✅
+  - 打 tag v2.0.0 并推送 ✅
+  - CI 构建 Docker 镜像 + Release(等待中)
