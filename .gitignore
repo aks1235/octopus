@@ -16,3 +16,4 @@ web/.pnpm-store/
 .pnpm-store/
 .octopus-verified
 data-verify
+data-backup-*/

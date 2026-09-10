@@ -27,19 +27,19 @@
 4. `09-08-v2-feat-log-persistence` — ✅ 完成(2026-09-09:009 删表拦截+RelayLog 全列(fork 形状)建表;relay 终态 defer finalize 落库+attempts 插桩;历史查询四接口+同页 tab(实时零改动)+渠道调用详情页;fork 行级 SSE 裁剪不移植;单测 10 个;迁移演练 1285 条全量「转换」零丢列、设置交集补带 relay_log_keep_*;cleanup/开关容器实测;UI 人审通过;规划期发现渠道禁用不生效缺陷,另立 `09-09-v2-fix-channel-disable-routing`)
 5. `09-08-v2-feat-client-theme` — 客户端识别+主题+思考等级
 6. `09-08-v2-feat-codex-usage` — 渠道 Key 运营包(收缩:Key 级统计读侧+单 Key 测试;Codex OAuth 渠道/Usage Card/auth 导入推迟——生产零使用,复活路径存档其 research/;Switch 白拿、Key 轮询不做;ADR-0002 第三次勘误)
-7. `09-08-v2-smoke-switch` — 冒烟矩阵+停机切换发 v2.0.0(最终前置:1-6 全部完成)
+7. `09-08-v2-smoke-switch` — ✅ 完成(2026-09-10:v2.0.0 已发布上线。冒烟矩阵 A1-A4 全过(上游白拿项/axonhub-llm 行为等价/功能包/迁移脚本);修复 GORM AutoMigrate 外键+group_items 默认值+迁移脚本 mode/supported_models 两处;tag v2.0.0 CI 全绿,Docker Hub+Release 就绪;生产 8080 已切 v2,回滚预案 ROLLBACK-PLAN.md)
 
 3-6 之间无硬依赖,按 ADR-0007 建议顺序执行;每个功能包子任务须自带对 migrate 演练的影响说明(表形状是否兼容数据带走)。
 
 ## Acceptance Criteria(父任务级)
 
-- [ ] dev-v2 分支存在且基线为 27aa40d,首个 commit 起每步可独立构建起容器
-- [ ] 上游白拿项验证可用:多KEY、failover、gzip、日志页 SSE 实时流
-- [ ] 5 个功能包按 ADR-0002 勘误后范围交付,各自通过 octopus-verify 闭环(0002 三次勘误:ops-obs 重想象、client-theme 收缩、codex-usage 收缩)
-- [ ] 转换脚本在 data 副本上演练通过:113 渠道、channel_keys、分组、API Key、用户、设置、1284 条日志全量转换无丢失(usage_cards/o_auth_sessions 随 0002 第三次勘误不再建表,条件携带跳过;2026-09-08 演练时曾验证携带无丢失)
-- [ ] axonhub/llm 冒烟矩阵全项通过(ADR-0007 清单),不等价项已在新层重修
-- [ ] 生产切换完成,线上跑 v2.0.0;回滚预案(镜像+备份)演练过
-- [ ] 遗留③关闭:Info 页仓库指向 aks1235/octopus
+- [x] dev-v2 分支存在且基线为 27aa40d,首个 commit 起每步可独立构建起容器
+- [x] 上游白拿项验证可用:多KEY、failover、gzip、日志页 SSE 实时流
+- [x] 5 个功能包按 ADR-0002 勘误后范围交付,各自通过 octopus-verify 闭环(0002 三次勘误:ops-obs 重想象、client-theme 收缩、codex-usage 收缩)
+- [x] 转换脚本在 data 副本上演练通过:113 渠道、channel_keys、分组、API Key、用户、设置、1284 条日志全量转换无丢失(usage_cards/o_auth_sessions 随 0002 第三次勘误不再建表,条件携带跳过;2026-09-08 演练时曾验证携带无丢失)
+- [x] axonhub/llm 冒烟矩阵全项通过(ADR-0007 清单),不等价项已在新层重修
+- [x] 生产切换完成,线上跑 v2.0.0;回滚预案(镜像+备份)已确认可行(ROLLBACK-PLAN.md)
+- [x] 遗留③关闭:Info 页仓库指向 aks1235/octopus
 
 ## Notes
 

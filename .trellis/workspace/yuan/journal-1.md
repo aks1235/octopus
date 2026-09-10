@@ -252,3 +252,22 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
   - 代码推到 aks-fork/dev-v2 ✅
   - 打 tag v2.0.0 并推送 ✅
   - CI 构建 Docker 镜像 + Release(等待中)
+
+## 2026-09-10 Phase C 生产切换完成
+
+- C1 停旧容器 + 备份 → data-backup-v1.0.4-202609101534/
+- C2 数据切换决策:生产 data/ 已被 v2 容器污染(channel_models/grants=0,
+  migration_records 与实际表结构不一致),不可作为迁移源;直接用迁移脚本
+  产物 data-v2/(118 渠道/2240 模型/2240 授权)替换
+- C3 生产 8080 已跑 raynmy/octopus:v2.0.0(从 Docker Hub 拉取的 CI 产物,
+  非 本地构建),Web 登录/AI API 调用验证通过
+- C4 回滚预案落盘 ROLLBACK-PLAN.md:镜像钉 v1.0.6(本地+Hub 均有,注意本地
+  没有 v1.0.4)+ 备份恢复
+- C5 父任务 09-08-dev-v2-redo 地图 7/7 全勾,验收条件全勾
+
+### 教训
+1. 生产库绝不能让 v2 容器直接碰(WAL 回滚导致 migration_records 与表结构
+   不一致,且不可逆)——docker-compose.yml 顶部的警告注释就是为这个
+2. v2 迁移链空库启动有三个坑:group_items NOT NULL 无默认值 / GORM 递归
+   建表后 AutoMigrate 重建时外键检查 / 迁移脚本 mode text 类型,均已修复
+3. data-v2/ 是唯一可信的 v2 数据源(迁移脚本产物 + 已验证)

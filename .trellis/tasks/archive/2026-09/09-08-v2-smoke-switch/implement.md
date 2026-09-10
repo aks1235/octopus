@@ -44,11 +44,11 @@
 - [x] B3 octopus-publish:打 tag v2.0.0 → 推 GitHub → CI 构建镜像+Release(等待 CI)
 
 ## Phase C: 生产切换
-- [ ] C1 停 v1.0.4 + 备份 data/
-- [ ] C2 迁移脚本跑正式库
-- [ ] C3 起 v2 容器 + 验证
-- [ ] C4 回滚预案确认
-- [ ] C5 更新父任务地图
+- [x] C1 停 v1.0.4 + 备份 data/ ✅ (data-backup-v1.0.4-202609101534/)
+- [x] C2 数据切换:生产 data/ 已被 v2 容器污染不可迁移,改用迁移脚本产物 data-v2/ 直接替换 ✅
+- [x] C3 起 v2 容器 + 验证 ✅ (8080, v2.0.0, Web/API/AI 调用全通)
+- [x] C4 回滚预案确认 ✅ (ROLLBACK-PLAN.md,镜像钉 v1.0.6 + 备份)
+- [x] C5 更新父任务地图 ✅
 
 ## 代码修复清单(本任务提交)
 1. `internal/db/db.go`: AutoMigrate 期间 PRAGMA foreign_keys=OFF/ON
