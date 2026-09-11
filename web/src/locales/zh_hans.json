@@ -57,6 +57,8 @@
             "list": "列表",
             "nameAsc": "名称正序",
             "nameDesc": "名称倒序",
+            "timeAsc": "添加时间正序",
+            "timeDesc": "添加时间倒序",
             "filter": {
                 "title": "筛选",
                 "channel": {
@@ -590,6 +592,8 @@
             "modelRefreshEmpty": "未获取到模型",
             "channelProxy": "渠道代理",
             "matchRegex": "匹配正则",
+            "healthCheckSkip": "跳过健康检查",
+            "healthCheckSkipHint": "无模型列表接口的渠道（探测 /models 必失败但转发可用）勾选，如天翼云；勾选后不再自动探测与禁用，被自动禁用的渠道保存后恢复",
             "paramOverride": "参数覆盖",
             "customHeader": "自定义 Header",
             "customHeaderKey": "Header Key",

@@ -73,6 +73,7 @@ export type ChannelDetail = {
     param_override: string;
     channel_proxy: string;
     match_regex: string;
+    health_check_skip: boolean; // 跳过健康检查；适用于无模型列表接口的渠道（探测必失败但转发可用）。
 };
 
 // ChannelModelStats 是单个渠道模型的累计统计，自带名称。

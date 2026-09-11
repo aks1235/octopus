@@ -38,6 +38,7 @@ type ChannelConfig struct {
 	CustomHeader             []CustomHeader `json:"custom_header" gorm:"serializer:json"`                                                               // 追加到上游请求的 Header。
 	ParamOverride            string         `json:"param_override"`                                                                                     // 请求参数覆盖配置; 留空表示不覆盖。
 	MatchRegex               string         `json:"match_regex"`                                                                                        // 拉取模型列表时的过滤表达式; 留空表示不过滤。
+	HealthCheckSkip          bool           `json:"health_check_skip" gorm:"default:false"`                                                             // 跳过健康检查; 适用于无模型列表接口的渠道(探测必 404 但转发可用)。
 }
 
 // 单个上游渠道的共享配置; 路径按协议分别配置, 凭据由 ChannelKey 提供。

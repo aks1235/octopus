@@ -224,6 +224,18 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     />
                                 </div>
                             ))}
+                            {/* 跳过健康检查: 面向无模型列表接口的渠道, 说明文案讲清后果再让用户勾选。 */}
+                            <div className="space-y-1.5">
+                                <label htmlFor={`${idPrefix}-health-check-skip`} className="flex items-center gap-2 cursor-pointer">
+                                    <Switch
+                                        id={`${idPrefix}-health-check-skip`}
+                                        checked={state.health_check_skip}
+                                        onCheckedChange={(checked) => setState({ ...state, health_check_skip: checked })}
+                                    />
+                                    <span className="text-sm">{t('healthCheckSkip')}</span>
+                                </label>
+                                <p className="text-xs text-muted-foreground">{t('healthCheckSkipHint')}</p>
+                            </div>
                             <div className="space-y-2">
                                 <Label htmlFor={`${idPrefix}-param-override`}>{t('paramOverride')}</Label>
                                 <textarea

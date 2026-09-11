@@ -57,6 +57,8 @@
             "list": "清單",
             "nameAsc": "名稱正序",
             "nameDesc": "名稱倒序",
+            "timeAsc": "新增時間正序",
+            "timeDesc": "新增時間倒序",
             "filter": {
                 "title": "篩選",
                 "channel": {
@@ -590,6 +592,8 @@
             "modelRefreshEmpty": "未取得模型",
             "channelProxy": "通道代理",
             "matchRegex": "匹配正則",
+            "healthCheckSkip": "跳過健康檢查",
+            "healthCheckSkipHint": "無模型列表介面的通道（探測 /models 必失敗但轉發可用）勾選，如天翼雲；勾選後不再自動探測與停用，被自動停用的通道儲存後恢復",
             "paramOverride": "參數覆寫",
             "customHeader": "自訂 Header",
             "customHeaderKey": "Header Key",

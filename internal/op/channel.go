@@ -125,12 +125,15 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 // 提交即全量而非按字段比对增量: 渠道是人工编辑的十几个字段, 表单本就一次给出完整配置,
 // 未列出的凭据与模型会被删除并级联删除其授权。
 func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.ChannelDetail, error) {
-	if _, ok := channelCache.Get(detail.ID); !ok {
+	cached, ok := channelCache.Get(detail.ID)
+	if !ok {
 		return nil, fmt.Errorf("channel not found")
 	}
 	if err := normalizeChannelDetail(detail); err != nil {
 		return nil, err
 	}
+	// 勾选跳过健康检查即接管被自动禁用的渠道: 随保存恢复启用并清空健康状态, 被误禁用的渠道无需等下一轮探测。
+	restoreOnSkip := detail.HealthCheckSkip && cached.AutoDisabled
 
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
@@ -138,7 +141,7 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 		// 人工提交启用即接管渠道, 随提交一并清掉自动禁用标记; 提交禁用则保留标记, 让自动禁用的渠道继续探测以便恢复。
 		columns := []string{"name", "dialect", "enabled", "base_url",
 			"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
-			"proxy", "channel_proxy", "custom_header", "param_override", "match_regex"}
+			"proxy", "channel_proxy", "custom_header", "param_override", "match_regex", "health_check_skip"}
 		if detail.Enabled {
 			columns = append(columns, "auto_disabled")
 		}
@@ -146,6 +149,13 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 			Select(columns).
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
 			return fmt.Errorf("failed to update channel: %w", err)
+		}
+		// 恢复写在主更新之后: 表单对被自动禁用的渠道读出的是禁用态, 提交的 enabled 为假, 以接管语义为准强制恢复。
+		if restoreOnSkip {
+			if err := tx.Model(&model.Channel{}).Where("id = ?", detail.ID).
+				Updates(map[string]any{"enabled": true, "auto_disabled": false, "health_fail_count": 0}).Error; err != nil {
+				return fmt.Errorf("failed to restore auto-disabled channel: %w", err)
+			}
 		}
 		return syncChannelChildren(tx, detail.ID, detail)
 	}); err != nil {
@@ -165,6 +175,12 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	}
 	if detail.Enabled {
 		channel.AutoDisabled = false
+	}
+	// 与库内的恢复写法保持一致: 勾选跳过后渠道不再被探测, 遗留的失败计数已无意义, 一并清零。
+	if restoreOnSkip {
+		channel.Enabled = true
+		channel.AutoDisabled = false
+		channel.HealthFailCount = 0
 	}
 	channelCache.Set(detail.ID, channel)
 	channelStatsNeedUpdateLock.Unlock()
@@ -368,6 +384,7 @@ func ChannelHealthSuccess(id int, checkedAt int64, reenable bool, ctx context.Co
 // ChannelHealthCandidates 返回健康检查的候选渠道及其探测所需数据。
 // 候选为启用中或已被自动禁用的渠道, 附带各渠道的启用凭据: 前者探测失败时递增计数,
 // 后者继续探测以便恢复后自动解禁; 人工禁用的渠道不在其列, 由此不会被误翻。
+// 勾选跳过健康检查的渠道不在其列: 不探测, 不计数, 也不参与自动禁用与解禁。
 func ChannelHealthCandidates() []model.ChannelHealthCandidate {
 	keysByChannel := make(map[int][]model.ChannelKeyConfig, channelKeyCache.Len())
 	for _, channelKey := range channelKeyCache.GetAll() {
@@ -378,6 +395,9 @@ func ChannelHealthCandidates() []model.ChannelHealthCandidate {
 	}
 	candidates := make([]model.ChannelHealthCandidate, 0, channelCache.Len())
 	for _, channel := range channelCache.GetAll() {
+		if channel.HealthCheckSkip {
+			continue
+		}
 		if !channel.Enabled && !channel.AutoDisabled {
 			continue
 		}

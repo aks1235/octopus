@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { ArrowUpAZ } from 'lucide-react';
+import { ArrowUpAZ, Clock } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useChannelStats } from '@/api/channel';
 import { PageActions, usePageActionsStore } from '@/components/common/PageActions';
@@ -10,12 +10,17 @@ import { ChannelCallDetail } from './CallDetail';
 import { useChannelViewStore } from './detail-store';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 
+// normalizeChannelSort 把持久化的排序值归一到已知集合: 旧数据只存过 asc/desc, 未知值回落名称升序。
+function normalizeChannelSort(order: string | undefined) {
+    return order === 'desc' || order === 'timeAsc' || order === 'timeDesc' ? order : 'asc';
+}
+
 // ChannelActions 向稳定顶栏提供渠道页面的搜索、视图选项和创建入口。
 export function ChannelActions() {
     const t = useTranslations('toolbar');
     const searchTerm = usePageActionsStore((state) => state.searchTerms.channel || '');
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
-    const sortOrder = usePageActionsStore((state) => state.sortOrders.channel === 'desc' ? 'desc' : 'asc');
+    const sortOrder = usePageActionsStore((state) => normalizeChannelSort(state.sortOrders.channel));
     const filter = usePageActionsStore((state) => state.channelFilter);
     const setSearchTerm = usePageActionsStore((state) => state.setSearchTerm);
     const setLayout = usePageActionsStore((state) => state.setLayout);
@@ -31,10 +36,14 @@ export function ChannelActions() {
             sortOptions={[
                 { value: 'asc', label: t('popover.nameAsc'), icon: ArrowUpAZ },
                 { value: 'desc', label: t('popover.nameDesc'), icon: ArrowUpAZ },
+                { value: 'timeAsc', label: t('popover.timeAsc'), icon: Clock },
+                { value: 'timeDesc', label: t('popover.timeDesc'), icon: Clock },
             ]}
             sortValue={sortOrder}
             onSortChange={(value) => {
-                if (value === 'asc' || value === 'desc') setSort('channel', value);
+                if (value === 'asc' || value === 'desc' || value === 'timeAsc' || value === 'timeDesc') {
+                    setSort('channel', value);
+                }
             }}
             filterOptions={[
                 { value: 'all', label: t('popover.filter.channel.all') },
@@ -61,10 +70,10 @@ export function Channel() {
     const { data: statsData } = useChannelStats();
     const searchTerm = usePageActionsStore((state) => state.searchTerms.channel || '');
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
-    const sortOrder = usePageActionsStore((state) => state.sortOrders.channel === 'desc' ? 'desc' : 'asc');
+    const sortOrder = usePageActionsStore((state) => normalizeChannelSort(state.sortOrders.channel));
     const filter = usePageActionsStore((state) => state.channelFilter);
 
-    // 先按搜索词和启用状态过滤, 再按名称排序
+    // 先按搜索词和启用状态过滤, 再按名称或添加时间排序; 添加时间以自增主键近似(迁移保留 v1 主键, 历史顺序正确)。
     const visibleChannels = useMemo(() => {
         const term = searchTerm.toLowerCase().trim();
         const matched = (statsData ?? []).filter((channel) => {
@@ -74,11 +83,19 @@ export function Channel() {
             return true;
         });
 
-        return matched.sort((a, b) =>
-            sortOrder === 'asc'
-                ? a.channel_name.localeCompare(b.channel_name)
-                : b.channel_name.localeCompare(a.channel_name)
-        );
+        // 时间分支先于名称分支判断, 名称两向收在 default 与 desc。
+        return matched.sort((a, b) => {
+            switch (sortOrder) {
+                case 'timeAsc':
+                    return a.channel_id - b.channel_id;
+                case 'timeDesc':
+                    return b.channel_id - a.channel_id;
+                case 'desc':
+                    return b.channel_name.localeCompare(a.channel_name);
+                default:
+                    return a.channel_name.localeCompare(b.channel_name);
+            }
+        });
     }, [statsData, searchTerm, filter, sortOrder]);
 
     return (

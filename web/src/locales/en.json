@@ -57,6 +57,8 @@
             "list": "List",
             "nameAsc": "Name Asc",
             "nameDesc": "Name Desc",
+            "timeAsc": "Time Asc",
+            "timeDesc": "Time Desc",
             "filter": {
                 "title": "Filter",
                 "channel": {
@@ -590,6 +592,8 @@
             "modelRefreshEmpty": "No models returned",
             "channelProxy": "Channel proxy",
             "matchRegex": "Match regex",
+            "healthCheckSkip": "Skip health check",
+            "healthCheckSkipHint": "Check for channels without a model-list endpoint (probing /models always fails but forwarding works), e.g. China Telecom; skips auto probing and disabling, and auto-disabled channels are restored on save",
             "paramOverride": "Param override",
             "customHeader": "Custom headers",
             "customHeaderKey": "Header key",
