@@ -271,3 +271,13 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 2. v2 迁移链空库启动有三个坑:group_items NOT NULL 无默认值 / GORM 递归
    建表后 AutoMigrate 重建时外键检查 / 迁移脚本 mode text 类型,均已修复
 3. data-v2/ 是唯一可信的 v2 数据源(迁移脚本产物 + 已验证)
+
+## 2026-09-11 渠道健康检查跳过开关+按添加时间排序
+
+- 动机: 天翼云无 /models 接口被健康检查反复误禁用(手动加模型可用);渠道列表缺时间排序
+- 方案裁定: 404 宽容判定有误判风险被否,选渠道级显式开关;排序用 channel_id 不加时间列
+- 实现: ChannelConfig.health_check_skip + 候选过滤 + 勾选保存即恢复(库/缓存对称);
+  前端表单开关+排序四值+三语
+- 验证: 4 新单测全过;smoke 实测天翼云勾选即恢复(enabled=true/fail=0),
+  两轮健康检查(30s/轮)后不再探测不再禁用
+- 已提交(commit 见 git log),未发版——下个版本随 v2.0.1 一起出
