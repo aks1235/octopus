@@ -331,3 +331,18 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
   -f Gateway),E2E 测试不用真上游;② rg -rn 的 -r 是 replace 不是递归,两次
   踩坑;③ /api/v1/log/list 是历史接口,实时面是 SSE /overview/stream——
   断言前先核对每个前端消费面吃哪个接口
+
+## 2026-09-11 升级 axonhub/llm 至 0909 快照(09-11-bump-axonhub-llm)
+
+- 升级: llm 3786f2c5c8de + x/crypto 0.55 + x/net 0.58 + 间接 4 项,与上游
+  1bd2ed8 逐项一致(go.sum 逐字节同);零代码适配
+- 冒烟: scripts/e2e/ 可复跑资产(sim.py 15 场景 + run_smoke.py 20 用例);
+  质检补了 web_search 跨协议转换路径用例(原用例走透传,修复代码不参与)
+- 行为差异 5 项均非回归,关键定性: Octopus 出站恒用 generic transformer,
+  zai/GLM 专有转换不参与(字节透传,标记原样到达)——"GLM-5.3 专有修复"
+  对我们价值有限,如实修正预期
+- 真渠道抽查: 用户建中转渠道 New API + 分组 deepseek-v4-flash(第二成员
+  deepseek-v4-flash-0731 又是自动吸纳进来的);非流式/流式(352帧含思考流)
+  全过,日志带 Key 名零报错
+- 教训: 检验"定向修复"前先确认代码路径真的会经过它(web_search 用例初版
+  走了透传,差点测了个寂寞)

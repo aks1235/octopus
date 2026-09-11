@@ -1,0 +1,3 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "转发链与出站构请求上下文,升级后回归的判据"}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "终态落库挂钩,升级后 attempts/终态回归判据"}
