@@ -281,3 +281,15 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 - 验证: 4 新单测全过;smoke 实测天翼云勾选即恢复(enabled=true/fail=0),
   两轮健康检查(30s/轮)后不再探测不再禁用
 - 已提交(commit 见 git log),未发版——下个版本随 v2.0.1 一起出
+
+## 2026-09-11 v2.0.1/v2.0.2 发版与正则修复
+
+- v2.0.1: 健康检查跳过开关+按添加时间排序(任务 09-11-health-skip-and-time-sort,
+  已归档);生产实测天翼云勾选即恢复、两轮健康检查不再误禁
+- 渠道"变少"排查: 118 渠道数据全在,是渠道页搜索词/过滤器持久化残留(zustand
+  persist),非数据丢失;虚拟滚动不截断
+- v2.0.2: 分组成员正则前端预检兼容 (?i)——JS RegExp 不认识 regexp2 的内联
+  flag,新增 compileMemberRegex 剥离转原生 i flag;用户实测 (?i) 短版正则可用
+- 分组成员正则书写约定: 纯 pattern 无 JS 斜杠定界符;忽略大小写用开头 (?i);
+  lookahead 支持
+- 教训: 沙箱内 docker pull EOF ≠ 用户网络问题(宿主机 pull 正常),已记 memory
