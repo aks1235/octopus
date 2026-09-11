@@ -1,0 +1,9 @@
+# octopus-verify 专用覆盖:叠加在 docker-compose.smoke.yml 之上使用。
+# - 数据挂载改指 data-verify 隔离目录(smoke 默认的 data-v2 是可信迁移产物,勿弄脏)
+# - 镜像 tag 换独立 verify 标签,避免覆盖本地缓存的发布版镜像(回滚资产)
+# 用法: docker compose -f docker-compose.smoke.yml -f docker-compose.verify.yml up -d --build
+services:
+  octopus:
+    image: raynmy/octopus:verify-manual-absorb
+    volumes:
+      - './data-verify:/app/data'

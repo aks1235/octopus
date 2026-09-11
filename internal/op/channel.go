@@ -117,6 +117,10 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := GroupRegexSync(ctx); err != nil {
 		return nil, fmt.Errorf("failed to sync regex groups: %w", err)
 	}
+	// 新渠道的模型名也可能包含手动分组名, 按编辑器「自动添加」的同口径吸纳为手动分组成员(只增不减)。
+	if err := GroupManualAbsorb(ctx, channel.ID); err != nil {
+		return nil, fmt.Errorf("failed to absorb manual group members: %w", err)
+	}
 	created := channelDetail(channel)
 	return &created, nil
 }
@@ -195,6 +199,10 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	// 模型与授权的增删会改变正则分组的命中集合, 重算以即时吸纳与移除。
 	if err := GroupRegexSync(ctx); err != nil {
 		return nil, fmt.Errorf("failed to sync regex groups: %w", err)
+	}
+	// 模型与授权的增删同样改变手动分组的命中集合, 按同口径吸纳新成员; 吸纳只增不减, 既有成员不动。
+	if err := GroupManualAbsorb(ctx, detail.ID); err != nil {
+		return nil, fmt.Errorf("failed to absorb manual group members: %w", err)
 	}
 	updated := channelDetail(channel)
 	return &updated, nil

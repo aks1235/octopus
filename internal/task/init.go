@@ -49,12 +49,16 @@ func Init() {
 	statsSaveInterval := time.Duration(statsSaveIntervalMinutes) * time.Minute
 	Register(TaskStatsSave, statsSaveInterval, false, op.StatsSaveDBTask)
 
-	// 注册分组成员正则兜底任务: 启动即跑一轮吸纳存量匹配, 之后定时兜住意外漏算。
+	// 注册分组成员兜底任务: 正则分组整体重算 + 手动分组按名吸纳, 启动即跑一轮吸纳存量匹配, 之后定时兜住意外漏算。
 	Register(TaskGroupRegexSync, groupRegexSyncInterval, true, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := op.GroupRegexSync(ctx); err != nil {
 			log.Warnf("failed to sync regex group members: %v", err)
+		}
+		// 手动分组吸纳兜底走全量(不限渠道), 串行接在正则重算之后, 与渠道增改的事件触发共用同一入口。
+		if err := op.GroupManualAbsorb(ctx); err != nil {
+			log.Warnf("failed to absorb manual group members: %v", err)
 		}
 	})
 

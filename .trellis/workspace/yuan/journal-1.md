@@ -293,3 +293,21 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 - 分组成员正则书写约定: 纯 pattern 无 JS 斜杠定界符;忽略大小写用开头 (?i);
   lookahead 支持
 - 教训: 沙箱内 docker pull EOF ≠ 用户网络问题(宿主机 pull 正常),已记 memory
+
+## 2026-09-11 手动分组自动吸纳(09-11-manual-group-auto-absorb)
+
+- 动机: v2 重做把自动分组从渠道侧(v1 auto_group)搬到分组侧 member_regex 后,
+  手动分组失去自动更新,用户每加渠道要挨个按编辑器「自动添加」按钮
+- 方案: GroupManualAbsorb(渠道增改挂调+5min兜底,append-only 尾部续排)+
+  分组创建/改名即时吸纳;口径与前端 autoAdd 按钮同源(模型名包含分组名)
+- UI 验证发现缺口: 先建渠道后建分组时渠道侧触发不回补 → 补 R1b 分组侧触发
+  (正则分组创建即吸纳的对称行为),未改名的成员编辑不触发(防删成员保存即回吸)
+- 验证: 11 单测全绿;API 复现渠道触发 1 秒内吸纳;8081 smoke 人审两轮通过
+  (创建分组即吸纳/渠道触发/改名吸纳);质检两轮 PASS(顺手删未消费 Preload、
+  锁定正则→手动转换×改名边界)
+- 契约沉淀: .trellis/spec/backend/group-manual-absorb.md
+- 教训: ① 用户测的是 8080 生产(旧镜像)而不是 8081 verify——verify 要先确认
+  用户操作落在哪个端口,查隔离库数据即可判定;② group_items 已有 idx_group_grant
+  唯一索引,并发吸纳幂等有 DB 硬保护(design 原以为无约束);③ octopus-verify 的
+  skill 文档 golang:1.25 已过时,go.mod 要求 1.26.4;deploy.sh 会重启生产容器,
+  verify 必须走 smoke(8081)+data-verify 隔离路径,不能跑 deploy.sh

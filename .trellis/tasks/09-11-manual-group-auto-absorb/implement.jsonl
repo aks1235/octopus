@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "分组自动成员既有契约:正则分组语义/缓存口径/稳定排序,吸纳逻辑需与它划清边界且复用其排序口径"}
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "gorm default:true 零值坑与选路契约:group_items 写入时的注意事项"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "数据库层规范:事务/错误处理/GroupListRaw 热路径教训"}
