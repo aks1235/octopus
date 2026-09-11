@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
-import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, X } from 'lucide-react';
+import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, Filter, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
+import { compileMemberRegex } from '@/lib/member-regex';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -18,12 +19,14 @@ export function SettingSystem() {
     const [healthFailThreshold, setHealthFailThreshold] = useState('');
     const [corsAllowOrigins, setCorsAllowOrigins] = useState('');
     const [corsInputValue, setCorsInputValue] = useState('');
+    const [modelFilter, setModelFilter] = useState('');
 
     const initialProxyUrl = useRef('');
     const initialStatsSaveInterval = useRef('');
     const initialHealthCheckInterval = useRef('');
     const initialHealthFailThreshold = useRef('');
     const initialCorsAllowOrigins = useRef('');
+    const initialModelFilter = useRef('');
 
     useEffect(() => {
         if (settings) {
@@ -52,6 +55,11 @@ export function SettingSystem() {
                 queueMicrotask(() => setCorsAllowOrigins(cors.value));
                 initialCorsAllowOrigins.current = cors.value;
             }
+            const modelFilterSetting = settings.find(s => s.key === SettingKey.ModelFilter);
+            if (modelFilterSetting) {
+                queueMicrotask(() => setModelFilter(modelFilterSetting.value));
+                initialModelFilter.current = modelFilterSetting.value;
+            }
         }
     }, [settings]);
 
@@ -71,6 +79,8 @@ export function SettingSystem() {
                     initialHealthFailThreshold.current = value;
                 } else if (key === SettingKey.CORSAllowOrigins) {
                     initialCorsAllowOrigins.current = value;
+                } else if (key === SettingKey.ModelFilter) {
+                    initialModelFilter.current = value;
                 }
             }
         });
@@ -196,6 +206,36 @@ export function SettingSystem() {
                     onChange={(e) => setHealthFailThreshold(e.target.value)}
                     onBlur={() => handleSave(SettingKey.HealthFailThreshold, healthFailThreshold, initialHealthFailThreshold.current)}
                     placeholder={t('healthCheck.threshold.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </div>
+
+            {/* 全局模型过滤: 渠道拉取模型列表时与渠道自身过滤表达式取 AND */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Filter className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('modelFilter.label')}</span>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={10} align="center">
+                            {t('modelFilter.hint')}
+                        </TooltipContent>
+                    </Tooltip>
+                </div>
+                <Input
+                    value={modelFilter}
+                    onChange={(e) => setModelFilter(e.target.value)}
+                    onBlur={() => {
+                        // 与分组成员正则同一口径预检, 后端 Validate 再兜底一道。
+                        if (modelFilter !== '' && compileMemberRegex(modelFilter) === null) {
+                            toast.error(t('modelFilter.invalid'));
+                            return;
+                        }
+                        handleSave(SettingKey.ModelFilter, modelFilter, initialModelFilter.current);
+                    }}
+                    placeholder={t('modelFilter.placeholder')}
                     className="w-48 rounded-xl"
                 />
             </div>

@@ -1,0 +1,5 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "model_filter 正则方言/校验/前端预检须与该契约一致"}
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "client_header 落在 applyChannelConfig(转发构请求路径),勿碰选路禁用契约;buildOutbound 合成 grant 模式上下文"}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "state.go/handler.go 改动须与终态落库挂钩模式共存;queryKey 纪律"}
+{"file": ".trellis/spec/backend/api-serialization.md", "reason": "state 新增字段与前端类型同步;nil 切片契约"}

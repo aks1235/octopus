@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+
+	"github.com/dlclark/regexp2"
 )
 
 type SettingKey string
@@ -17,6 +19,7 @@ const (
 	SettingKeyHealthFailThreshold     SettingKey = "health_fail_threshold"      // 渠道连续健康检查失败多少次后自动禁用
 	SettingKeyRelayLogKeepEnabled     SettingKey = "relay_log_keep_enabled"     // 是否保留历史转发日志(关闭时仅内存保留最近若干条)
 	SettingKeyRelayLogKeepPeriod      SettingKey = "relay_log_keep_period"      // 历史日志保留天数, 超期由周期任务清理
+	SettingKeyModelFilter             SettingKey = "model_filter"               // 渠道拉取模型列表时的全局过滤正则; 留空表示不过滤
 )
 
 type Setting struct {
@@ -34,6 +37,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyHealthFailThreshold, Value: "3"},      // 默认连续失败3次自动禁用渠道
 		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},   // 默认保留历史日志
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},       // 默认日志保存7天
+		{Key: SettingKeyModelFilter, Value: ""},               // 默认不过滤模型
 	}
 }
 
@@ -66,6 +70,15 @@ func (s *Setting) Validate() error {
 	case SettingKeyRelayLogKeepEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("relay log keep enabled must be true or false")
+		}
+		return nil
+	case SettingKeyModelFilter:
+		if s.Value == "" {
+			return nil
+		}
+		// 与渠道侧过滤同用 ECMAScript 方言校验, 避免设置能存但拉取时编译失败。
+		if _, err := regexp2.Compile(s.Value, regexp2.ECMAScript); err != nil {
+			return fmt.Errorf("model filter regex is invalid: %w", err)
 		}
 		return nil
 	case SettingKeyProxyURL:

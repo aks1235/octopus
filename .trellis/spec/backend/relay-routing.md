@@ -56,3 +56,16 @@ outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
 
 - 健康检查自动禁用/解禁落库与缓存改写:`op.ChannelHealthFail` / `op.ChannelHealthSuccess` / `op.ChannelEnabled`(只动健康状态与启停两列)
 - 转发日志持久化(任务4)→ [relay-log-persistence.md](./relay-log-persistence.md)
+
+## 模式:自定义请求头的 `{client_header:NAME}` 占位符
+
+**What**:`applyChannelConfig`(`internal/relay/channel.go`)应用渠道自定义 Header 时,值中的 `{client_header:NAME}` 片段替换为**客户端请求**同名头的实际值(`request.Headers.Get(NAME)`,此时出站请求头已并入客户端原始终头),取不到替换为空串。占位符正则包级预编译。
+
+**Why**:部分上游(如 Cloudflare 站点)只放行带浏览器 UA 的请求——fork 曾因客户端缺 UA 遭 CF 1010 拦截(ADR-0004),该占位符让上游看到客户端真实 UA 而非网关默认值。
+
+**边界**:
+- 敏感 Header 的跳过判断在替换**之前**,不受占位符影响。
+- 探测/keytest 走合成请求无客户端头,占位符替换为空串(上游 v0.13.3 同款行为)。
+- 单测:`internal/relay/channel_test.go`(真实替换/缺失置空/无占位符零变化/多占位符/敏感头不被动)。
+
+> 2026-09-11 随任务 09-11-port-upstream-0134 自上游 v0.13.3(1c48ee5)移植。

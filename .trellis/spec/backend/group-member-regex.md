@@ -13,7 +13,7 @@ member_regex 由用户在分组编辑器输入,前端做可编译性预检与「
 ### 2. 签名与实现位置
 
 - 后端权威编译:`internal/op/group.go` `syncRegexGroupItems` → `regexp2.Compile(memberRegex, regexp2.ECMAScript)`(引擎 `github.com/dlclark/regexp2`)
-- 前端预检/预览:`web/src/components/modules/group/Editor.tsx` `compileMemberRegex(pattern): RegExp | null`(唯一入口,见下方 Wrong/Correct)
+- 前端预检/预览:`web/src/lib/member-regex.ts` `compileMemberRegex(pattern): RegExp | null`(唯一入口,见下方 Wrong/Correct;2026-09-11 由 Editor.tsx 抽出为共享 util,分组编辑器与设置页全局模型过滤共用,行为零变化)
 
 ### 3. 契约(用户书写约定)
 
@@ -54,7 +54,7 @@ new RegExp(trimmedMemberRegex); // JS RegExp 不认识 (?i),合法写法被误�
 #### Correct
 
 ```ts
-// Editor.tsx compileMemberRegex:剥离开头 (?i) 转为原生 i flag,其余语法两引擎同方言
+// lib/member-regex.ts compileMemberRegex:剥离开头 (?i) 转为原生 i flag,其余语法两引擎同方言
 function compileMemberRegex(pattern: string): RegExp | null {
     const inlineFlag = pattern.startsWith('(?i)');
     try {
@@ -72,3 +72,9 @@ function compileMemberRegex(pattern: string): RegExp | null {
 ## 相关
 
 - 正则吸纳不看启停、`Available` 展示口径 → [relay-routing.md](./relay-routing.md)「禁用 ≠ 删除」
+
+## 关联:全局模型过滤(model_filter)沿用同方言
+
+- 设置键 `model_filter`(`internal/model/setting.go`):拉取渠道模型列表时与渠道级 `match_regex` 取 AND,任一侧留空不生效。
+- 校验与编译一律 `regexp2 Compile(value, regexp2.ECMAScript)`;前端设置页输入预检经 `web/src/lib/member-regex.ts` 的 `compileMemberRegex`(与分组成员正则同一实现,单一口径)。
+- 仅作用于「拉取模型列表」路径,手工填写的模型不受影响。

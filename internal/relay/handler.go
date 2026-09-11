@@ -80,8 +80,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		apiKeyID := c.GetInt("api_key_id")
 		userAgent := c.Request.UserAgent()
 		reasoningEffort := extractReasoningEffort(format, raw.Body)
-		request := newRequestState(metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID, userAgent, reasoningEffort)
 		ctx := c.Request.Context()
+		request := newRequestState(ctx, metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID, userAgent, reasoningEffort)
 		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
 		failures := 0     // 该成员包含首次请求的连续失败次数。
 

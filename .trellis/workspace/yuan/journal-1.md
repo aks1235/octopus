@@ -311,3 +311,23 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
   唯一索引,并发吸纳幂等有 DB 硬保护(design 原以为无约束);③ octopus-verify 的
   skill 文档 golang:1.25 已过时,go.mod 要求 1.26.4;deploy.sh 会重启生产容器,
   verify 必须走 smoke(8081)+data-verify 隔离路径,不能跑 deploy.sh
+
+## 2026-09-11 移植上游 v0.13.4 四项(09-11-port-upstream-0134)
+
+- 范围: 全局模型过滤(d5a893f)/client_header 占位符(1c48ee5)/实时日志来源Key
+  +RoundStartedAt+样式(bab1a53/bf2027a/9a80de3/edb4bfb);排除渠道禁用fix(自有
+  实现更细)与 axonhub/llm 依赖升级(需单独冒烟,ADR-0007 风险区)
+- 方式: 手工移植不 merge——handlers/channel.go、relay/state.go/handler.go、
+  log/Item.tsx 与基线分叉大,按上游 diff 为蓝本落到我们形状
+- 偏差: compileMemberRegex 抽到 web/src/lib/member-regex.ts 共享(组件文件
+  导出非组件触发 lint);前端预检强于上游(AC1 双重拦截)
+- 验证: 3 个新测试文件全绿;E2E 自建假上游模拟器(/tmp/octopus-sim/sim.py,
+  /v1/models + /v1/chat/completions 回显收到的请求头)实证:全局+渠道两级
+  过滤 AND、清空对照、{client_header:User-Agent} 全链路替换(X-Test=客户端UA)、
+  SSE 实时流带 api_key_name/round_started_at;顺手复验空分组创建即吸纳
+- 测试期间确认(非bug): manual 分组必须人工指定 active_item_id 才路由,
+  API 空建+吸纳填成员后仍等待——既有设计,UI 点选成员或 failover 自动选
+- 教训: ① compose 网关 IP 可让容器回连宿主模拟器(docker network inspect
+  -f Gateway),E2E 测试不用真上游;② rg -rn 的 -r 是 replace 不是递归,两次
+  踩坑;③ /api/v1/log/list 是历史接口,实时面是 SSE /overview/stream——
+  断言前先核对每个前端消费面吃哪个接口

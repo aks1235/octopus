@@ -16,6 +16,7 @@ export const SettingKey = {
     HealthCheckInterval: 'health_check_interval',
     HealthFailThreshold: 'health_fail_threshold',
     CORSAllowOrigins: 'cors_allow_origins',
+    ModelFilter: 'model_filter',
     RelayLogKeepEnabled: 'relay_log_keep_enabled',
     RelayLogKeepPeriod: 'relay_log_keep_period',
 } as const;
