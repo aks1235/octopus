@@ -346,3 +346,16 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
   全过,日志带 Key 名零报错
 - 教训: 检验"定向修复"前先确认代码路径真的会经过它(web_search 用例初版
   走了透传,差点测了个寂寞)
+
+## 2026-09-11 v2.0.4 发布与 CI 镜像覆盖事故
+
+- v2.0.4 首切生产后版本横幅显示 v2.0.3-1-gfd92a84 → 排查实锤 CI 竞争覆盖:
+  tag run 构建期间,dev-v2 push(compose 版本号 commit)触发的 run 用
+  git describe --abbrev=0 命中刚打的 tag,以同名 raynmy/octopus:v2.0.4
+  覆盖 tag run 的镜像;生产 pull 到版本串错但代码完整的二进制
+- 修复: release.yaml 分支 push 一律钉 LATEST_TAG=dev(73c4e5d);
+  tag 重打到修复 commit 重建,重切生产,版本横幅 v2.0.4/Commit 73c4e5d,
+  Hub 与本地 digest 一致(e701c066)
+- 教训: ① 打 tag 与后续 push 必须拉开时序,或先修 CI 再发版;② 发布验证
+  不能只看容器名/HTTP,必须核版本横幅+Commit+Hub digest 三件套;③
+  metadata-action 的 raw tag 在分支 run 也会推,enable 条件只挡 latest 类
