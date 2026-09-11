@@ -3,7 +3,7 @@
 # 属 v1.0.x 旧库结构,v2 迁移链(含 DROP relay_logs)未演练前绝不能套上去。切换统一走 v2-smoke-switch 任务。
 services:
   octopus:
-    image: raynmy/octopus:v2.0.0
+    image: raynmy/octopus:v2.0.1
     build:
       context: .
       dockerfile: scripts/dockerfiles/Dockerfile.alpine

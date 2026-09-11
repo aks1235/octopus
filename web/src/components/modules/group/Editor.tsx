@@ -43,6 +43,19 @@ const PROTOCOL_TAGS = [
     { bit: Protocol.AnthropicMessage, label: 'Message' },
 ];
 
+// compileMemberRegex 以 JS 方言编译成员正则, 供预检与吸纳预览使用。
+// 后端权威引擎 regexp2 认识开头的 (?i) 内联忽略大小写 flag, JS RegExp 不认识,
+// 需剥掉并转为原生 i flag, 否则后端合法的写法在前端预检即被误判; 其余语法两引擎同方言。
+// 无法编译返回 null, 由调用方走无效/空集分支。
+function compileMemberRegex(pattern: string): RegExp | null {
+    const inlineFlag = pattern.startsWith('(?i)');
+    try {
+        return new RegExp(inlineFlag ? pattern.slice(4) : pattern, inlineFlag ? 'i' : '');
+    } catch {
+        return null;
+    }
+}
+
 // FieldHelp 渲染配置字段的简短帮助提示。
 function FieldHelp({ text }: { text: string }) {
     return (
@@ -447,14 +460,11 @@ export function GroupEditor({
     const isRegexGroup = trimmedMemberRegex.length > 0;
 
     // 前端只做正则的可编译性预检拦截明显笔误; 后端以 regexp2(ECMAScript 语法)做权威校验, 不一致时返回 400。
+    // 忽略大小写在后端写作开头的 (?i) 内联 flag, JS RegExp 不认识该语法, 预检需剥掉并转为原生 i flag,
+    // 否则后端合法的写法会被前端误报「正则表达式无效」; 其余语法两引擎同方言, 直接编译即可。
     const memberRegexValid = useMemo(() => {
         if (!isRegexGroup) return true;
-        try {
-            new RegExp(trimmedMemberRegex);
-            return true;
-        } catch {
-            return false;
-        }
+        return compileMemberRegex(trimmedMemberRegex) !== null;
     }, [isRegexGroup, trimmedMemberRegex]);
 
     const matchedModelChannels = useMemo(() => {
@@ -491,12 +501,9 @@ export function GroupEditor({
     // 候选列表本身已按渠道、模型、凭据排序, 过滤即保持后端成员的优先级顺序。
     const regexMatchedMembers = useMemo(() => {
         if (!isRegexGroup || !memberRegexValid) return [];
-        try {
-            const re = new RegExp(trimmedMemberRegex);
-            return grantMembers.filter((member) => re.test(member.name));
-        } catch {
-            return [];
-        }
+        const re = compileMemberRegex(trimmedMemberRegex);
+        if (!re) return [];
+        return grantMembers.filter((member) => re.test(member.name));
     }, [isRegexGroup, memberRegexValid, trimmedMemberRegex, grantMembers]);
 
     const handleAbsorbByRegex = useCallback(() => {
