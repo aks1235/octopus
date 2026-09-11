@@ -93,7 +93,11 @@ jobs:
             if [ -n "$CURRENT_TAGS" ]; then
               LATEST_TAG="$CURRENT_TAGS"
             else
-              LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')
+              # 分支 push 不得解析出已打过的 tag 名: git describe --abbrev=0 会命中
+              # 祖先链上的新 tag, 导致 dev run 以同名镜像 tag 覆盖 tag run 刚推的镜像
+              # (v2.0.4 实际踩过: 生产拉到 fd92a84 版本串 v2.0.3-1-gfd92a84 的镜像)。
+              # 分支构建一律钉 dev, 版本追溯走 short_sha 镜像 tag。
+              LATEST_TAG='dev'
             fi
           fi
           SHORT_SHA=$(git rev-parse --short HEAD)
