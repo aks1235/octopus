@@ -90,3 +90,14 @@ services:
 - 快照一律用 **SQLite backup API**(从 `mode=ro` 连接 backup 到新库);ro 打开本身也要纳入重试窗口(smoke 容器活写 `data-v2/data.db` 时实测间歇失败,连 5 次重试解决)。
 - 正式切换窗口应用已停,天然无竞态;但演练/对账脚本在应用运行期间取样必须走本契约。
 - 参考实现:`scripts/migrate_v1_to_v2.py` 的 `copy_template_to_dst`(backup + 重试)与快照入口。
+
+## 坑:compose pull 静默失败 → 回退本地构建(2026-09-16 实录)
+
+**Symptom**:`docker compose pull && docker compose up -d` 后容器版本串不是 CI 镜像的版本(显示本地 verify 构建的版本号),`docker image inspect <tag>` 的 RepoDigests 为空(从未真正拉取)。
+
+**Cause**:compose 文件同时声明 `image:` 与 `build:` 时,pull 失败(本例 registry CDN `EOF`,沙箱与宿主均复现)后 `up -d` 不报错而是**本地构建**并打上 `image:` 声明的 tag——错版本镜像静默顶替正货上线。
+
+**Fix / Prevention**:
+- 换镜像后必验:`docker logs <容器> | grep Version` 与预期 tag 一致;`docker image inspect raynmy/octopus:vX.Y.Z --format '{{.RepoDigests}}'` 非空(= 真从 registry 拉的)。
+- 确认正货:与 Docker Hub API 的 tag digest 比对 `curl -s https://hub.docker.com/v2/repositories/raynmy/octopus/tags/vX.Y.Z`。
+- 网络不通时的应急:本地按 deploy.sh 同参数重编(版本串注入正式 tag 的版本号+commit),内容与 CI 同源;网络恢复后 `docker compose pull && docker compose up -d` 换回正货。

@@ -69,3 +69,24 @@ outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
 - 单测:`internal/relay/channel_test.go`(真实替换/缺失置空/无占位符零变化/多占位符/敏感头不被动)。
 
 > 2026-09-11 随任务 09-11-port-upstream-0134 自上游 v0.13.3(1c48ee5)移植。
+
+## 契约:客户端请求头透传与 UA 指纹(WAF 403 排障路径)
+
+**What**:同协议透传(`buildPassthroughRequest` → `httpclient.MergeInboundRequest`)把客户端请求头并入上游请求,过滤名单仅三类:认证类、库自管类(Content-Length/Transfer-Encoding/Accept-Encoding/Host)、逐跳类(Connection/Keep-Alive/Te/Upgrade/X-Forwarded-For 等)。**`User-Agent` 不在名单里,原样透传**——上游 WAF 看到的 UA 是打到 octopus 的客户端的 UA,不是网关自己的。
+
+**Why**:2026-09-15 实证:同一 Key 同一渠道,`Agents/Python 0.18.0` UA 成功、`OpenAI/Python 2.44.0` UA 连续 `403 Forbidden: Your request was blocked`。公益站前置 WAF 按 UA 指纹拦截,裸 OpenAI SDK 的 UA 是常见拦截目标。
+
+**排障路径**(看到 upstream 403 "blocked" 时):
+1. 查 `relay_logs.user_agent`(记录的是**客户端** UA,非上游所见——两者一致因透传);
+2. 对比同时段同渠道成功/失败请求的 UA 分布;
+3. 缓解:渠道自定义 Header 加 `User-Agent: <放行的 UA>`——UA 非敏感头,自定义值会**覆盖**透传值(`applyChannelConfig` 只对「已存在且敏感」的头跳过)。
+
+**边界**:
+- `relay_logs` 里 response_content 含关键词的搜索会命中会话自身内容(假阳性),排障用 `attempts` JSON 里的 msg 精确定位。
+- failover 大轮转 × 短冷却会在 WAF 眼里变成高频异常请求,愈撞愈拦(2026-09-15 单请求 111 次尝试实例)。
+
+## 已知问题:failover 请求内"回炉"与亲和滞后(2026-09-16 记录,待修)
+
+- **回炉**:`pickGroupItem` 失败后 `CurrentItemID=0`,下一轮从队头重扫——成员多、冷却短时,同一请求反复回头撞刚失败的高优先级渠道(上述 111 次的成因之一)。目标语义(v1 对齐,用户已确认):请求内游标**向下走**,冷却只做闸门,走完一圈再回头;全员冷却时等最早到期再续(带上限)。
+- **亲和滞后**:顺序重排后亲和窗口内不切新顺序——已由顺序端点重置路由状态解决(见 [group-channel-order.md](./group-channel-order.md)),但渠道健康恢复等其他路径仍受亲和窗口影响。
+- SQLITE_BUSY:5 分钟兜底重算与吸纳撞锁,日志每 5 分钟告警,待根治。
