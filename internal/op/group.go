@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -18,6 +19,15 @@ import (
 var (
 	groupCache     = cache.New[int, model.Group](16) // 按主键保存完整分组配置。
 	groupNameIndex = cache.New[string, int](16)      // 客户端模型名对应的分组主键。
+)
+
+// 顺序端点的可识别错误: 处理器据此区分 404/400, 其余失败一律 500。
+var (
+	// ErrGroupNotFound 目标分组不存在。
+	ErrGroupNotFound = errors.New("group not found")
+	// ErrManualGroupOrder 顺序端点只对正则分组开放: 手动分组的成员顺序随 items 提交整体替换,
+	// 再叠一层人工渠道顺序会让两套顺序来源互相覆盖。
+	ErrManualGroupOrder = errors.New("channel order is only available for regex groups")
 )
 
 // GroupList 返回缓存中的全部分组, 成员已补齐界面展示所需的名称与可用性, 按名称定序。
@@ -294,10 +304,20 @@ func GroupRegexSync(ctx context.Context) error {
 	return groupRefreshCache(ctx)
 }
 
+// memberRef 是正则分组重算中的一条候选成员。
+// 排序键与手动吸纳的候选同构: 按 (渠道, 模型, 凭据) 稳定排序即成员的基础自然序。
+type memberRef struct {
+	channelID int    // 排序键: 授权所属渠道主键。
+	modelName string // 排序键: 授权引用的模型名称。
+	keyName   string // 排序键: 授权引用的凭据名称。
+	grantID   int    // 分组成员按它引用授权。
+}
+
 // syncRegexGroupItems 按分组成员正则重算目标成员集合, 并在事务内整体替换现有成员。
 // 匹配对象是缓存中全部渠道的全部模型名, 不看渠道与凭据的启停: 禁用不等于删除, 可用性由成员展示层的 Available 表达;
-// 命中模型的全部授权纳入成员, 同渠道同模型的多个凭据一并纳入。目标成员按 (渠道, 模型, 凭据) 稳定排序,
-// 提交顺序即优先级顺序。整体替换复用 syncGroupItems: 按授权主键匹配, 既有成员的主键与统计得以保留,
+// 命中模型的全部授权纳入成员, 同渠道同模型的多个凭据一并纳入。目标成员先按 (渠道, 模型, 凭据) 稳定排序,
+// 再叠加该分组的人工渠道顺序(见 applyGroupChannelOrder), 合成顺序即优先级顺序。
+// 整体替换复用 syncGroupItems: 按授权主键匹配, 既有成员的主键与统计得以保留,
 // 被正则淘汰的成员随之删除, 指向它的当前成员选择也被清空。
 func syncRegexGroupItems(tx *gorm.DB, groupID int, memberRegex string) error {
 	re, err := regexp2.Compile(memberRegex, regexp2.ECMAScript)
@@ -305,12 +325,6 @@ func syncRegexGroupItems(tx *gorm.DB, groupID int, memberRegex string) error {
 		return fmt.Errorf("failed to compile member regex: %w", err)
 	}
 
-	type memberRef struct {
-		channelID int    // 排序键: 授权所属渠道主键。
-		modelName string // 排序键: 授权引用的模型名称。
-		keyName   string // 排序键: 授权引用的凭据名称。
-		grantID   int    // 分组成员按它引用授权。
-	}
 	members := make([]memberRef, 0, channelGrantCache.Len())
 	for _, grant := range channelGrantCache.GetAll() {
 		channelModel, ok := channelModelCache.Get(grant.ChannelModelID)
@@ -335,6 +349,8 @@ func syncRegexGroupItems(tx *gorm.DB, groupID int, memberRegex string) error {
 			grantID:   grant.ID,
 		})
 	}
+	// 基础排序定死渠道内部的 (模型, 凭据) 自然序: 人工顺序只在渠道块之间生效,
+	// 下方对渠道块间顺序的稳定重排不会打乱它。
 	sort.Slice(members, func(i, j int) bool {
 		if members[i].channelID != members[j].channelID {
 			return members[i].channelID < members[j].channelID
@@ -344,12 +360,51 @@ func syncRegexGroupItems(tx *gorm.DB, groupID int, memberRegex string) error {
 		}
 		return members[i].keyName < members[j].keyName
 	})
+	applyGroupChannelOrder(tx, groupID, members)
 
 	inputs := make([]model.GroupItemInput, len(members))
 	for i, member := range members {
 		inputs[i] = model.GroupItemInput{ChannelGrantID: member.grantID}
 	}
 	return syncGroupItems(tx, groupID, inputs)
+}
+
+// applyGroupChannelOrder 把分组的人工渠道顺序叠加到已按自然序排好的成员上, 就地稳定重排。
+// 合成语义: 设过顺序的渠道块按人工序排在前段, 渠道块内部仍保持 (模型, 凭据) 自然序
+// (基础排序在前, 稳定排序只移动渠道块之间的相对位置); 未设顺序的渠道(含新吸纳与顺序表
+// 指向已删渠道后新主键回渠道的)整体落在尾段, 按渠道主键自然序追加。
+// 用稳定二次排序而非在候选生成时合成: 基础排序已保证渠道内保序, 只重排块间即可,
+// 改动面最小且两者等价。顺序表为空时是空操作, 行为与未引入人工顺序前逐字节一致。
+func applyGroupChannelOrder(tx *gorm.DB, groupID int, members []memberRef) {
+	var persistedOrders []model.GroupChannelOrder
+	if err := tx.Where("group_id = ?", groupID).
+		Order("position ASC").
+		Find(&persistedOrders).Error; err != nil {
+		// 顺序读取失败只降级为自然序: 人工顺序是偏好而非正确性约束,
+		// 为它中断重算会让分组成员与正则定义脱钩, 代价比顺序丢失大。
+		log.Warnf("failed to load channel order of group %d, falling back to natural order: %v", groupID, err)
+		return
+	}
+	if len(persistedOrders) == 0 {
+		return
+	}
+	orderRank := make(map[int]int, len(persistedOrders))
+	for index, item := range persistedOrders {
+		orderRank[item.ChannelID] = index
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		leftRank, leftExists := orderRank[members[i].channelID]
+		rightRank, rightExists := orderRank[members[j].channelID]
+		if leftExists && rightExists && leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		// 只有一侧设过顺序时, 设过的排前; 都设过且同 rank(顺序表内渠道不会重复, 防御性兜底)
+		// 或都没设过时保持基础排序的相对位置。
+		if leftExists != rightExists {
+			return leftExists
+		}
+		return false
+	})
 }
 
 // manualAbsorbCandidate 手动分组吸纳的一条候选授权。
@@ -499,6 +554,132 @@ func GroupDel(id int, ctx context.Context) error {
 	}
 	groupCache.Del(id)
 	groupNameIndex.Del(group.Name)
+	return nil
+}
+
+// GroupChannelOrderApply 保存正则分组的人工渠道顺序并立即重算成员, 返回重算后的完整分组。
+// 顺序的写入与该分组的重算放在同一事务: 顺序落库而重算失败时整体回滚,
+// 缓存与响应不会出现「顺序已保存但成员还是旧排列」的中间态。
+// channelIDs 即目标渠道顺序(空数组等价清空, 与 Reset 语义一致); 重复渠道属于调用方构造错误,
+// 由处理器层拦截, 此处不再防御。悬空的渠道 ID(库内不存在)在事务内先过滤后写入: channel_id 是真外键
+// 且运行时 foreign_keys(ON), 未知 ID 会撞外键约束使整次保存失败, 故丢弃而非报错(见 existingChannelIDs)。
+// 分组不存在返回 ErrGroupNotFound(处理器转 404); 手动分组返回 ErrManualGroupOrder(处理器转 400):
+// 手动分组的顺序随 items 提交整体定稿, 不走人工渠道顺序。
+func GroupChannelOrderApply(groupID int, channelIDs []int, ctx context.Context) (*model.Group, error) {
+	// 从数据库重读而非走缓存: 缓存可能滞后于并发提交的配置变更, 顺序合成的依据以库内行为准。
+	var group model.Group
+	if err := db.GetDB().WithContext(ctx).First(&group, groupID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrGroupNotFound
+		}
+		return nil, fmt.Errorf("failed to load group: %w", err)
+	}
+	if group.MemberRegex == "" {
+		return nil, ErrManualGroupOrder
+	}
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 悬空渠道先过滤后写入: channel_id 是真外键(ON DELETE CASCADE)且运行时 foreign_keys(ON),
+		// 未知 ID 会在落库时撞外键约束, 让整次保存 500。可达路径是多会话下别的会话刚删掉渠道、
+		// 本会话成员列表还是旧数据时拖拽提交, 或任何直连 API 的调用方。
+		// 过滤与写入同事务, 保证「查存在性」与「写顺序行」看到的是同一份库状态。
+		// 过滤后为空等价于清空顺序(合法); 外键与 AC4 的级联清理保持不变, 渠道删除时其顺序行仍自动消失。
+		existingIDs, err := existingChannelIDs(tx, channelIDs)
+		if err != nil {
+			return err
+		}
+		if err := replaceGroupChannelOrder(tx, groupID, existingIDs); err != nil {
+			return err
+		}
+		return syncRegexGroupItems(tx, groupID, group.MemberRegex)
+	}); err != nil {
+		return nil, err
+	}
+	// 重读拿重算后的成员(含新优先级), 再刷新缓存让读取侧立即可见。
+	if err := db.GetDB().WithContext(ctx).Preload("Items").First(&group, groupID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load updated group: %w", err)
+	}
+	sortGroupItems(group.Items)
+	if err := groupRefreshCache(ctx); err != nil {
+		return nil, err
+	}
+	snapshot := groupSnapshot(group)
+	return &snapshot, nil
+}
+
+// GroupChannelOrderReset 清空分组的人工渠道顺序并重算该分组, 成员回到自然序。
+// 与 Apply 同款走「顺序变更 + 重算」收口: 清空顺序本身就改变合成结果, 不重算会让
+// 旧优先级残留到下一次渠道事件; 分组不存在与手动分组的错误语义同 GroupChannelOrderApply
+// (手动分组没有顺序可清, 但保持同一端点的同一套错误映射)。
+func GroupChannelOrderReset(groupID int, ctx context.Context) (*model.Group, error) {
+	var group model.Group
+	if err := db.GetDB().WithContext(ctx).First(&group, groupID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrGroupNotFound
+		}
+		return nil, fmt.Errorf("failed to load group: %w", err)
+	}
+	if group.MemberRegex == "" {
+		return nil, ErrManualGroupOrder
+	}
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("group_id = ?", groupID).Delete(&model.GroupChannelOrder{}).Error; err != nil {
+			return fmt.Errorf("failed to reset group channel order: %w", err)
+		}
+		return syncRegexGroupItems(tx, groupID, group.MemberRegex)
+	}); err != nil {
+		return nil, err
+	}
+	if err := db.GetDB().WithContext(ctx).Preload("Items").First(&group, groupID).Error; err != nil {
+		return nil, fmt.Errorf("failed to load updated group: %w", err)
+	}
+	sortGroupItems(group.Items)
+	if err := groupRefreshCache(ctx); err != nil {
+		return nil, err
+	}
+	snapshot := groupSnapshot(group)
+	return &snapshot, nil
+}
+
+// existingChannelIDs 过滤出 channelIDs 中当前库内真实存在的渠道, 保持提交顺序。
+// 顺序行对 channel_id 有真外键约束, 悬空 ID 直接写会拖垮整次保存(外键冲突→事务回滚→端点 500),
+// 故在此静默丢弃: 顺序是偏好而非正确性约束, 丢弃悬空项后其余顺序照常生效, 全部悬空即等价清空。
+// 不把存在性校验上推到处理器: 保存顺序与渠道删除之间存在天然的时序竞争, 只有写入前同事务查询才可靠。
+func existingChannelIDs(tx *gorm.DB, channelIDs []int) ([]int, error) {
+	if len(channelIDs) == 0 {
+		return nil, nil
+	}
+	var ids []int
+	if err := tx.Model(&model.Channel{}).Where("id IN ?", channelIDs).Pluck("id", &ids).Error; err != nil {
+		return nil, fmt.Errorf("failed to load existing channels: %w", err)
+	}
+	exists := make(map[int]struct{}, len(ids))
+	for _, id := range ids {
+		exists[id] = struct{}{}
+	}
+	filtered := make([]int, 0, len(channelIDs))
+	for _, id := range channelIDs {
+		if _, ok := exists[id]; ok {
+			filtered = append(filtered, id)
+		}
+	}
+	return filtered, nil
+}
+
+// replaceGroupChannelOrder 用给定渠道顺序整体替换该分组的顺序行, 供顺序端点的事务内调用。
+// 先清后插而非逐行 upsert: 顺序是全量语义(提交即终态), 残留行会让被移出列表的渠道保持旧 rank。
+func replaceGroupChannelOrder(tx *gorm.DB, groupID int, channelIDs []int) error {
+	if err := tx.Where("group_id = ?", groupID).Delete(&model.GroupChannelOrder{}).Error; err != nil {
+		return fmt.Errorf("failed to clear group channel order: %w", err)
+	}
+	for i, channelID := range channelIDs {
+		if err := tx.Create(&model.GroupChannelOrder{
+			GroupID:   groupID,
+			ChannelID: channelID,
+			Position:  i + 1,
+		}).Error; err != nil {
+			return fmt.Errorf("failed to create group channel order: %w", err)
+		}
+	}
 	return nil
 }
 

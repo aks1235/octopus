@@ -387,6 +387,7 @@
             "memberRegexInvalid": "正規表示式無效",
             "absorb": "按正則吸納",
             "regexMembersHint": "成員由正則自動維護",
+            "regexOrderHint": "拖曳可調整渠道優先順序，同渠道成員整體移動，渠道內順序自動保持",
             "regexMatchCount": "目前正則命中 {count} 條授權"
         }
     },

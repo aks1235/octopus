@@ -66,6 +66,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.ChannelGrant{},
 		&model.Group{},
 		&model.GroupItem{},
+		&model.GroupChannelOrder{},
 		&model.LLMInfo{},
 		&model.APIKey{},
 		&model.RelayLog{},

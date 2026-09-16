@@ -1,7 +1,7 @@
 import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Trash2, X, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { type Group, type GroupUpdateRequest, useDeleteGroup, useUpdateGroup } from '@/api/group';
+import { type Group, type GroupUpdateRequest, useDeleteGroup, useGroupChannelOrder, useUpdateGroup } from '@/api/group';
 import { useTranslations } from 'use-intl';
 import { toast } from 'sonner';
 import { CopyIconButton } from '@/components/common/CopyButton';
@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
 import { GroupEditor, type GroupEditorValues } from './Editor';
+import { channelOrderOf } from './utils';
 import {
     MorphingDialog,
     MorphingDialogContainer,
@@ -54,6 +55,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
     const t = useTranslations('group');
     const updateGroup = useUpdateGroup();
     const activateItem = useUpdateGroup(); // 与配置提交分开持有: 共用一个实例会让点选成员点亮编辑弹窗的提交态。
+    const saveChannelOrder = useGroupChannelOrder(); // 正则分组的拖拽排序走独立顺序端点, 不经成员整体提交。
     const deleteGroup = useDeleteGroup();
 
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -87,14 +89,27 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
     const handleDragStart = useCallback(() => { isDragging.current = true; }, []);
     const handleDragFinish = useCallback(() => { isDragging.current = false; }, []);
 
-    // 成员为整体替换, 拖拽与移除都直接提交当前排列, 优先级由提交顺序决定。
+    const isRegexGroup = group.member_regex !== '';
+    const submitOrderPending = updateGroup.isPending || saveChannelOrder.isPending;
+
+    // 正则分组的拖拽只提交渠道顺序: 成员集合由正则定稿(整体替换会被重算覆盖, 旧路径形同虚设),
+    // 拖拽折算为去重渠道 ID(按首次出现序), 渠道内顺序由后端按 (模型, 凭据) 自然序保持;
+    // 手动分组成员为整体替换, 拖拽与移除都直接提交当前排列, 优先级由提交顺序决定。
     const submitMembers = useCallback((next: SelectedMember[]) => {
+        if (isRegexGroup) {
+            saveChannelOrder.mutate(
+                { id: group.id, channel_ids: channelOrderOf(next) },
+                { onSuccess, onError },
+            );
+            return;
+        }
         updateGroup.mutate(
             { id: group.id, items: next.map((m) => ({ channel_grant_id: m.channel_grant_id })) },
             { onSuccess, onError },
         );
-    }, [group.id, updateGroup, onSuccess, onError]);
+    }, [group.id, isRegexGroup, saveChannelOrder, updateGroup, onSuccess, onError]);
 
+    // 移除成员只对手动分组有意义: 正则分组的成员集合只读, MemberList 不挂 onRemove。
     const handleRemoveMember = useCallback((id: string) => {
         submitMembers(members.filter((m) => m.id !== id));
     }, [members, submitMembers]);
@@ -123,26 +138,54 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
             values.relay_config.member_cooldown_seconds !== group.relay_config.member_cooldown_seconds ||
             values.relay_config.member_affinity_seconds !== group.relay_config.member_affinity_seconds
         ) payload.relay_config = values.relay_config;
-        // 成员集合与顺序有任一处不同就整体提交; 后端按授权主键匹配, 已有成员保留其主键与统计。
-        const nextGrantIDs = values.members.map((m) => m.channel_grant_id);
-        const currentGrantIDs = (group.items || []).map((item) => item.channel_grant_id);
-        if (nextGrantIDs.length !== currentGrantIDs.length || nextGrantIDs.some((id, i) => id !== currentGrantIDs[i])) {
-            payload.items = nextGrantIDs.map((channel_grant_id) => ({ channel_grant_id }));
+        // 提交后的分组类型: member_regex 为空即手动分组。分流与端点先后都按终态判定, 不按当前类型:
+        // 本次改成正则分组时顺序端点必须排在分组更新之后(在那之前后端仍按手动分组拒绝),
+        // 反过来改回手动时编辑器的拖拽就该按手动语义提交 items, 而不是被当前类型吞掉。
+        const finalRegexGroup = values.member_regex !== '';
+        // 手动分组成员集合与顺序有任一处不同就整体提交; 后端按授权主键匹配, 已有成员保留其主键与统计。
+        // 终态是正则分组时成员集合只读, 不提交 items(整体替换会被重算覆盖), 顺序走下方顺序端点。
+        if (!finalRegexGroup) {
+            const nextGrantIDs = values.members.map((m) => m.channel_grant_id);
+            const currentGrantIDs = (group.items || []).map((item) => item.channel_grant_id);
+            if (nextGrantIDs.length !== currentGrantIDs.length || nextGrantIDs.some((id, i) => id !== currentGrantIDs[i])) {
+                payload.items = nextGrantIDs.map((channel_grant_id) => ({ channel_grant_id }));
+            }
         }
 
-        if (Object.keys(payload).length === 1) {
+        // 只有顺序变化(配置无变化)时直接保存顺序; 否则先走分组更新。
+        if (values.channelOrder === undefined && Object.keys(payload).length === 1) {
             onDone?.();
             return;
         }
 
-        updateGroup.mutate(payload, {
-            onSuccess: () => {
+        // 顺序端点只对已是正则分组的分组开放, 故配置更新必须先行: 可能刚把手动分组改成正则分组, 也可能不改类型。
+        // 无配置变更时跳过更新, 有则等它落地再保存顺序并收尾; 任一步失败即停, 不写下一步。
+        // (顺序保存失败时配置已落地, 弹窗保持打开, 用户重试保存即可补上顺序。)
+        const saveOrderThenFinish = () => {
+            if (!values.channelOrder) {
                 onSuccess();
                 onDone?.();
-            },
-            onError,
-        });
-    }, [group.id, group.items, group.mode, group.name, group.relay_config, onSuccess, onError, updateGroup]);
+                return;
+            }
+            saveChannelOrder.mutate(
+                { id: group.id, channel_ids: values.channelOrder },
+                {
+                    onSuccess: () => {
+                        onSuccess();
+                        onDone?.();
+                    },
+                    onError,
+                },
+            );
+        };
+
+        if (Object.keys(payload).length === 1) {
+            saveOrderThenFinish();
+            return;
+        }
+
+        updateGroup.mutate(payload, { onSuccess: saveOrderThenFinish, onError });
+    }, [group.id, group.items, group.member_regex, group.mode, group.name, group.relay_config, onSuccess, onError, saveChannelOrder, updateGroup]);
 
     return (
         <article className="flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4">
@@ -175,7 +218,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                                 <EditDialogContent
                                     group={group}
                                     displayMembers={displayMembers}
-                                    isSubmitting={updateGroup.isPending}
+                                    isSubmitting={submitOrderPending}
                                     onSubmit={handleSubmitEdit}
                                 />
                             </MorphingDialogContent>
@@ -219,7 +262,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                 <MemberList
                     members={members}
                     onReorder={setMembers}
-                    onRemove={handleRemoveMember}
+                    onRemove={isRegexGroup ? undefined : handleRemoveMember}
                     onActivate={group.mode === 'manual' ? handleActivate : undefined}
                     activeItemId={group.runtime.current_item_id}
                     group={group}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -46,6 +47,14 @@ func init() {
 		AddRoute(
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteGroup),
+		).
+		AddRoute(
+			router.NewRoute("/channel-order/:id", http.MethodPost).
+				Handle(saveGroupChannelOrder),
+		).
+		AddRoute(
+			router.NewRoute("/channel-order/:id", http.MethodDelete).
+				Handle(resetGroupChannelOrder),
 		)
 }
 
@@ -259,4 +268,65 @@ func deleteGroup(c *gin.Context) {
 	relay.ResetRouteState(id)
 	publishGroupEvent(groupEvent{Name: "deleted", Data: id})
 	resp.Success(c, "group deleted successfully")
+}
+
+// respondGroupChannelOrder 是两个顺序端点共用的收尾: 响应带重算后的完整分组(成员已按合成顺序定稿优先级),
+// 并照 updateGroup 同款发布变更事件 —— 成员优先级变了, 其他会话与故障转移路由都要看到新顺序。
+func respondGroupChannelOrder(c *gin.Context, group *model.Group, err error) {
+	if err != nil {
+		switch {
+		case errors.Is(err, op.ErrGroupNotFound):
+			resp.Error(c, http.StatusNotFound, err.Error())
+		case errors.Is(err, op.ErrManualGroupOrder):
+			// 手动分组的顺序随 items 提交整体定稿, 走顺序端点属于调用方用错了入口。
+			resp.Error(c, http.StatusBadRequest, err.Error())
+		default:
+			resp.Error(c, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	// 顺序变了, 旧的进程内路由状态不再适用: 当前成员、冷却与亲和都是按旧顺序算出来的,
+	// 不丢弃就得等亲和窗口(默认 300s)过去新顺序才生效, 用户拖到最前的渠道不会立即切过去。
+	// 与 updateGroup 的模式变更分支、deleteGroup 同款, 丢弃后下一轮请求按新顺序重选。
+	relay.ResetRouteState(group.ID)
+	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
+	publishGroupEvent(groupEvent{Name: "changed", Data: response})
+	resp.Success(c, response)
+}
+
+// saveGroupChannelOrder 保存正则分组的人工渠道顺序并返回重算后的分组。
+// 重复渠道 ID 是前端折算逻辑的 bug 而非用户输入问题, 直接 400 拦下;
+// 悬空渠道在 op 层事务内过滤(见 op.GroupChannelOrderApply), 处理器不预校验存在性。
+func saveGroupChannelOrder(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	var req model.GroupChannelOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	seen := make(map[int]struct{}, len(req.ChannelIDs))
+	for _, channelID := range req.ChannelIDs {
+		if _, dup := seen[channelID]; dup {
+			resp.Error(c, http.StatusBadRequest, fmt.Sprintf("duplicate channel id %d in channel order", channelID))
+			return
+		}
+		seen[channelID] = struct{}{}
+	}
+	group, err := op.GroupChannelOrderApply(id, req.ChannelIDs, c.Request.Context())
+	respondGroupChannelOrder(c, group, err)
+}
+
+// resetGroupChannelOrder 清空正则分组的人工渠道顺序, 成员回到 (渠道, 模型, 凭据) 自然序。
+func resetGroupChannelOrder(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	group, err := op.GroupChannelOrderReset(id, c.Request.Context())
+	respondGroupChannelOrder(c, group, err)
 }

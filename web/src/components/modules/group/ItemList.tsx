@@ -42,6 +42,7 @@ type MemberItemDnd = {
 };
 
 // MemberItem 渲染可拖拽成员及其删除确认状态。
+// onRemove 缺省时不渲染删除按钮: 正则分组的成员集合由正则定稿, 界面不允许删除。
 function MemberItem({
     member,
     onRemove,
@@ -55,7 +56,7 @@ function MemberItem({
     dnd,
 }: {
     member: SelectedMember;
-    onRemove: (id: string) => void;
+    onRemove?: (id: string) => void;
     onActivate?: (itemId: number) => void;
     isActive?: boolean;
     group?: Group; // group 提供成员当前的冷却和亲和时间。
@@ -140,7 +141,7 @@ function MemberItem({
 
                 {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
 
-                {(!showConfirmDelete || !confirmDelete) && (
+                {onRemove && (!showConfirmDelete || !confirmDelete) && (
                     <motion.button
                         layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
                         type="button"
@@ -158,7 +159,7 @@ function MemberItem({
                 )}
 
                 <AnimatePresence>
-                    {showConfirmDelete && confirmDelete && (
+                    {onRemove && showConfirmDelete && confirmDelete && (
                         <motion.div
                             layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
                             className="absolute inset-0 flex items-center justify-center gap-2 bg-destructive p-1.5 rounded-lg"
@@ -196,7 +197,7 @@ function MemberItem({
 interface MemberListProps {
     members: SelectedMember[];
     onReorder: (members: SelectedMember[]) => void;
-    onRemove: (id: string) => void;
+    onRemove?: (id: string) => void; // 缺省时成员行不渲染删除按钮（正则分组成员集合只读）。
     onActivate?: (itemId: number) => void;
     activeItemId?: number;
     group?: Group; // group 提供当前模式和成员运行状态。

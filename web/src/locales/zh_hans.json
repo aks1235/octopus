@@ -387,6 +387,7 @@
             "memberRegexInvalid": "正则表达式无效",
             "absorb": "按正则吸纳",
             "regexMembersHint": "成员由正则自动维护",
+            "regexOrderHint": "拖拽可调整渠道优先顺序，同渠道成员整体移动，渠道内顺序自动保持",
             "regexMatchCount": "当前正则命中 {count} 条授权"
         }
     },

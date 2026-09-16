@@ -188,6 +188,22 @@ export function useUpdateGroup() {
     });
 }
 
+// GroupChannelOrderRequest 是正则分组的人工渠道顺序：只提交渠道块的先后，
+// 渠道内成员顺序由后端按（模型，凭据）自然序保持；空数组表示清空顺序回到自然序。
+export interface GroupChannelOrderRequest {
+    channel_ids: number[];
+}
+
+// useGroupChannelOrder 保存正则分组的人工渠道顺序，响应即重算后的完整分组（成员已按合成顺序定稿优先级）。
+// 顺序走独立端点：正则分组的成员集合对前端是只读的（由正则定稿），顺序与集合分开提交以免混淆语义。
+export function useGroupChannelOrder() {
+    return useMutation({
+        mutationFn: ({ id, channel_ids }: GroupChannelOrderRequest & { id: number }) =>
+            apiRequest<Group>(`/api/v1/group/channel-order/${id}`, { method: 'POST', body: { channel_ids } }),
+        onSuccess: writeGroupCache,
+    });
+}
+
 // useDeleteGroup 删除分组。
 export function useDeleteGroup() {
     return useMutation({

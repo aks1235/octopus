@@ -42,6 +42,9 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 	if err := conn.Find(&d.GroupItems).Error; err != nil {
 		return nil, fmt.Errorf("export group_items: %w", err)
 	}
+	if err := conn.Find(&d.GroupChannelOrders).Error; err != nil {
+		return nil, fmt.Errorf("export group_channel_orders: %w", err)
+	}
 	if err := conn.Find(&d.LLMInfos).Error; err != nil {
 		return nil, fmt.Errorf("export llm_infos: %w", err)
 	}
@@ -129,6 +132,12 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			return fmt.Errorf("import group_items: %w", err)
 		} else {
 			res.RowsAffected["group_items"] = n
+		}
+		// 顺序表与分组成员同款按主键冲突跳过: 表无独立自然键, 冲突行留给下一次正则重算按既有顺序合成。
+		if n, err := createDoNothing(tx, dump.GroupChannelOrders); err != nil {
+			return fmt.Errorf("import group_channel_orders: %w", err)
+		} else {
+			res.RowsAffected["group_channel_orders"] = n
 		}
 		if n, err := createUpsertAll(tx, dump.LLMInfos, []clause.Column{{Name: "name"}}); err != nil {
 			return fmt.Errorf("import llm_infos: %w", err)

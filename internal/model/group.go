@@ -113,3 +113,10 @@ type GroupUpdateRequest struct {
 type GroupItemInput struct {
 	ChannelGrantID int `json:"channel_grant_id" binding:"required"` // 待引用的渠道授权 ID。
 }
+
+// 正则分组的人工渠道顺序保存请求; 顺序走独立端点而不并入分组更新:
+// 分组成员集合对正则分组是只读的(由正则整体替换定稿), 把顺序混进同一请求会让人误以为集合也可编辑。
+// 提交的渠道顺序即终态(整体替换), 渠道内成员顺序由后端按 (模型, 凭据) 自然序保持, 不随本请求提交。
+type GroupChannelOrderRequest struct {
+	ChannelIDs []int `json:"channel_ids" binding:"required"` // 目标渠道顺序, 首个即最优先; 空数组表示清空人工顺序, 回到自然序。
+}

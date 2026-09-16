@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react';
-import { Check, ChevronDownIcon, HelpCircle, Layers, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Check, ChevronDownIcon, HelpCircle, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
 import { Protocol, useChannelGrantList } from '@/api/channel';
@@ -16,7 +16,7 @@ import { compileMemberRegex } from '@/lib/member-regex';
 import type { GroupMode, GroupRelayConfig } from '@/api/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
-import { matchesGroupName, memberKey, normalizeKey } from './utils';
+import { channelOrderOf, matchesGroupName, memberKey, normalizeKey } from './utils';
 
 export type GroupEditorValues = {
     name: string;
@@ -24,6 +24,7 @@ export type GroupEditorValues = {
     relay_config: GroupRelayConfig;
     member_regex: string;
     members: SelectedMember[];
+    channelOrder?: number[]; // 正则分组编辑后的渠道顺序（去重、按首次出现序）；仅当与初始顺序不同时给出，由提交方先走顺序端点。
 };
 
 // defaultRelayConfig 提供创建分组时的前端初始配置。
@@ -35,6 +36,11 @@ const defaultRelayConfig: GroupRelayConfig = {
     member_cooldown_seconds: 60,
     member_affinity_seconds: 0,
 };
+
+// arraysEqual 判断两个数字数组按元素相等, 供渠道顺序的变更检测。
+function arraysEqual(a: number[], b: number[]) {
+    return a.length === b.length && a.every((value, index) => value === b[index]);
+}
 
 // PROTOCOL_TAGS 是凭据行上的协议标识。
 // 此处写全称: 凭据行只有名称一列, 横向有余量; 渠道表单的授权矩阵是三列复选框, 列宽紧张才用缩写。
@@ -300,49 +306,21 @@ function SortSection({
     );
 }
 
-// ReadOnlyMemberRow 渲染正则分组里一条只读成员, 视觉与可拖拽成员行保持一致, 但没有拖拽与移除。
-// 正则分组的成员由重算定稿, 手动增删会被覆盖, 界面不允许编辑是诚实的表达。
-function ReadOnlyMemberRow({ member }: { member: SelectedMember }) {
-    const { Icon, className: iconClassName } = getModelIcon(member.name);
-    const isDisabled = member.enabled === false;
-
-    return (
-        <div
-            className={cn(
-                'flex items-center gap-2 rounded-lg bg-background px-2.5 py-2 select-none',
-                isDisabled && 'opacity-60 grayscale'
-            )}
-        >
-            <span className={cn(isDisabled && 'opacity-70')}>
-                <Icon aria-hidden="true" className={iconClassName} width={18} height={18} />
-            </span>
-            <div className="flex flex-col min-w-0 flex-1">
-                <span className={cn(
-                    'w-fit max-w-full text-sm font-medium truncate leading-tight',
-                    isDisabled && 'text-muted-foreground'
-                )}>
-                    {member.name}
-                </span>
-                <span className="text-[10px] text-muted-foreground truncate leading-tight">
-                    {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
-                </span>
-            </div>
-        </div>
-    );
-}
-
-// RegexMemberSection 是正则分组的成员区: 只读成员列表 + 正则说明 + 一键吸纳(按正则立即预览吸纳结果)。
+// RegexMemberSection 是正则分组的成员区: 可拖拽排序的成员列表 + 正则说明 + 一键吸纳(按正则立即预览吸纳结果)。
+// 成员集合只读(不挂 onRemove, 由正则重算定稿), 顺序可编辑: 拖拽暂存到编辑态, 随表单一并保存;
 // 吸纳只是编辑态预览: 保存后后端按同一正则重算, 与预览保持一致。
 function RegexMemberSection({
     members,
     matchCount,
     showMatchCount,
+    onReorder,
     onAbsorb,
     absorbDisabled,
 }: {
     members: SelectedMember[];
     matchCount: number;
     showMatchCount: boolean;
+    onReorder: (members: SelectedMember[]) => void;
     onAbsorb: () => void;
     absorbDisabled: boolean;
 }) {
@@ -379,21 +357,14 @@ function RegexMemberSection({
                 {showMatchCount && (
                     <p className="text-xs text-muted-foreground">{t('form.regexMatchCount', { count: matchCount })}</p>
                 )}
+                <p className="text-xs text-muted-foreground">{t('form.regexOrderHint')}</p>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {members.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                        <Layers className="size-10 opacity-40" />
-                        <span className="text-sm">{t('card.empty')}</span>
-                    </div>
-                ) : (
-                    <div className="flex flex-col gap-1.5">
-                        {members.map((member) => (
-                            <ReadOnlyMemberRow key={member.id} member={member} />
-                        ))}
-                    </div>
-                )}
+            <div className="flex-1 min-h-0">
+                <MemberList
+                    members={members}
+                    onReorder={onReorder}
+                />
             </div>
         </div>
     );
@@ -442,6 +413,8 @@ export function GroupEditor({
     const [memberRegex, setMemberRegex] = useState(initial?.member_regex ?? '');
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+    // 初始渠道顺序只在挂载时折算一次: 提交时与当前顺序比对, 有变化才走顺序端点(独立于分组更新提交)。
+    const initialChannelOrder = useMemo(() => channelOrderOf(initial?.members ?? []), [initial?.members]);
 
     const groupKey = normalizeKey(groupName);
     const trimmedMemberRegex = memberRegex.trim();
@@ -518,13 +491,20 @@ export function GroupEditor({
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (!isValid) return;
-        onSubmit({
+        // 正则分组的渠道顺序相对初始有变化时随表单带出: 集合仍由正则定稿(members 仅作预览不提交整体替换),
+        // 提交方先调顺序端点再走分组更新; 手动分组的顺序随 items 提交, 不带 channelOrder。
+        const values: GroupEditorValues = {
             name: groupName,
             mode,
             relay_config: relayConfig,
             member_regex: trimmedMemberRegex,
             members: selectedMembers,
-        });
+        };
+        if (isRegexGroup) {
+            const nextOrder = channelOrderOf(selectedMembers);
+            if (!arraysEqual(nextOrder, initialChannelOrder)) values.channelOrder = nextOrder;
+        }
+        onSubmit(values);
     };
 
 
@@ -592,6 +572,7 @@ export function GroupEditor({
                                     members={selectedMembers}
                                     matchCount={regexMatchedMembers.length}
                                     showMatchCount={memberRegexValid}
+                                    onReorder={setSelectedMembers}
                                     onAbsorb={handleAbsorbByRegex}
                                     absorbDisabled={!memberRegexValid}
                                 />

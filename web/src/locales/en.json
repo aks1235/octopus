@@ -387,6 +387,7 @@
             "memberRegexInvalid": "Invalid regex",
             "absorb": "Match Now",
             "regexMembersHint": "Members are maintained by the regex",
+            "regexOrderHint": "Drag to reorder channel priority; members of the same channel move together and keep their natural order within the channel",
             "regexMatchCount": "{count} grant(s) match the current regex"
         }
     },
