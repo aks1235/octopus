@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "校验正则组集合仍由正则定稿,只放顺序"}
+{"file": ".trellis/spec/backend/group-manual-absorb.md", "reason": "校验手动分组行为零变化"}
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "校验选路顺序=failover 优先级,合成后 priority 语义一致"}

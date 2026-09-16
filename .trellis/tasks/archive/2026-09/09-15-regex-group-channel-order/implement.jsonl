@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "正则分组成员重算与方言契约:本任务改 syncRegexGroupItems 排序,须守住成员集合语义与预览/后端口径"}
+{"file": ".trellis/spec/backend/group-manual-absorb.md", "reason": "手动分组吸纳契约:回归红线,顺序端点只对 member_regex 非空分组生效,不得影响 append-only 语义"}
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "选路按 priority 遍历(failover 顺序),priority 由合成顺序定稿;禁用≠删除口径需保持"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "新表 group_channel_orders 的建表/索引/外键级联规范"}
+{"file": ".trellis/spec/backend/api-serialization.md", "reason": "新增响应字段与 DBDump 数组字段的空值契约(nil→null 防护)"}
