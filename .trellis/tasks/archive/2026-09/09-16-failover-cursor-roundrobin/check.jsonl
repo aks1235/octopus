@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "校验游标语义与 ChannelGrantGet 唯一裁决点、禁用≠删除契约不破"}
+{"file": ".trellis/spec/backend/group-manual-absorb.md", "reason": "校验手动分组与吸纳零影响"}

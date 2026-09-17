@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "选路契约与已知问题节(回炉/亲和/SQLITE_BUSY),本任务把已知问题改写为正式游标契约"}
+{"file": ".trellis/spec/backend/group-channel-order.md", "reason": "priority 合成顺序=(渠道序,channel,model,key),游标序即 priority 序,渠道连续性由此保证"}
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "成员集合由正则定稿,游标走的成员列表每轮重读,集合变化语义"}
