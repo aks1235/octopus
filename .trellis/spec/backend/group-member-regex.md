@@ -76,5 +76,6 @@ function compileMemberRegex(pattern: string): RegExp | null {
 ## 关联:全局模型过滤(model_filter)沿用同方言
 
 - 设置键 `model_filter`(`internal/model/setting.go`):拉取渠道模型列表时与渠道级 `match_regex` 取 AND,任一侧留空不生效。
+- **命中语义两层有意相反,勿顺手统一**(2026-09-17 任务 09-17-global-model-filter-exclude):全局 `model_filter` = 命中**排除**(黑名单,常见用途拦 embedding/rerank/搜索类垃圾模型);渠道级 `match_regex` = 命中**保留**(白名单,常见用途"该渠道只要这几个模型")。两侧都配置时 AND:模型须「通过渠道白名单 且 未被全局黑名单命中」。判定口径在 `internal/server/handlers/channel.go` `modelNameKept`。
 - 校验与编译一律 `regexp2 Compile(value, regexp2.ECMAScript)`;前端设置页输入预检经 `web/src/lib/member-regex.ts` 的 `compileMemberRegex`(与分组成员正则同一实现,单一口径)。
 - 仅作用于「拉取模型列表」路径,手工填写的模型不受影响。

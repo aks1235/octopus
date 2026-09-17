@@ -264,7 +264,10 @@ func fetchModel(c *gin.Context) {
 			return
 		}
 	}
-	// 全局过滤由设置页维护, 与渠道级过滤取 AND: 模型须同时通过两枚正则才保留, 留空的一侧不生效。
+	// 全局过滤由设置页维护, 命中语义与渠道级有意相反: 渠道级 match_regex 命中保留(白名单,
+	// 常见用途"该渠道只要这几个模型"), 全局 model_filter 命中排除(黑名单, 常见用途拦
+	// embedding/rerank 等垃圾模型); 两侧都配置时取 AND, 即「通过渠道白名单 且 未被全局黑名单命中」。
+	// 留空的一侧不生效。
 	// 设置读取失败按不过滤处理: 启动初始化会补齐默认行, 缺行只可能出现在旧库尚未刷新的瞬间。
 	globalFilter, _ := op.SettingGetString(model.SettingKeyModelFilter)
 	if globalFilter != "" {
@@ -274,27 +277,9 @@ func fetchModel(c *gin.Context) {
 		}
 	}
 
-	// 模型名须同时通过渠道与全局两枚过滤正则, 匹配错误统一交由调用方按请求错误返回。
+	// 匹配错误统一交由调用方按请求错误返回。
 	matches := func(name string) (bool, error) {
-		if re != nil {
-			matched, err := re.MatchString(name)
-			if err != nil {
-				return false, err
-			}
-			if !matched {
-				return false, nil
-			}
-		}
-		if reGlobal != nil {
-			matched, err := reGlobal.MatchString(name)
-			if err != nil {
-				return false, err
-			}
-			if !matched {
-				return false, nil
-			}
-		}
-		return true, nil
+		return modelNameKept(re, reGlobal, name)
 	}
 
 	// 两侧结果按名称合并成一份有序集合: 同名模型在两侧都出现时, 协议位取并集。
@@ -336,6 +321,34 @@ func fetchModel(c *gin.Context) {
 		models = append(models, model.ChannelFetchModel{Name: name, Protocols: protocolsByModel[name]})
 	}
 	resp.Success(c, models)
+}
+
+// modelNameKept 判定模型名在拉取列表里是否保留, 是两层过滤正则的唯一判定口径。
+// 两层命中语义有意相反, 勿顺手统一:
+//   - 渠道级 reChannel(re)是白名单: 配置后命中才保留, 常见用途"该渠道只要这几个模型";
+//   - 全局 reGlobal 是黑名单: 命中即排除, 常见用途拦 embedding/rerank/搜索类垃圾模型。
+//
+// 两侧都配置时取 AND: 模型须「通过渠道白名单 且 未被全局黑名单命中」; 任一侧为 nil 不生效。
+func modelNameKept(reChannel, reGlobal *regexp2.Regexp, name string) (bool, error) {
+	if reChannel != nil {
+		matched, err := reChannel.MatchString(name)
+		if err != nil {
+			return false, err
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+	if reGlobal != nil {
+		matched, err := reGlobal.MatchString(name)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // testKey 按提交的渠道配置与凭据对指定模型逐个发起最小真实请求, 返回逐模型的连通性结果。

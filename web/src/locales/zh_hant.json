@@ -173,7 +173,7 @@
         "modelFilter": {
             "label": "全域模型過濾",
             "placeholder": "請輸入過濾表達式",
-            "hint": "渠道獲取模型時與渠道自身的過濾表達式同時生效（AND），留空不過濾",
+            "hint": "拉取通道模型時，命中表達式的模型將被排除（黑名單，常用於攔截 embedding/rerank 等垃圾模型）；與通道自身的匹配正則（命中保留，白名單）疊加生效，留空不過濾",
             "invalid": "過濾表達式無效"
         },
         "saved": "已儲存",
@@ -361,9 +361,10 @@
         "form": {
             "name": "分組名稱",
             "mode": "路由模式",
-            "modeHint": "手動固定選中成員；故障轉移按成員順序並在失敗時切換",
+            "modeHint": "手動固定選中成員；故障轉移按成員順序並在失敗時向下切換；輪詢按請求輪流從各成員起步",
             "manual": "手動",
             "failover": "故障轉移",
+            "roundrobin": "輪詢",
             "members": "成員",
             "relay": "路由策略",
             "retryCount": "總嘗試次數",
@@ -378,6 +379,7 @@
             "cooldownHint": "成員重試耗盡後暫停使用的時間",
             "affinity": "故障切換親和時間（秒）",
             "affinityHint": "備用成員首次請求成功後繼續使用該成員的時間",
+            "affinityHintRoundrobin": "輪詢按請求輪流使用成員，不使用親和",
             "items": "成員順序",
             "addItem": "新增模型",
             "autoAdd": "自動新增",
@@ -599,6 +601,7 @@
             "modelRefreshEmpty": "未取得模型",
             "channelProxy": "通道代理",
             "matchRegex": "匹配正則",
+            "matchRegexHint": "拉取模型時命中表達式的模型才保留（白名單，常見用途\"該通道只要這幾個模型\"）；與全域模型過濾（命中排除，黑名單）疊加生效，留空不過濾",
             "healthCheckSkip": "跳過健康檢查",
             "healthCheckSkipHint": "無模型列表介面的通道（探測 /models 必失敗但轉發可用）勾選，如天翼雲；勾選後不再自動探測與停用，被自動停用的通道儲存後恢復",
             "paramOverride": "參數覆寫",

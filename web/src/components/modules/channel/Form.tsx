@@ -222,6 +222,10 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                         onChange={(e) => setState({ ...state, [field]: e.target.value })}
                                         className="rounded-xl"
                                     />
+                                    {/* 匹配正则的命中语义(白名单)与全局过滤(黑名单)相反, 讲清两层叠加关系, 防止误当排除用。 */}
+                                    {field === 'match_regex' && (
+                                        <p className="text-xs text-muted-foreground">{t('matchRegexHint')}</p>
+                                    )}
                                 </div>
                             ))}
                             {/* 跳过健康检查: 面向无模型列表接口的渠道, 说明文案讲清后果再让用户勾选。 */}

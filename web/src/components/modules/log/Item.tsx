@@ -277,14 +277,15 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                         const itemCurrent = switchingItemId !== null
                                             ? item.id === switchingItemId
                                             : activeGroup.runtime.current_item_id === item.id;
+                                        // 人工切换只对手动模式有意义: 轮询与故障转移都由路由自动选成员。
                                         return (
                                             <button
                                                 key={item.id}
                                                 type="button"
                                                 aria-pressed={itemCurrent}
-                                                disabled={activeGroup.mode === 'failover' || switchingItemId !== null || stopRound.isPending}
+                                                disabled={activeGroup.mode !== 'manual' || switchingItemId !== null || stopRound.isPending}
                                                 onClick={async () => {
-                                                    if (activeGroup.mode === 'failover') return;
+                                                    if (activeGroup.mode !== 'manual') return;
                                                     setSwitchingItemId(item.id);
                                                     const isCurrent = activeGroup.runtime.current_item_id === item.id;
                                                     try {

@@ -537,6 +537,7 @@ export function GroupEditor({
                                 <SelectContent>
                                     <SelectItem value="manual">{t('form.manual')}</SelectItem>
                                     <SelectItem value="failover">{t('form.failover')}</SelectItem>
+                                    <SelectItem value="roundrobin">{t('form.roundrobin')}</SelectItem>
                                 </SelectContent>
                             </Select>
                         </Field>
@@ -696,7 +697,8 @@ export function GroupEditor({
                                 <Field>
                                     <FieldLabel htmlFor="group-affinity">
                                         {t('form.affinity')}
-                                        <FieldHelp text={t('form.affinityHint')} />
+                                        {/* 轮询按请求轮流起步, 亲和没有意义: 仅置灰提示, 提交值原样保留, 后端选路也不消费它。 */}
+                                        <FieldHelp text={mode === 'roundrobin' ? t('form.affinityHintRoundrobin') : t('form.affinityHint')} />
                                     </FieldLabel>
                                     <Input
                                         id="group-affinity"
@@ -704,12 +706,13 @@ export function GroupEditor({
                                         inputMode="numeric"
                                         min={0}
                                         step={1}
+                                        disabled={mode === 'roundrobin'}
                                         value={String(relayConfig.member_affinity_seconds)}
                                         onChange={(event) => {
                                             const value = Number.parseInt(event.target.value, 10);
                                             setRelayConfig((prev) => ({ ...prev, member_affinity_seconds: Number.isFinite(value) && value >= 0 ? value : 0 }));
                                         }}
-                                        className="rounded-xl"
+                                        className="rounded-xl disabled:cursor-not-allowed disabled:opacity-60"
                                     />
                                 </Field>
                             </div>

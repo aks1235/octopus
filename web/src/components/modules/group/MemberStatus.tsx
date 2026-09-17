@@ -21,9 +21,13 @@ export function useRuntimeClock(source?: Group | Group[]) {
     let enabled = false;
     let lastDeadline = 0;
     for (const group of groups) {
-        if (group.mode !== 'failover') continue;
+        // 手动模式没有进程内路由, 冷却与亲和都不适用; 故障转移与轮询的冷却都要参与计时。
+        if (group.mode === 'manual') continue;
         enabled = true;
-        lastDeadline = Math.max(lastDeadline, group.runtime.affinity_until);
+        // 亲和只存在于故障转移: 轮询按计数器旋转, 不参与亲和。
+        if (group.mode === 'failover') {
+            lastDeadline = Math.max(lastDeadline, group.runtime.affinity_until);
+        }
         for (const cooldownUntil of Object.values(group.runtime.cooldowns)) {
             lastDeadline = Math.max(lastDeadline, cooldownUntil);
         }
@@ -55,9 +59,10 @@ export function useRuntimeClock(source?: Group | Group[]) {
 export function MemberStatus({ group, itemId, now, active = false, activeClassName }: MemberStatusProps) {
     const t = useTranslations('group.card');
 
-    if (group.mode === 'failover' && itemId !== undefined) {
+    // 故障转移与轮询都有冷却徽标; 亲和倒计时仅故障转移参与, 轮询即便状态里残留也不展示。
+    if (group.mode !== 'manual' && itemId !== undefined) {
         const cooldownUntil = group.runtime.cooldowns[itemId] ?? 0;
-        const affinityUntil = group.runtime.current_item_id === itemId
+        const affinityUntil = group.mode === 'failover' && group.runtime.current_item_id === itemId
             ? group.runtime.affinity_until
             : 0;
         if (now < cooldownUntil || now < affinityUntil) {

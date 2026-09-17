@@ -173,7 +173,7 @@
         "modelFilter": {
             "label": "Global Model Filter",
             "placeholder": "Enter filter regex",
-            "hint": "Applied along with the channel's own filter when fetching models (AND); empty means no filter",
+            "hint": "When fetching channel models, models matching this regex are excluded (blacklist, e.g. to block embedding/rerank junk models); combined with the channel's own match regex (whitelist, matches are kept), empty means no filter",
             "invalid": "Invalid filter regex"
         },
         "saved": "Saved",
@@ -361,9 +361,10 @@
         "form": {
             "name": "Group Name",
             "mode": "Routing Mode",
-            "modeHint": "Manual fixes one member; failover follows member order and switches on failures",
+            "modeHint": "Manual fixes one member; failover walks members in order and moves downward on failures; round robin starts each request at the next member",
             "manual": "Manual",
             "failover": "Failover",
+            "roundrobin": "Round Robin",
             "members": "Members",
             "relay": "Routing",
             "retryCount": "Maximum Attempts",
@@ -378,6 +379,7 @@
             "cooldownHint": "Time a member is paused after retries are exhausted",
             "affinity": "Failover Affinity (s)",
             "affinityHint": "Time to keep the fallback member after its first successful request",
+            "affinityHintRoundrobin": "Round robin rotates across members per request; affinity does not apply",
             "items": "Member Order",
             "addItem": "Add Model",
             "autoAdd": "Auto Add",
@@ -599,6 +601,7 @@
             "modelRefreshEmpty": "No models returned",
             "channelProxy": "Channel proxy",
             "matchRegex": "Match regex",
+            "matchRegexHint": "When fetching models, only models matching this regex are kept (whitelist, e.g. \"this channel serves only these models\"); combined with the global model filter (blacklist, matches are excluded), empty means no filter",
             "healthCheckSkip": "Skip health check",
             "healthCheckSkipHint": "Check for channels without a model-list endpoint (probing /models always fails but forwarding works), e.g. China Telecom; skips auto probing and disabling, and auto-disabled channels are restored on save",
             "paramOverride": "Param override",
