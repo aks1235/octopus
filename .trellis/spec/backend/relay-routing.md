@@ -85,8 +85,24 @@ outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
 - `relay_logs` 里 response_content 含关键词的搜索会命中会话自身内容(假阳性),排障用 `attempts` JSON 里的 msg 精确定位。
 - failover 大轮转 × 短冷却会在 WAF 眼里变成高频异常请求,愈撞愈拦(2026-09-15 单请求 111 次尝试实例)。
 
-## 已知问题:failover 请求内"回炉"与亲和滞后(2026-09-16 记录,待修)
+## 契约:failover/roundrobin 的请求内游标(v2.2.0 起,对齐 v1 语义)
 
-- **回炉**:`pickGroupItem` 失败后 `CurrentItemID=0`,下一轮从队头重扫——成员多、冷却短时,同一请求反复回头撞刚失败的高优先级渠道(上述 111 次的成因之一)。目标语义(v1 对齐,用户已确认):请求内游标**向下走**,冷却只做闸门,走完一圈再回头;全员冷却时等最早到期再续(带上限)。
-- **亲和滞后**:顺序重排后亲和窗口内不切新顺序——已由顺序端点重置路由状态解决(见 [group-channel-order.md](./group-channel-order.md)),但渠道健康恢复等其他路径仍受亲和窗口影响。
+**What**:转发请求的成员遍历由**请求作用域游标**(`routeWalk.lastItemID`)驱动,规则:粘住(当前成员未进冷却就重复返回,同成员重试)→ 向下走(从上一位找第一个未冷却成员)→ 到尾绕回头部。冷却只做闸门,**高优先级成员中途恢复不插队**,等游标绕回。全员冷却时沿用既有 `wait(MemberRetryIntervalSeconds)` 循环(无上限、无新报错,冷却到期自然续走)。
+
+**Why**:旧实现失败后 `CurrentItemID=0` 从队头重扫(抢占式),成员多、冷却短时同一请求反复回头撞刚失败的渠道(2026-09-15 实证:单请求 111 次,K API 被 12 轮回炉)。游标语义 = v1(`v1.5.3 relay/balancer`)的用户确认对齐:**回炉是特性,「请求内试过即排除」已被否决,勿再提**。
+
+**模式起点差异**:
+- failover:亲和窗口内从 `CurrentItemID` 起(亲和保留,语义不变),否则队头。
+- roundrobin(v2.2.0 新增,per-group `sync.Map` 原子计数器):起点按成员数取模旋转;**不参与亲和**——起点不看亲和,`recordRouteFailure` 的亲和武装仅对 failover 门控(轮询组 runtime 不残留 `affinity_until`)。
+- manual:不走游标,`active_item_id` 原逻辑。
+
+**游标用 itemID 定位而非下标**:分组每轮重读、成员集合会变,成员被删后 `indexOfItem == -1` 落回轮询计数器位,语义仍正确。
+
+**中止不计失败**(R9):pre-commit 取消轮次**不追加** `AttemptFailed`(append 在 `ctx.Err()` 检查之后);流式中途取消不写 `RequestFailed` 渠道统计。中止不算渠道故障;冷却/探测本就不受中止影响。注意:人工主动中止(round cancel)仍记 AttemptFailed,与改动前一致。
+
+**测试**:`internal/relay/route_cursor_test.go`(粘住/向下不插队/绕圈/全员冷却零新增/探测单飞/亲和起点/轮询旋转与隔离/轮询不武装亲和/渠道连续性/中止不计失败×2);渠道连续性由 priority 合成排序保证(同渠道成员连续,见 [group-channel-order.md](./group-channel-order.md))。
+
+## 已知问题
+
 - SQLITE_BUSY:5 分钟兜底重算与吸纳撞锁,日志每 5 分钟告警,待根治。
+- 渠道健康恢复等其他路径仍受亲和窗口影响(顺序端点已重置,见 [group-channel-order.md](./group-channel-order.md));游标语义下若要"恢复立即接管"需另行设计。

@@ -117,7 +117,7 @@ func TestPickGroupItem_skipsDisabledMembers(t *testing.T) {
 	group := groupForTest(t, "failover-g")
 	ResetRouteState(group.ID)
 
-	item := pickGroupItem(group)
+	item := pickGroupItem(group, &routeWalk{})
 	if item.ChannelGrantID != 3 {
 		t.Fatalf("pickGroupItem() = grant %d, want grant 3 (唯一可用成员)", item.ChannelGrantID)
 	}
@@ -149,7 +149,7 @@ func TestPickGroupItem_affinityInvalidatedByDisable(t *testing.T) {
 	}
 	routeMu.Unlock()
 
-	item := pickGroupItem(group)
+	item := pickGroupItem(group, &routeWalk{})
 	if item.ChannelGrantID != 3 {
 		t.Fatalf("pickGroupItem() = grant %d, want grant 3 (亲和成员被禁用后立即改走可用成员)", item.ChannelGrantID)
 	}
@@ -177,7 +177,7 @@ func TestPickGroupItem_allDisabledReturnsZero(t *testing.T) {
 	}
 	group = groupForTest(t, "failover-g")
 
-	if item := pickGroupItem(group); item.ID != 0 {
+	if item := pickGroupItem(group, &routeWalk{}); item.ID != 0 {
 		t.Fatalf("pickGroupItem() = item %d, want zero value when all members disabled", item.ID)
 	}
 }
@@ -188,7 +188,7 @@ func TestPickGroupItem_manualDisabledActiveWaits(t *testing.T) {
 	seedDisableTestDB(t)
 	group := groupForTest(t, "manual-g")
 
-	if item := pickGroupItem(group); item.ID != 0 {
+	if item := pickGroupItem(group, &routeWalk{}); item.ID != 0 {
 		t.Fatalf("pickGroupItem() = item %d, want zero value when active member's key is disabled", item.ID)
 	}
 }
@@ -211,7 +211,7 @@ func TestPickGroupItem_reenabledMemberRestored(t *testing.T) {
 	}
 	group = groupForTest(t, "failover-g")
 
-	item := pickGroupItem(group)
+	item := pickGroupItem(group, &routeWalk{})
 	if item.ChannelGrantID != 2 {
 		t.Fatalf("pickGroupItem() = grant %d, want grant 2 (重新启用的优先级 1 成员恢复首选)", item.ChannelGrantID)
 	}

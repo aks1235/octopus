@@ -84,6 +84,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		request := newRequestState(ctx, metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID, userAgent, reasoningEffort)
 		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
 		failures := 0     // 该成员包含首次请求的连续失败次数。
+		walk := &routeWalk{} // 本请求的选路游标: 失败后从当前成员向下继续并绕圈, 不回队头重扫。
 
 		// 转发日志的采集与落库: attempts 记录每轮实际发起的上游尝试(等待型轮次不记),
 		// 终态出函数时统一组装落库。闭包捕获变量本身, 终值即为全量。
@@ -108,15 +109,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				continue
 			}
 
-			// 手动模式取人工指定的成员, 故障转移模式按优先级选择未禁用且不在冷却中的成员。
+			// 手动模式取人工指定的成员, 故障转移与轮询模式按游标选择未禁用且不在冷却中的成员。
 			// 没有目标时等待重新选择, 期间人工切换渠道, 补齐成员或成员冷却到期即可让请求继续。
-			item := pickGroupItem(group)
+			item := pickGroupItem(group, walk)
 			if item.ID == 0 {
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
 					return
 				}
 				continue
 			}
+			// 登记游标: 下一轮从本轮成员继续(粘住重试或向下切换), 不回队头。
+			walk.lastItemID = item.ID
 
 			// 成员指向的授权缺失, 渠道或凭据被停用, 或两侧已被删除时等待, 该成员可能很快被改回可用配置。
 			// 选路已在 pickGroupItem 剔除不可选成员, 此处校验仅兜底同轮内的变更; ChannelGrantGet 一次校验齐这几种情况。
@@ -212,6 +215,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			if err != nil {
 				// 记录本轮上游调用已经结束及其失败原因。
 				request.finishRound(err.Error())
+				// 父上下文结束说明客户端已经取消, 归还探测占用并以取消终态结束请求。
+				// 取消检查先于 attempts 记账: 客户端中止的轮次不算渠道故障, 不追加失败尝试。
+				if ctx.Err() != nil {
+					releaseRouteProbe(group, item.ID)
+					request.markCanceled(ctx.Err(), "", nil)
+					return
+				}
 				attempts = append(attempts, model.ChannelAttempt{
 					ChannelID:        channel.ID,
 					ChannelKeyID:     channelKey.ID,
@@ -223,12 +233,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					Duration:         int(time.Since(roundStartedAt).Milliseconds()),
 					Msg:              err.Error(),
 				})
-				// 父上下文结束说明客户端已经取消, 归还探测占用并以取消终态结束请求。
-				if ctx.Err() != nil {
-					releaseRouteProbe(group, item.ID)
-					request.markCanceled(ctx.Err(), "", nil)
-					return
-				}
 				// 仅人工中止本轮时不计失败也不等待; 响应超时属于真实失败并消耗尝试次数。
 				if context.Cause(roundCtx) == context.Canceled {
 					releaseRouteProbe(group, item.ID)
@@ -365,11 +369,12 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				result.usage = meta.Usage
 			}
 			// 流式响应结束并聚合出用量后, 按最终结果完成本轮渠道和成员统计。
+			// 客户端中途断开不属于渠道故障: 不计成功也不计失败, 只保留等待耗时。
 			metrics := usageMetrics(channelModel.Name, result.usage)
 			metrics.WaitTime = roundWaitTime
 			if err == nil {
 				metrics.RequestSuccess = 1
-			} else {
+			} else if ctx.Err() == nil {
 				metrics.RequestFailed = 1
 			}
 			_ = op.ChannelStatsUpdate(channel.ID, metrics)

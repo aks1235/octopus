@@ -3,6 +3,7 @@ package relay
 import (
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -32,6 +33,17 @@ var (
 	routeStreams = make(map[chan RouteState]struct{}) // 全部路由 SSE 连接。
 )
 
+// routeWalk 是单个转发请求内的选路游标: 记录本轮"走到哪个成员", 决定下一次从哪继续。
+// 游标只在本请求内存活; 跨请求的亲和/冷却/探测仍在 RouteState。
+// 请求内游标只向下走: 成员失败后从它的下一位继续而非回到队头重扫, 走完一圈才绕回头部,
+// 高优先级成员中途恢复也不插队, 等游标绕回时自然轮到; 成员多冷却短时不会反复回头撞刚失败的渠道。
+type routeWalk struct {
+	lastItemID int // 最近一次选中并尝试的成员; 0 表示尚未开始。
+}
+
+// roundRobinCounters 是轮询模式的 per-group 原子计数器, 每个请求起步时递增一次决定旋转起点。
+var roundRobinCounters sync.Map // map[int]*uint64, 按分组 ID 隔离。
+
 // RouteStateOf 返回分组当前的实时路由状态, 供读取接口随分组一并返回。
 // 手动模式没有进程内路由: 当前成员即人工指定的成员, 冷却与亲和均不适用, 故直接由分组配置得出。
 func RouteStateOf(group model.Group) RouteState {
@@ -57,17 +69,20 @@ func RouteStateOf(group model.Group) RouteState {
 
 // ResetRouteState 丢弃分组的进程内路由状态, 用于分组切换选择模式或被删除。
 // 不丢弃的话冷却与亲和会在 failover 切到 manual 再切回来之后复活并继续影响选路, 分组删除后其状态也会永久残留。
+// 轮询计数器一并丢弃: 路由状态是它的语义归属, 分组重建后从队头重新轮起。
 func ResetRouteState(groupID int) {
 	routeMu.Lock()
 	defer routeMu.Unlock()
 
 	delete(routes, groupID)
+	roundRobinCounters.Delete(groupID)
 }
 
 // pickGroupItem 按分组模式选择本轮目标成员, 没有可用成员时返回零值; group.Items 已按 Priority 升序排列。
+// walk 是本请求的游标: 选中后调用方把成员 ID 写回 walk, 下一轮由此继续(粘住重试或向下切换)。
 // 选路前先剔除不可选成员: 渠道或凭据被禁用以及授权两侧缺失与冷却同级, 直接不进入选路,
 // 不产生失败计数, 不占用恢复探测名额; 禁用不等于删除, 成员仍在分组里, 界面以 Available 标记不可用。
-func pickGroupItem(group model.Group) model.GroupItem {
+func pickGroupItem(group model.Group, walk *routeWalk) model.GroupItem {
 	items := selectableGroupItems(group)
 	if group.Mode == model.GroupModeManual {
 		for _, item := range items {
@@ -75,6 +90,9 @@ func pickGroupItem(group model.Group) model.GroupItem {
 				return item
 			}
 		}
+		return model.GroupItem{}
+	}
+	if len(items) == 0 {
 		return model.GroupItem{}
 	}
 
@@ -87,26 +105,62 @@ func pickGroupItem(group model.Group) model.GroupItem {
 		route.AffinityUntil = 0
 	}
 
-	// 亲和期内沿用当前成员, 不提前探测已恢复的高优先级成员; 当前成员已不可选(如渠道被禁用)时亲和立即失效, 重新选路。
-	if route.CurrentItemID != 0 && route.AffinityUntil > now && itemOf(items, route.CurrentItemID).ID == 0 {
+	// 粘住当前: 同一请求内上一轮选中的成员仍可选且未进冷却时继续用它, 这就是"同一成员重试";
+	// 已进冷却说明该成员的尝试次数耗尽, 游标从它的下一位继续。
+	if walk.lastItemID != 0 {
+		if last := itemOf(items, walk.lastItemID); last.ID != 0 {
+			if deadline, cooling := route.Cooldowns[last.ID]; !cooling || deadline <= now {
+				return last
+			}
+		}
+	}
+
+	// 确定扫描起点: 有游标基准时从基准的下一位开始(到尾绕回头部); 基准消失(成员被删或禁用)或尚未开始时按模式定起点。
+	// 用 ID 定位而非下标: 分组每轮重读, 成员集合可能增删, ID 稳定而"基准之后的第一个"在集合变化后仍然语义正确。
+	start := 0
+	if walk.lastItemID != 0 {
+		if base := indexOfItem(items, walk.lastItemID); base >= 0 {
+			start = base + 1
+		} else {
+			start = routeStartIndex(group, route, items, now)
+		}
+	} else {
+		start = routeStartIndex(group, route, items, now)
+	}
+	return scanGroupItems(items, route, now, start)
+}
+
+// routeStartIndex 在游标没有基准时按模式给出起步位置。
+// 故障转移: 亲和期内从当前成员起步(跨请求亲和), 亲和期内当前成员已不可选(如渠道被禁用)则亲和立即失效回队头。
+// 轮询: per-group 计数器旋转起步位, 每个请求轮到下一名成员; 旋转是轮询的存在意义, 不参与亲和。
+func routeStartIndex(group model.Group, route *RouteState, items []model.GroupItem, now int64) int {
+	if group.Mode == model.GroupModeRoundRobin {
+		counter, _ := roundRobinCounters.LoadOrStore(group.ID, new(uint64))
+		return int((atomic.AddUint64(counter.(*uint64), 1) - 1) % uint64(len(items)))
+	}
+
+	// 亲和期内当前成员已不可选(如渠道被禁用)时亲和立即失效, 重新选路。
+	if route.CurrentItemID != 0 && route.AffinityUntil > now {
+		if base := indexOfItem(items, route.CurrentItemID); base >= 0 {
+			return base
+		}
 		route.CurrentItemID = 0
 		route.AffinityUntil = 0
 		publishRouteLocked(route)
 	}
-	if route.CurrentItemID != 0 && route.AffinityUntil > now {
-		return itemOf(items, route.CurrentItemID)
-	}
+	return 0
+}
 
-	for _, item := range items {
-		// 遍历到当前成员说明比它优先级更高的成员都不可选, 沿用当前成员。
-		if item.ID == route.CurrentItemID {
-			break
-		}
+// scanGroupItems 从 start 起按优先级环形扫描一周, 返回第一个通过冷却与探测门控的成员;
+// 全员被门控挡下时返回零值, 调用方按既有重试间隔等待后重扫, 不新增上限与报错终态。
+// 冷却只做闸门: 冷却中的成员直接跳过继续向下; 冷却已到期的成员只放行一个探测请求, 避免全部请求同时涌向尚未恢复的成员。
+func scanGroupItems(items []model.GroupItem, route *RouteState, now int64, start int) model.GroupItem {
+	for i := 0; i < len(items); i++ {
+		item := items[(start+i)%len(items)]
 		deadline, cooling := route.Cooldowns[item.ID]
 		if cooling && deadline > now {
 			continue
 		}
-		// 冷却已到期的成员只放行一个探测请求, 避免全部请求同时涌向尚未恢复的成员。
 		if cooling {
 			if route.ProbeItemID != 0 {
 				continue
@@ -118,9 +172,6 @@ func pickGroupItem(group model.Group) model.GroupItem {
 		route.CurrentItemID = item.ID
 		publishRouteLocked(route)
 		return item
-	}
-	if route.CurrentItemID != 0 {
-		return itemOf(items, route.CurrentItemID)
 	}
 	return model.GroupItem{}
 }
@@ -202,10 +253,13 @@ func recordRouteFailure(group model.Group, itemID, failures int) bool {
 		route.ProbeItemID = 0
 	}
 	// 当前路由失败才需要下一个成员开始亲和; 独立探测失败不影响当前路由。
+	// 亲和只在故障转移模式下武装: 轮询按计数器旋转起步, 不参与亲和, 失败切换后不得留下亲和窗口。
 	if route.CurrentItemID == itemID {
 		route.CurrentItemID = 0
 		route.AffinityUntil = 0
-		route.affinityArmed = true
+		if group.Mode == model.GroupModeFailover {
+			route.affinityArmed = true
+		}
 	}
 	publishRouteLocked(route)
 	return true
@@ -257,6 +311,16 @@ func itemOf(items []model.GroupItem, itemID int) model.GroupItem {
 		}
 	}
 	return model.GroupItem{}
+}
+
+// indexOfItem 返回成员在列表内的位置, 不存在时返回 -1。
+func indexOfItem(items []model.GroupItem, itemID int) int {
+	for i, item := range items {
+		if item.ID == itemID {
+			return i
+		}
+	}
+	return -1
 }
 
 // publishRouteLocked 非阻塞发布路由状态, 连接拥塞时关闭它并交给客户端重连获取全量快照; 冷却表按值复制以免前端读到后续变更; 调用方必须持有锁。
