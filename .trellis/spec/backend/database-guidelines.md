@@ -216,3 +216,10 @@ ChannelEnabled bool   `json:"channel_enabled" gorm:"-"`
 
 - 前端渲染契约 → 前端 spec「分组列表渠道展示」
 - 熔断器(已有,`balancer` 包):运行时熔断 vs 本文档持久层自动禁用——两者正交,熔断是内存级临时摘除,自动禁用是持久层 `Enabled=false`。
+
+## 契约:SQLite 写事务 IMMEDIATE 与 BUSY 重试(2026-09-18 v2.2.0 起)
+
+- DSN 含 `_txlock=immediate`(internal/db/db.go):所有 GORM 事务 BEGIN 即拿写锁。**为什么**:WAL + 延迟事务下,先读后写的事务在写入时发现快照已被别的写者提交,报 517(SQLITE_BUSY_SNAPSHOT)立即失败,busy_timeout 对它无效;IMMEDIATE 把竞争前移到开事务,拿不到锁就排队(busy_timeout 吸收)。**新代码不要为"优化"把它改回 deferred**。
+- `busy_timeout=10000`:IMMEDIATE 下拿锁排队上限。
+- BUSY 类错误判定:`internal/db/errors.go IsBusyError`(errors.As 驱动错误 + Code()&0xff ∈ {5 BUSY 含 517/261, 6 LOCKED},字符串兜底)。需要区分"可重试"与"真错误"时一律用它,不要裸匹配错误文本。
+- 后台批处理写库(如兜底任务)包 `task/init.go runWithBusyRetry`:BUSY 退避重试(2s/5s),最终失败才告警一次;非 BUSY 直接返回。

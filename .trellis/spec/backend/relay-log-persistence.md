@@ -67,3 +67,9 @@ func (r *RequestState) markSucceeded(...) { op.RelayLogAdd(...) }
 var attempts []model.ChannelAttempt
 defer func() { relayLogFinalize(request, metadata.Model, attempts, apiKeyID, userAgent, firstValidAt) }()
 ```
+
+## 关联:stats_hourlies 按日期留存(v2.2.0 起)
+
+- StatsHourly 复合主键 (date, hour),不再是 24 格环形——历史小时曲线按日期留存,跨天写新行。
+- 清理挂 `relayLogCleanup`:与转发日志同一 `relay_log_keep_period` 口径(DB 行与内存缓存同步淘汰)。已知边界:`relay_log_keep_enabled=false` 时小时行不清理(与 stats_dailies 永久留存现状一致,已接受)。
+- 按天渠道/模型排名(`/stats/rank?date=`)从 relay_logs GROUP BY 聚合,渠道只按 channel_id 分组(名称取 MAX,防同日改名拆行撞 React key);超保留期整日 `available=false`。
