@@ -430,7 +430,10 @@
     "log": {
         "list": {
             "empty": "No logs yet",
-            "disconnected": "Log stream disconnected, reconnecting"
+            "disconnected": "Log stream disconnected, reconnecting",
+            "onlyRunning": "Running only",
+            "runningCount": "{count} running",
+            "noRunning": "No running requests"
         },
         "status": {
             "committed": "Responding"
@@ -460,7 +463,11 @@
             "responseStreaming": "Upstream responded; streaming is in progress",
             "attempts": "{count} attempts",
             "cached": "Cached {count}",
-            "ftut": "FTUT"
+            "ftut": "FTUT",
+            "speed": "Output speed",
+            "requestBodySummary": "Request body {size}, click to view",
+            "viewRequestBody": "View request body",
+            "hideRequestBody": "Hide request body"
         },
         "tabs": {
             "live": "Live",

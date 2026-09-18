@@ -430,7 +430,10 @@
     "log": {
         "list": {
             "empty": "暂无日志",
-            "disconnected": "日志连接已断开，正在重连"
+            "disconnected": "日志连接已断开，正在重连",
+            "onlyRunning": "只看进行中",
+            "runningCount": "进行中 {count}",
+            "noRunning": "没有进行中的请求"
         },
         "status": {
             "committed": "响应中"
@@ -460,7 +463,11 @@
             "responseStreaming": "上游已响应，流式传输正在进行",
             "attempts": "{count} 次尝试",
             "cached": "缓存 {count}",
-            "ftut": "首字"
+            "ftut": "首字",
+            "speed": "输出速度",
+            "requestBodySummary": "请求体 {size}，点开查看",
+            "viewRequestBody": "查看请求体",
+            "hideRequestBody": "收起请求体"
         },
         "tabs": {
             "live": "实时",

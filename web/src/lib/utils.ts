@@ -34,3 +34,25 @@ export function formatTime(ms: number | undefined): { raw: number, formatted: { 
     formatted: formatNumber(ms, [86400000, 3600000, 60000, 1000], ['', 'd', 'h', 'm', 's', 'ms']),
   };
 }
+
+// toRateText 去掉 toFixed(2) 的尾随零, 让 82.50 显示为 82.5、3.40 显示为 3.4。
+function toRateText(value: number): string {
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+// formatRate 将输出速率(tok/s)格式化为 K/M 缩写, 口径对齐 v1 formatRate。
+export function formatRate(num: number | undefined): { raw: number, formatted: { value: string, unit: string } } {
+  const value = num ?? 0;
+  if (value >= 1_000_000) return { raw: value, formatted: { value: toRateText(value / 1_000_000), unit: "M tok/s" } };
+  if (value >= 1_000) return { raw: value, formatted: { value: toRateText(value / 1_000), unit: "K tok/s" } };
+  return { raw: value, formatted: { value: toRateText(value), unit: "tok/s" } };
+}
+
+// outputSpeed 由落库字段推导输出速度(tok/s): 生成窗口 = 总耗时扣除首字等待;
+// ftut 无效(<=0 或 >= use_time)时回退总耗时做分母; 无输出 token 或分母非正时返回 null(调用方不展示)。
+export function outputSpeed(outputTokens: number, useTimeMs: number, ftutMs: number): number | null {
+  if (outputTokens <= 0 || useTimeMs <= 0) return null;
+  const generateMs = ftutMs > 0 && ftutMs < useTimeMs ? useTimeMs - ftutMs : useTimeMs;
+  if (generateMs <= 0) return null;
+  return outputTokens / (generateMs / 1000);
+}

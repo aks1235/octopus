@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'use-intl';
-import { Loader2, Send, MessageSquare, AlertCircle, ChevronDown, Clock, Coins, RotateCw, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, Send, MessageSquare, AlertCircle, ChevronDown, Clock, Coins, Gauge, RotateCw, CheckCircle2, XCircle } from 'lucide-react';
 import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
 import { githubLightTheme } from '@uiw/react-json-view/githubLight';
@@ -15,8 +15,9 @@ import {
     DialogDescription,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useTheme } from '@/provider/theme';
-import { cn } from '@/lib/utils';
+import { cn, formatRate, outputSpeed } from '@/lib/utils';
 
 /**
  * 可复用的「单条请求详情」受控弹窗。
@@ -33,9 +34,18 @@ export interface RequestDetailDialogProps {
     requestId: number | null;
 }
 
+// formatSizeBytes 将字节数格式化为 KB/MB 摘要文本。
+function formatSizeBytes(bytes: number): string {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${bytes} B`;
+}
+
 export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDetailDialogProps) {
     const t = useTranslations('log.card');
     const tLog = useTranslations('log.channelAttempts');
+    // 简洁模式(默认)不渲染请求体; 「查看请求体」开启后进入调试档, 记忆于会话内即可(不持久化)。
+    const [showRequestBody, setShowRequestBody] = useState(false);
     const [debugExpanded, setDebugExpanded] = useState(false);
 
     // 弹窗打开且有 requestId 时下拉单条详情;关闭则禁用查询(不占请求)。
@@ -50,6 +60,12 @@ export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDe
     const detail = detailQuery.data ?? null;
     const loading = detailQuery.isLoading;
     const error = detailQuery.isError;
+
+    // 请求体字节数只按原文统计(不 JSON.parse), 用于默认简洁档的大小摘要。
+    const requestBodyBytes = detail?.request_content ? new Blob([detail.request_content]).size : 0;
+    // 输出速度由落库字段推导, 无输出 token 或分母无效时不展示。
+    const speed = detail ? outputSpeed(detail.output_tokens, detail.use_time, detail.ftut) : null;
+    const speedText = speed !== null ? formatRate(speed).formatted : null;
 
     const { resolvedTheme } = useTheme();
     const isDark = resolvedTheme === 'dark';
@@ -126,6 +142,11 @@ export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDe
                             <Badge variant="secondary">
                                 {detail.input_tokens.toLocaleString()} → {detail.output_tokens.toLocaleString()} {t('tokens')}
                             </Badge>
+                            {speedText && (
+                                <Badge variant="secondary" className="gap-1" title={t('speed')}>
+                                    <Gauge className="size-3" /> {speedText.value} {speedText.unit}
+                                </Badge>
+                            )}
                             <Badge variant="secondary" className="gap-1">
                                 <Coins className="size-3" /> ${detail.cost.toFixed(4)}
                             </Badge>
@@ -147,9 +168,40 @@ export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDe
                                 <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-muted/50 shrink-0">
                                     <Send className="size-4 text-green-500" />
                                     <span className="text-sm font-medium">{t('requestContent')}</span>
+                                    {/* 展开后提供收起入口; 收起即卸载请求体渲染, 不保留 DOM。 */}
+                                    {showRequestBody && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="ml-auto h-6 rounded-lg px-2 text-xs text-muted-foreground"
+                                            onClick={() => setShowRequestBody(false)}
+                                        >
+                                            {t('hideRequestBody')}
+                                        </Button>
+                                    )}
                                 </div>
                                 <div className="flex-1 overflow-auto min-h-0">
-                                    {renderContent(detail.request_content, false, t('noRequestContent'))}
+                                    {showRequestBody ? (
+                                        // 调试档: 渲染完整请求体(与现状一致的 JsonView 折叠视图)。
+                                        renderContent(detail.request_content, false, t('noRequestContent'))
+                                    ) : detail.request_content ? (
+                                        // 简洁档: 只显示大小摘要, 零 JSON.parse, 点开才渲染完整请求体。
+                                        <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
+                                            <p className="text-xs text-muted-foreground">
+                                                {t('requestBodySummary', { size: formatSizeBytes(requestBodyBytes) })}
+                                            </p>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="rounded-xl"
+                                                onClick={() => setShowRequestBody(true)}
+                                            >
+                                                {t('viewRequestBody')}
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 text-sm text-muted-foreground">{t('noRequestContent')}</div>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex flex-col rounded-2xl border border-border bg-muted/30 overflow-hidden min-h-0">

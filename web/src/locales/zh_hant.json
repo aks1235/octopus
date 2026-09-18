@@ -430,7 +430,10 @@
     "log": {
         "list": {
             "empty": "暫無日誌",
-            "disconnected": "日誌連線已中斷，正在重新連線"
+            "disconnected": "日誌連線已中斷，正在重新連線",
+            "onlyRunning": "只看進行中",
+            "runningCount": "進行中 {count}",
+            "noRunning": "沒有進行中的請求"
         },
         "status": {
             "committed": "回應中"
@@ -460,7 +463,11 @@
             "responseStreaming": "上游已回應，串流傳輸正在進行",
             "attempts": "{count} 次嘗試",
             "cached": "快取 {count}",
-            "ftut": "首字"
+            "ftut": "首字",
+            "speed": "輸出速度",
+            "requestBodySummary": "請求體 {size}，點開查看",
+            "viewRequestBody": "查看請求體",
+            "hideRequestBody": "收起請求體"
         },
         "tabs": {
             "live": "即時",

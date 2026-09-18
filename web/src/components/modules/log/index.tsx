@@ -1,16 +1,30 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Loader2, Logs } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useLogs } from '@/api/log';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LogCard } from './Item';
 import { HistoryPanel } from './HistoryPanel';
 
-/** 实时区: 进程内日志概览, 按 RequestID 实时更新卡片(上游原生形态, 零改动)。 */
+/** 实时区: 进程内日志概览, 按 RequestID 实时更新卡片。 */
 function LivePanel() {
     const t = useTranslations('log');
     const { logs, isLoading, error } = useLogs();
+    // 「只看进行中」是纯前端视图状态, 不影响 SSE 数据流的接收与累积。
+    const [onlyRunning, setOnlyRunning] = useState(false);
+
+    // running 数随 SSE 推送实时变化, 供徽标常显。
+    const runningCount = useMemo(
+        () => logs.reduce((count, log) => (log.status === 'running' ? count + 1 : count), 0),
+        [logs],
+    );
+    const visibleLogs = useMemo(
+        () => (onlyRunning ? logs.filter((log) => log.status === 'running') : logs),
+        [logs, onlyRunning],
+    );
 
     if (isLoading) {
         return (
@@ -36,16 +50,34 @@ function LivePanel() {
                     <span>{t('list.disconnected')}</span>
                 </div>
             )}
+            {/* 过滤工具行: 进行中计数徽标常显, 开关控制列表只保留 running 请求。 */}
+            <div className="flex shrink-0 items-center gap-3">
+                <Badge variant="secondary" className="gap-1.5 text-xs">
+                    <Loader2 className={runningCount > 0 ? 'size-3 animate-spin text-blue-500' : 'size-3 text-muted-foreground'} />
+                    {t('list.runningCount', { count: runningCount })}
+                </Badge>
+                <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
+                    <span>{t('list.onlyRunning')}</span>
+                    <Switch checked={onlyRunning} onCheckedChange={setOnlyRunning} aria-label={t('list.onlyRunning')} />
+                </label>
+            </div>
             <div className="min-h-0 flex-1">
-                <VirtualizedGrid
-                    items={logs}
-                    layout="list"
-                    columns={{ default: 1 }}
-                    estimateItemHeight={104}
-                    overscan={8}
-                    getItemKey={(log) => `log-${log.id}`}
-                    renderItem={(log) => <LogCard log={log} />}
-                />
+                {visibleLogs.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+                        <Logs className="size-8" />
+                        <span className="text-sm">{t('list.noRunning')}</span>
+                    </div>
+                ) : (
+                    <VirtualizedGrid
+                        items={visibleLogs}
+                        layout="list"
+                        columns={{ default: 1 }}
+                        estimateItemHeight={104}
+                        overscan={8}
+                        getItemKey={(log) => `log-${log.id}`}
+                        renderItem={(log) => <LogCard log={log} />}
+                    />
+                )}
             </div>
         </div>
     );

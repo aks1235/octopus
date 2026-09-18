@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'use-intl';
-import { Loader2, ScrollText, AlertCircle, Clock, Coins, Zap, KeyRound, RotateCw } from 'lucide-react';
+import { Loader2, ScrollText, AlertCircle, Clock, Coins, Gauge, Zap, KeyRound, RotateCw } from 'lucide-react';
 import { useLogHistory, useClearLogHistory, type RelayLog } from '@/api/log-history';
 import { apiKeyListQueryOptions, groupListQueryOptions } from '@/api/queries';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { MultiSelect } from '@/components/common/MultiSelect';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, formatRate, outputSpeed } from '@/lib/utils';
 import { RequestDetailDialog } from './RequestDetailDialog';
 import { ClientIconBadge, ReasoningEffortBadge } from './ClientIcon';
 
@@ -31,6 +31,9 @@ function formatDuration(ms: number): string {
 function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
     const t = useTranslations('log.card');
     const failed = !!log.error && log.error.trim() !== '';
+    // 输出速度由落库字段推导, 无输出 token 或分母无效时不展示, 避免出现 0 tok/s 噪音。
+    const speed = outputSpeed(log.output_tokens, log.use_time, log.ftut);
+    const speedText = speed !== null ? formatRate(speed).formatted : null;
 
     return (
         <button
@@ -63,6 +66,11 @@ function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
                     <span className="inline-flex items-center gap-1"><KeyRound className="size-3" />{log.request_api_key_name}</span>
                 )}
                 <span>{log.input_tokens.toLocaleString()} → {log.output_tokens.toLocaleString()} {t('tokens')}</span>
+                {speedText && (
+                    <span title={t('speed')} className="inline-flex items-center gap-1">
+                        <Gauge className="size-3" />{speedText.value} {speedText.unit}
+                    </span>
+                )}
                 {log.cached_tokens > 0 && <span>{t('cached', { count: log.cached_tokens.toLocaleString() })}</span>}
                 <span className="inline-flex items-center gap-1"><Clock className="size-3" />{formatDuration(log.use_time)}</span>
                 {log.ftut > 0 && <span>{t('ftut')}: {formatDuration(log.ftut)}</span>}
