@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useTranslations } from 'use-intl';
 import dayjs from 'dayjs';
 import { buttonVariants } from '@/components/ui/button';
+import { todayDateStr } from '@/api/queries';
 import Logo from '@/components/modules/logo';
 import { Activity } from './activity';
 import { Total } from './total';
@@ -12,10 +13,37 @@ import { StatsChart } from './chart';
 import { Rank } from './rank';
 import { useHomeViewStore } from './store';
 
+// DateNav 展示当前查看日期; 非今天时提供「回到今天」一键返回入口。
+function DateNav() {
+    const t = useTranslations('home.dateNav');
+    const selectedDate = useHomeViewStore((state) => state.selectedDate);
+    const setSelectedDate = useHomeViewStore((state) => state.setSelectedDate);
+    const isToday = selectedDate === todayDateStr();
+
+    return (
+        <div className="flex items-center justify-end gap-2 text-sm">
+            <span className="text-muted-foreground">{t('current')}</span>
+            <span className="font-medium">
+                {`${selectedDate.slice(0, 4)}-${selectedDate.slice(4, 6)}-${selectedDate.slice(6, 8)}`}
+            </span>
+            {!isToday && (
+                <button
+                    type="button"
+                    onClick={() => setSelectedDate(todayDateStr())}
+                    className="text-primary hover:underline cursor-pointer"
+                >
+                    {t('backToToday')}
+                </button>
+            )}
+        </div>
+    );
+}
+
 // HomeSections 汇总首页各统计区块, 屏内正文与分享图舞台共用。
 function HomeSections() {
     return (
         <div className="@container/home space-y-6">
+            <DateNav />
             <Total />
             <Activity />
             <StatsChart />

@@ -87,6 +87,10 @@
         }
     },
     "home": {
+        "dateNav": {
+            "current": "Viewing",
+            "backToToday": "Back to today"
+        },
         "metric": {
             "cost": "Cost",
             "count": "Count",
@@ -119,6 +123,7 @@
             "totalCost": "Total Cost",
             "totalTokens": "Total Tokens",
             "timePeriod": "Time Period",
+            "empty": "No stats for this date",
             "period": {
                 "today": "Today",
                 "last7Days": "7 Days",
@@ -129,7 +134,10 @@
             "channel": "Channel",
             "model": "Model",
             "noData": "No ranking data",
-            "successRate": "Success Rate"
+            "successRate": "Success Rate",
+            "daily": "Daily",
+            "total": "All-time",
+            "beyondRetention": "This date is beyond the log retention period; no daily data"
         }
     },
     "setting": {

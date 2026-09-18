@@ -1,6 +1,8 @@
 import { Fragment, useId, useMemo } from 'react';
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { ChartLine } from 'lucide-react';
 import { useTranslations } from 'use-intl';
+import { todayDateStr } from '@/api/queries';
 import { useStatsDaily, useStatsHourly, type StatsMetricsFormatted } from '@/api/stats';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { AnimatedNumber } from '@/components/common/AnimatedNumber';
@@ -15,10 +17,11 @@ interface ChartPoint {
     stat: Pick<StatsMetricsFormatted, 'request_count' | 'total_cost' | 'total_token'>;
 }
 
-// StatsChart 展示选定指标在选定周期内的趋势, 并汇总该周期的请求, 金额和词元。
+// StatsChart 展示选定指标在选中日期(或其截止的周期)内的趋势, 并汇总该周期的请求, 金额和词元。
 export function StatsChart() {
     const { data: statsDaily } = useStatsDaily();
-    const { data: statsHourly } = useStatsHourly();
+    const selectedDate = useHomeViewStore((state) => state.selectedDate);
+    const { data: statsHourly } = useStatsHourly(selectedDate);
     const t = useTranslations('home.chart');
     const tMetric = useTranslations('home.metric');
     // 订阅主题: 切换时 :root 上 --chart-* 的取值会变, 需重渲染以重新取色。
@@ -30,16 +33,18 @@ export function StatsChart() {
     const setMetricType = useHomeViewStore((state) => state.setChartMetricType);
     const period = useHomeViewStore((state) => state.chartPeriod);
     const setPeriod = useHomeViewStore((state) => state.setChartPeriod);
+    const isToday = selectedDate === todayDateStr();
 
-    // 今天取小时粒度, 其余取最近 N 天; 两种粒度的统计字段同名, 后续处理不再分支。
+    // 单日取选中日的小时曲线, 多日取截止到选中日的最近 N 天; 两种粒度的统计字段同名, 后续处理不再分支。
     const source = useMemo<ChartPoint[]>(() => {
         if (period === '1') {
             return (statsHourly ?? []).map((stat) => ({ label: `${stat.hour}:00`, stat }));
         }
         return (statsDaily ?? [])
+            .filter((stat) => stat.date <= selectedDate)
             .slice(-Number(period))
             .map((stat) => ({ label: `${stat.date.slice(4, 6)}/${stat.date.slice(6, 8)}`, stat }));
-    }, [statsDaily, statsHourly, period]);
+    }, [statsDaily, statsHourly, period, selectedDate]);
 
     // 图表从首个有请求的点前一个开始, 避免开头一长段零值; 汇总仍按整个周期统计。
     const firstUsage = source.findIndex((item) => item.stat.request_count.raw > 0);
@@ -51,7 +56,13 @@ export function StatsChart() {
     const chartColor = getComputedStyle(document.documentElement)
         .getPropertyValue(metricType === 'cost' ? '--chart-1' : metricType === 'count' ? '--chart-2' : '--chart-3')
         .trim();
-    const periodLabel = { '1': t('period.today'), '7': t('period.last7Days'), '30': t('period.last30Days') }[period];
+    // 单日周期下展示实际查看的日期, 今天才叫「今天」; 多日周期只与跨度有关, 不随选中日变。
+    const periodLabel = period === '1' && !isToday
+        ? `${selectedDate.slice(0, 4)}-${selectedDate.slice(4, 6)}-${selectedDate.slice(6, 8)}`
+        : { '1': t('period.today'), '7': t('period.last7Days'), '30': t('period.last30Days') }[period];
+    // 历史日整段无请求时给空态, 避免一条贴地的零值线被误读成"当天全天空转"。
+    const hasData = source.some((item) => item.stat.request_count.raw > 0);
+    const showEmpty = period === '1' && !isToday && !hasData;
     const summary = [
         { label: t('totalRequests'), metric: formatCount(source.reduce((sum, item) => sum + item.stat.request_count.raw, 0)) },
         { label: t('totalCost'), metric: formatMoney(source.reduce((sum, item) => sum + item.stat.total_cost.raw, 0)) },
@@ -93,29 +104,36 @@ export function StatsChart() {
                 </div>
             </div>
 
-            <ChartContainer config={{ value: { label: tMetric(metricType) } }} className="h-40 w-full">
-                <AreaChart accessibilityLayer data={chartData}>
-                    <defs>
-                        {/* 停靠点取实际色值而非 var(): snapdom 不解析 defs 内的 var(), 截图会落回黑色。 */}
-                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={chartColor} stopOpacity={1.0} />
-                            <stop offset="95%" stopColor={chartColor} stopOpacity={0.1} />
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tickLine={false} axisLine={false} />
-                    <YAxis
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(value) => {
-                            const formatted = metricType === 'cost' ? formatMoney(value) : formatCount(value);
-                            return `${formatted.formatted.value}${formatted.formatted.unit}`;
-                        }}
-                    />
-                    <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-                    <Area type="monotone" dataKey="value" stroke={chartColor} fill={`url(#${gradientId})`} />
-                </AreaChart>
-            </ChartContainer>
+            {showEmpty ? (
+                <div className="h-40 flex flex-col items-center justify-center text-muted-foreground">
+                    <ChartLine className="w-10 h-10 mb-2 opacity-30" />
+                    <p className="text-sm">{t('empty')}</p>
+                </div>
+            ) : (
+                <ChartContainer config={{ value: { label: tMetric(metricType) } }} className="h-40 w-full">
+                    <AreaChart accessibilityLayer data={chartData}>
+                        <defs>
+                            {/* 停靠点取实际色值而非 var(): snapdom 不解析 defs 内的 var(), 截图会落回黑色。 */}
+                            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={chartColor} stopOpacity={1.0} />
+                                <stop offset="95%" stopColor={chartColor} stopOpacity={0.1} />
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="date" tickLine={false} axisLine={false} />
+                        <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => {
+                                const formatted = metricType === 'cost' ? formatMoney(value) : formatCount(value);
+                                return `${formatted.formatted.value}${formatted.formatted.unit}`;
+                            }}
+                        />
+                        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
+                        <Area type="monotone" dataKey="value" stroke={chartColor} fill={`url(#${gradientId})`} />
+                    </AreaChart>
+                </ChartContainer>
+            )}
         </div>
     );
 }

@@ -87,6 +87,10 @@
         }
     },
     "home": {
+        "dateNav": {
+            "current": "當前查看",
+            "backToToday": "回到今天"
+        },
         "metric": {
             "cost": "金額",
             "count": "次數",
@@ -119,6 +123,7 @@
             "totalCost": "消費金額",
             "totalTokens": "詞元消耗",
             "timePeriod": "時間週期",
+            "empty": "該日期暫無統計數據",
             "period": {
                 "today": "今天",
                 "last7Days": "7天",
@@ -129,7 +134,10 @@
             "channel": "渠道",
             "model": "模型",
             "noData": "暫無排行數據",
-            "successRate": "成功率"
+            "successRate": "成功率",
+            "daily": "按天",
+            "total": "累計",
+            "beyondRetention": "該日期超出日誌保留期,無按天數據"
         }
     },
     "setting": {

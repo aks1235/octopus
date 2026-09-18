@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { apiRequest } from './client';
-import { statsDailyQueryOptions, statsHourlyQueryOptions, statsTotalQueryOptions } from './queries';
+import { statsDailyQueryOptions, statsHourlyQueryOptions, statsRankDailyQueryOptions, statsTotalQueryOptions, todayDateStr } from './queries';
 import { formatCount, formatMoney, formatTime } from '@/lib/utils';
 
 /**
@@ -75,6 +75,27 @@ interface StatsHourlyFormatted extends StatsMetricsFormatted {
     hour: number;
     date: string;
 }
+
+// StatsRankEntry 是按天排名的单条聚合(渠道榜带 channel_id, 模型榜 channel_id 恒为 0)。
+export interface StatsRankEntry extends StatsMetrics {
+    channel_id: number;
+    name: string;
+}
+// available 为 false 表示该日期超出日志保留期(或日志保存关闭), 无按天数据。
+export interface StatsRankResponse {
+    available: boolean;
+    channels: StatsRankEntry[];
+    models: StatsRankEntry[];
+}
+export interface StatsRankEntryFormatted extends StatsMetricsFormatted {
+    channel_id: number;
+    name: string;
+}
+export interface StatsRankResponseFormatted {
+    available: boolean;
+    channels: StatsRankEntryFormatted[];
+    models: StatsRankEntryFormatted[];
+}
 /**
  * API Key 统计数据
  */
@@ -113,22 +134,50 @@ export function useStatsDaily() {
 }
 
 // statsHourlyFormattedQueryOptions 统一首页每小时统计查询、格式化和刷新策略。
-const statsHourlyFormattedQueryOptions = queryOptions({
-    ...statsHourlyQueryOptions,
+// 刷新语义随选中日: 今天保持 10 秒实时积累, 历史日是静态快照, 关掉定时刷新。
+const statsHourlyFormattedQueryOptions = (date: string) => queryOptions({
+    ...statsHourlyQueryOptions(date),
     select: (data) => data.map((item): StatsHourlyFormatted => ({
         ...formatStatsMetrics(item),
         hour: item.hour,
         date: item.date,
     })),
-    refetchInterval: 10000,// 10 秒
+    refetchInterval: date === todayDateStr() ? 10000 : false,// 10 秒
     refetchOnMount: 'always',
 });
 
 /**
- * 获取每小时统计数据 Hook
+ * 获取每小时统计数据 Hook; date 为 YYYYMMDD, 历史日返回静态快照。
  */
-export function useStatsHourly() {
-    return useQuery(statsHourlyFormattedQueryOptions);
+export function useStatsHourly(date: string) {
+    return useQuery(statsHourlyFormattedQueryOptions(date));
+}
+
+// statsRankDailyFormattedQueryOptions 统一排名按天视角的查询、格式化和刷新策略, 与小时数据同一刷新语义。
+const statsRankDailyFormattedQueryOptions = (date: string) => queryOptions({
+    ...statsRankDailyQueryOptions(date),
+    select: (data): StatsRankResponseFormatted => ({
+        available: data.available,
+        channels: data.channels.map((entry): StatsRankEntryFormatted => ({
+            ...formatStatsMetrics(entry),
+            channel_id: entry.channel_id,
+            name: entry.name,
+        })),
+        models: data.models.map((entry): StatsRankEntryFormatted => ({
+            ...formatStatsMetrics(entry),
+            channel_id: entry.channel_id,
+            name: entry.name,
+        })),
+    }),
+    refetchInterval: date === todayDateStr() ? 30000 : false,// 30 秒
+    refetchOnMount: 'always',
+});
+
+/**
+ * 获取按天排名数据 Hook; date 为 YYYYMMDD, 超出日志保留期时 available 为 false。
+ */
+export function useStatsRankDaily(date: string, enabled = true) {
+    return useQuery({ ...statsRankDailyFormattedQueryOptions(date), enabled });
 }
 
 // statsTotalFormattedQueryOptions 统一首页总统计查询、格式化和刷新策略。

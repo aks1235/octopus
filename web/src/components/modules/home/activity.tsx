@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslations } from 'use-intl';
 import dayjs from 'dayjs';
 import { useStatsDaily, type StatsDailyFormatted } from '@/api/stats';
+import { useHomeViewStore } from './store';
 
 // 热力图上的一天。
 interface ActivityDay {
@@ -10,10 +11,12 @@ interface ActivityDay {
     formatted: StatsDailyFormatted | null; // 当日统计, 无数据为 null。
 }
 
-// Activity 以一年的日历热力图展示每日请求量, 悬浮某天时显示当日统计。
+// Activity 以一年的日历热力图展示每日请求量, 悬浮某天时显示当日统计, 点击某天整页切换到该日。
 export function Activity() {
     const { data: stats, maxRequestCount } = useStatsDaily();
     const t = useTranslations('home.activity');
+    const selectedDate = useHomeViewStore((state) => state.selectedDate);
+    const setSelectedDate = useHomeViewStore((state) => state.setSelectedDate);
     const scrollRef = useRef<HTMLDivElement>(null); // 横向滚动容器, 用于贴右和判断两端。
     // 悬浮提示的内容与位置; 关闭时先转为不可见再移除, 以走完淡出过渡。
     const [tooltip, setTooltip] = useState<ActivityDay & { x: number; y: number; visible: boolean } | null>(null);
@@ -57,7 +60,7 @@ export function Activity() {
         return () => window.removeEventListener('resize', scrollToRight);
     }, [days]);
 
-    // 网格与悬浮状态无关: 悬浮会重渲染本组件, 但不应重建这 378 个节点。
+    // 网格与悬浮/选中状态无关: 交互会重渲染本组件, 但不应重建这 378 个节点。
     // 格子也不各自挂监听, 由网格统一委托, data-index 即回查 days 的下标。
     const grid = useMemo(() => (
         <div
@@ -75,6 +78,14 @@ export function Activity() {
                 const rect = target.getBoundingClientRect();
                 setTooltip({ ...day, x: rect.left + rect.width / 2, y: rect.top, visible: true });
             }}
+            onClick={(event) => {
+                // 点击格子切换整页查看日期; 渲染出的格子都不晚于今天, 无需再判边界。
+                const target = event.target as HTMLElement;
+                const index = target.dataset.index;
+                const day = index === undefined ? null : days[Number(index)];
+                if (!day) return;
+                setSelectedDate(day.dateStr);
+            }}
         >
             {days.map((day, index) => {
                 if (!day) return <div key={`future-${index}`} />;
@@ -82,12 +93,14 @@ export function Activity() {
                 const level = maxRequestCount > 0
                     ? Math.min(4, Math.ceil((day.formatted?.request_count.raw ?? 0) * 4 / maxRequestCount))
                     : 0;
+                const selected = day.dateStr === selectedDate;
 
                 return (
                     <div
                         key={day.dateStr}
                         data-index={index}
-                        className="rounded-sm transition-all cursor-pointer hover:scale-150"
+                        aria-label={day.dateStr}
+                        className={`rounded-sm transition-all cursor-pointer hover:scale-150 ${selected ? 'ring-2 ring-ring ring-offset-1 ring-offset-card z-10' : ''}`}
                         style={{
                             backgroundColor: level === 0 ? 'var(--muted)' : 'var(--primary)',
                             opacity: level === 0 ? 1 : level / 4,
@@ -96,7 +109,7 @@ export function Activity() {
                 );
             })}
         </div>
-    ), [days, maxRequestCount]);
+    ), [days, maxRequestCount, selectedDate, setSelectedDate]);
 
     // 遮罩只淡化仍可继续滚动的那一侧, 两端都到头则不淡化。
     const maskImage = edges.atStart && edges.atEnd

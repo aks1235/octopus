@@ -1,9 +1,10 @@
 import { queryOptions } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import type { APIKey, APIKeyStatsResponse } from './apikey';
 import type { ChannelStats } from './channel';
 import type { Group } from './group';
 import type { LLMInfo } from './model';
-import type { StatsDailyResponse, StatsHourly, StatsTotal } from './stats';
+import type { StatsDailyResponse, StatsHourly, StatsRankResponse, StatsTotal } from './stats';
 import { apiRequest } from './client';
 
 // apiKeyDashboardStatsQueryOptions 供页面查询和启动预取共享 API Key 统计定义。
@@ -43,11 +44,27 @@ export const statsDailyQueryOptions = queryOptions({
     queryFn: () => apiRequest<StatsDailyResponse>('/api/v1/stats/daily'),
 });
 
-// statsHourlyQueryOptions 供页面查询和启动预取共享每小时统计定义。
-export const statsHourlyQueryOptions = queryOptions({
-    queryKey: ['stats', 'hourly'],
-    queryFn: () => apiRequest<StatsHourly[]>('/api/v1/stats/hourly'),
-});
+// todayDateStr 返回本地时区今天的 YYYYMMDD 字符串, 供默认查询与「回到今天」共用同一口径。
+export function todayDateStr(): string {
+    return dayjs().format('YYYYMMDD');
+}
+
+// statsHourlyQueryOptions 供页面查询和启动预取共享每小时统计定义, 按选中日期区分 queryKey;
+// 缺省为今天, 与后端 date 缺省语义一致。
+export function statsHourlyQueryOptions(date: string = todayDateStr()) {
+    return queryOptions({
+        queryKey: ['stats', 'hourly', date],
+        queryFn: () => apiRequest<StatsHourly[]>(`/api/v1/stats/hourly?date=${date}`),
+    });
+}
+
+// statsRankDailyQueryOptions 供首页排名「按天」视角查询, 后端从 relay_logs 按选中日聚合。
+export function statsRankDailyQueryOptions(date: string) {
+    return queryOptions({
+        queryKey: ['stats', 'rank-daily', date],
+        queryFn: () => apiRequest<StatsRankResponse>(`/api/v1/stats/rank?date=${date}`),
+    });
+}
 
 // statsTotalQueryOptions 供页面查询和启动预取共享总计统计定义。
 export const statsTotalQueryOptions = queryOptions({

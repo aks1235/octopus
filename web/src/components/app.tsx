@@ -71,7 +71,7 @@ export function AppContainer() {
                 queryClient.fetchQuery(groupListQueryOptions),
                 queryClient.fetchQuery(modelListQueryOptions),
                 queryClient.fetchQuery(statsDailyQueryOptions),
-                queryClient.fetchQuery(statsHourlyQueryOptions),
+                queryClient.fetchQuery(statsHourlyQueryOptions()),
                 queryClient.fetchQuery(statsTotalQueryOptions),
             ];
 

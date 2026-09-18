@@ -165,7 +165,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		} else {
 			res.RowsAffected["stats_daily"] = n
 		}
-		if n, err := createUpsertAll(tx, dump.StatsHourly, []clause.Column{{Name: "hour"}}); err != nil {
+		if n, err := createUpsertAll(tx, dump.StatsHourly, []clause.Column{{Name: "date"}, {Name: "hour"}}); err != nil {
 			return fmt.Errorf("import stats_hourly: %w", err)
 		} else {
 			res.RowsAffected["stats_hourly"] = n

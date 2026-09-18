@@ -138,7 +138,12 @@ func relayLogCleanup(ctx context.Context) error {
 	}
 
 	cutoffTime := time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Unix()
-	return db.GetDB().WithContext(ctx).Where("time < ?", cutoffTime).Delete(&model.RelayLog{}).Error
+	if err := db.GetDB().WithContext(ctx).Where("time < ?", cutoffTime).Delete(&model.RelayLog{}).Error; err != nil {
+		return err
+	}
+	// 小时统计跟随日志保留期: 顺手删超期小时行并同步淘汰内存缓存, 同一保留期口径, 不另开任务。
+	cutoffDate := time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Format("20060102")
+	return StatsHourlyCleanupBefore(ctx, cutoffDate)
 }
 
 // RelayLogList 查询日志列表，支持可选的时间范围过滤和错误筛选
