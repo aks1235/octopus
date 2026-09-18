@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Loader2, Logs } from 'lucide-react';
 import { useTranslations } from 'use-intl';
-import { useLogs } from '@/api/log';
+import { useLogs, type RequestState } from '@/api/log';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -16,13 +16,16 @@ function LivePanel() {
     // 「只看进行中」是纯前端视图状态, 不影响 SSE 数据流的接收与累积。
     const [onlyRunning, setOnlyRunning] = useState(false);
 
-    // running 数随 SSE 推送实时变化, 供徽标常显。
+    // 进行中 = 未取得终态的请求: running(上游未回复)与 committed(流式已开始回复但仍在推送)都算;
+    // 只按 running 过滤会把"上游已回复、还在流式中"的长请求漏掉(2026-09-18 用户实测反馈)。
+    const isOngoing = (status: RequestState) => status === 'running' || status === 'committed';
+    // 进行中数量随 SSE 推送实时变化, 供徽标常显。
     const runningCount = useMemo(
-        () => logs.reduce((count, log) => (log.status === 'running' ? count + 1 : count), 0),
+        () => logs.reduce((count, log) => (isOngoing(log.status) ? count + 1 : count), 0),
         [logs],
     );
     const visibleLogs = useMemo(
-        () => (onlyRunning ? logs.filter((log) => log.status === 'running') : logs),
+        () => (onlyRunning ? logs.filter((log) => isOngoing(log.status)) : logs),
         [logs, onlyRunning],
     );
 
