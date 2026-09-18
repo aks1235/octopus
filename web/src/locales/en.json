@@ -466,6 +466,7 @@
             "ftut": "FTUT",
             "speed": "Output speed",
             "requestBodySummary": "Request body {size}, click to view",
+            "messageCount": "{count} messages",
             "viewRequestBody": "View request body",
             "hideRequestBody": "Hide request body"
         },

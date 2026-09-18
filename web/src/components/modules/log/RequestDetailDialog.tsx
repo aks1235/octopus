@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'use-intl';
 import { Loader2, Send, MessageSquare, AlertCircle, ChevronDown, Clock, Coins, Gauge, RotateCw, CheckCircle2, XCircle } from 'lucide-react';
@@ -39,6 +39,62 @@ function formatSizeBytes(bytes: number): string {
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${bytes} B`;
+}
+
+// lastMessageOf 从请求体提取 messages 数组的最后一条(本次请求新增的用户输入)。
+// content 为分段数组时拼接全部 text 段(OpenAI/Anthropic 两格式同构); 结构不符返回 null,
+// 调用方退回大小摘要。解析与提取在此一次完成, 渲染只落最后一行, DOM 恒为小体量。
+function lastMessageOf(content: string): { role: string; text: string; count: number } | null {
+    let data: unknown;
+    try {
+        data = JSON.parse(content);
+    } catch {
+        return null;
+    }
+    if (typeof data !== 'object' || data === null) return null;
+    const messages = (data as { messages?: unknown }).messages;
+    if (!Array.isArray(messages) || messages.length === 0) return null;
+    const last = messages[messages.length - 1];
+    if (typeof last !== 'object' || last === null) return null;
+    const { role, content: lastContent } = last as { role?: unknown; content?: unknown };
+    let text = '';
+    if (typeof lastContent === 'string') {
+        text = lastContent;
+    } else if (Array.isArray(lastContent)) {
+        text = lastContent
+            .map((part) => (typeof part === 'object' && part !== null && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+            .filter(Boolean)
+            .join('\n');
+    }
+    if (!text) return null;
+    return { role: typeof role === 'string' ? role : 'unknown', text, count: messages.length };
+}
+
+// SimpleRequestBody 简洁档的请求体区: 最后一条消息 + 消息总数 + 大小摘要, 全量按需展开。
+function SimpleRequestBody({ content, sizeText, onViewFull }: { content: string; sizeText: string; onViewFull: () => void }) {
+    const t = useTranslations('log.card');
+    const last = useMemo(() => lastMessageOf(content), [content]);
+
+    return (
+        <div className="flex h-full flex-col gap-3 p-4">
+            {last ? (
+                <div className="min-h-0 flex-1 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="secondary" className="text-xs">{last.role}</Badge>
+                        <span className="text-xs text-muted-foreground">{t('messageCount', { count: last.count })}</span>
+                    </div>
+                    <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-foreground/90">{last.text}</pre>
+                </div>
+            ) : (
+                <div className="min-h-0 flex-1 flex items-center justify-center text-center">
+                    <p className="text-xs text-muted-foreground">{t('requestBodySummary', { size: sizeText })}</p>
+                </div>
+            )}
+            <Button variant="outline" size="sm" className="rounded-xl shrink-0 self-center" onClick={onViewFull}>
+                {t('viewRequestBody')}
+            </Button>
+        </div>
+    );
 }
 
 export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDetailDialogProps) {
@@ -185,20 +241,14 @@ export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDe
                                         // 调试档: 渲染完整请求体(与现状一致的 JsonView 折叠视图)。
                                         renderContent(detail.request_content, false, t('noRequestContent'))
                                     ) : detail.request_content ? (
-                                        // 简洁档: 只显示大小摘要, 零 JSON.parse, 点开才渲染完整请求体。
-                                        <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
-                                            <p className="text-xs text-muted-foreground">
-                                                {t('requestBodySummary', { size: formatSizeBytes(requestBodyBytes) })}
-                                            </p>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="rounded-xl"
-                                                onClick={() => setShowRequestBody(true)}
-                                            >
-                                                {t('viewRequestBody')}
-                                            </Button>
-                                        </div>
+                                        // 简洁档: JSON.parse 便宜(卡顿根因在渲染几千条消息的 DOM), 只渲染
+                                        // messages 最后一条(本次请求新增的用户输入)与消息总数; 解析失败或
+                                        // 无 messages 结构(embeddings 等)退回大小摘要。全量仍走「查看请求体」。
+                                        <SimpleRequestBody
+                                            content={detail.request_content}
+                                            sizeText={formatSizeBytes(requestBodyBytes)}
+                                            onViewFull={() => setShowRequestBody(true)}
+                                        />
                                     ) : (
                                         <div className="p-4 text-sm text-muted-foreground">{t('noRequestContent')}</div>
                                     )}

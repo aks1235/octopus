@@ -466,6 +466,7 @@
             "ftut": "首字",
             "speed": "输出速度",
             "requestBodySummary": "请求体 {size}，点开查看",
+            "messageCount": "共 {count} 条消息",
             "viewRequestBody": "查看请求体",
             "hideRequestBody": "收起请求体"
         },
