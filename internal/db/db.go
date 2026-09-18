@@ -101,11 +101,21 @@ func initSQLite(path string, config *gorm.Config) (*gorm.DB, error) {
 	params.Add("_pragma", "journal_mode(WAL)")
 	params.Add("_pragma", "synchronous(NORMAL)")
 	params.Add("_pragma", "cache_size(10000)")
-	params.Add("_pragma", "busy_timeout(5000)")
+	// busy_timeout 提到 10s: IMMEDIATE 事务开锁拿不到时在驱动层排队等待,
+	// 吸收转发路径偶发的长写, 减少不必要的重试。
+	params.Add("_pragma", "busy_timeout(10000)")
 	params.Add("_pragma", "foreign_keys(ON)")
 	params.Add("_pragma", "auto_vacuum(INCREMENTAL)")
 	params.Add("_pragma", "mmap_size(268435456)")
 	params.Add("_pragma", "locking_mode(NORMAL)")
+	// 事务默认改用 BEGIN IMMEDIATE, 从根上消灭 SQLITE_BUSY_SNAPSHOT(517):
+	// 默认延迟事务 BEGIN 后先读后写, WAL 下读到旧快照后若别的写者已提交,
+	// 升级为写时快照即作废并立刻失败, busy_timeout 对它无效(生产日志每
+	// 5 分钟刷 "database is locked (517)" 的根因: 兜底大事务 vs 转发路径
+	// 持续写入抢写锁)。IMMEDIATE 在开启事务时就拿写锁, 拿不到则走
+	// busy_timeout 排队等待, 锁竞争前移但不会更快失败(SQLite 本就单写者);
+	// 读路径不受影响(WAL 读不阻塞)。
+	params.Add("_txlock", "immediate")
 	return gorm.Open(sqlite.Open(path+"?"+params.Encode()), config)
 }
 

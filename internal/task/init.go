@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
@@ -25,6 +26,23 @@ const groupRegexSyncInterval = 5 * time.Minute
 // relayLogSaveInterval 转发日志周期落盘间隔。
 // 缓冲满 20 条的主动 flush 是主路径, 定时只兜低流量时段的滞留与按保留期清理, 无需人工调参。
 const relayLogSaveInterval = time.Minute
+
+// busyRetryIntervals 兜底任务遇 SQLite BUSY 时的退避重试间隔序列。
+// 兜底大事务与转发路径的持续写入抢写锁时, 等一等通常就能拿到锁, 不值得整轮放弃;
+// 间隔递增(2s/5s)避免在锁风暴上火上浇油。变量而非常量是为了测试时可缩短间隔。
+var busyRetryIntervals = []time.Duration{2 * time.Second, 5 * time.Second}
+
+// runWithBusyRetry 执行 fn, 遇 SQLite BUSY 类错误按 busyRetryIntervals 退避静默重试,
+// 重试耗尽才把最后一次错误交还调用方告警。非 BUSY 错误(如正则编译失败)不重试, 原样返回。
+func runWithBusyRetry(fn func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := fn()
+		if err == nil || !db.IsBusyError(err) || attempt >= len(busyRetryIntervals) {
+			return err
+		}
+		time.Sleep(busyRetryIntervals[attempt])
+	}
+}
 
 func Init() {
 	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
@@ -53,11 +71,13 @@ func Init() {
 	Register(TaskGroupRegexSync, groupRegexSyncInterval, true, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := op.GroupRegexSync(ctx); err != nil {
+		// BUSY 类错误退避静默重试(2s/5s 两轮), 重试耗尽才告警一次;
+		// 非 BUSY 错误(如正则坏)不重试, 直接告警。
+		if err := runWithBusyRetry(func() error { return op.GroupRegexSync(ctx) }); err != nil {
 			log.Warnf("failed to sync regex group members: %v", err)
 		}
 		// 手动分组吸纳兜底走全量(不限渠道), 串行接在正则重算之后, 与渠道增改的事件触发共用同一入口。
-		if err := op.GroupManualAbsorb(ctx); err != nil {
+		if err := runWithBusyRetry(func() error { return op.GroupManualAbsorb(ctx) }); err != nil {
 			log.Warnf("failed to absorb manual group members: %v", err)
 		}
 	})
