@@ -54,11 +54,13 @@ export function useModelProbe() {
 
             // 按当前过滤口径收缩: 与后端拉取判定同语义(全局命中排除, 渠道级配置则命中保留),
             // 编译失败按不过滤处理(与后端留空不生效口径一致, 非法表达式由保存与拉取路径报错)。
+            // **留空必须走 null**: compileMemberRegex('') 得到的是匹配一切的合法正则, 直接套用会把
+            // 全局过滤为空(默认)当成"全部命中黑名单"清空所有模型(v2.1.1 线上回归, 2026-09-18 修复)。
             // 本轮探测结果已过后端过滤, 这一步主要清扫其他凭据名下早前留下的存量。
-            const globalRe = compileMemberRegex(
-                settings?.find((setting) => setting.key === SettingKey.ModelFilter)?.value ?? '',
-            );
-            const channelRe = compileMemberRegex(state.match_regex);
+            const globalPattern = (settings?.find((setting) => setting.key === SettingKey.ModelFilter)?.value ?? '').trim();
+            const channelPattern = state.match_regex.trim();
+            const globalRe = globalPattern ? compileMemberRegex(globalPattern) : null;
+            const channelRe = channelPattern ? compileMemberRegex(channelPattern) : null;
             const kept = models.filter((name) => {
                 if (globalRe?.test(name)) return false;
                 if (channelRe && !channelRe.test(name)) return false;
