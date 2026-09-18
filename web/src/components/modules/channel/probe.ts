@@ -14,11 +14,11 @@ export function useModelProbe() {
     const { data: settings } = useSettingList(); // 全局模型过滤(黑名单)随设置实时读, 探测合并时同步收缩存量。
     const [pendingKey, setPendingKey] = useState<string | null>(null); // 正在探测的凭据名称, 只转动该行的图标。
 
-    // probe 探测指定凭据可用的模型, 结果并入模型集合与授权表。
-    // 上游未返回但本地已有的模型保留: 静默删除会打断正在使用该模型的路由。
-    // 但过滤规则有追溯力: 合并后按当前口径再收缩一遍——命中全局黑名单(命中排除)的、
-    // 不满足渠道白名单(配置了命中保留)的既有模型一并移除, 否则早前吸进来的垃圾模型
-    // 会因「只增不减」永远留在表单里, 黑名单形同虚设(2026-09-18 用户实测反馈)。
+    // probe 探测指定凭据可用的模型, 结果**替换**该凭据名下的模型与授权(对账语义)。
+    // 上游没有了的模型不再保留: 留着只会继续向不存在的模型发请求, 并集语义已被否定
+    // (2026-09-18 用户定:"上游都没有了这个模型, 还一直请求, 不符合逻辑"); 分组成员
+    // 随授权级联消失属预期, 日志统计不受影响。其他凭据未参与本轮探测, 其授权原样保留。
+    // 模型集合按授权表实际存在重导出; 合并后按当前过滤口径收缩, 早前吸进来的垃圾一并清除。
     const probe = async (
         state: ChannelFormState,
         setState: (next: ChannelFormState) => void,
@@ -40,16 +40,21 @@ export function useModelProbe() {
                 toast.warning(t('modelRefreshEmpty'));
                 return;
             }
-            const models = [...state.models];
             const grants = new Map(state.grants);
+            // 本凭据名下的旧授权先全部移除: 本轮探测结果就是该凭据的真实集合(替换, 非并集)。
+            for (const mapKey of grants.keys()) {
+                if (mapKey.split('\0')[1] === channelKey.name) grants.delete(mapKey);
+            }
             for (const { name, protocols } of fetched) {
-                if (!models.includes(name)) models.push(name);
                 const mapKey = grantKey(name, channelKey.name);
                 grants.set(mapKey, (grants.get(mapKey) ?? 0) | protocols);
             }
+            // 模型集合 = 授权表里实际存在的模型(本凭据替换后与其他凭据取并), 无授权的孤立模型不再保留。
+            let models = [...new Set([...grants.keys()].map((mapKey) => mapKey.split('\0')[0]))];
 
             // 按当前过滤口径收缩: 与后端拉取判定同语义(全局命中排除, 渠道级配置则命中保留),
             // 编译失败按不过滤处理(与后端留空不生效口径一致, 非法表达式由保存与拉取路径报错)。
+            // 本轮探测结果已过后端过滤, 这一步主要清扫其他凭据名下早前留下的存量。
             const globalRe = compileMemberRegex(
                 settings?.find((setting) => setting.key === SettingKey.ModelFilter)?.value ?? '',
             );
@@ -64,8 +69,7 @@ export function useModelProbe() {
                 for (const mapKey of grants.keys()) {
                     if (!keptSet.has(mapKey.split('\0')[0])) grants.delete(mapKey);
                 }
-                models.length = 0;
-                models.push(...kept);
+                models = kept;
             }
 
             setState({ ...state, models, grants });
