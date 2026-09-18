@@ -41,9 +41,27 @@ function formatSizeBytes(bytes: number): string {
     return `${bytes} B`;
 }
 
-// lastMessageOf 从请求体提取 messages 数组的最后一条(本次请求新增的用户输入)。
-// content 为分段数组时拼接全部 text 段(OpenAI/Anthropic 两格式同构); 结构不符返回 null,
-// 调用方退回大小摘要。解析与提取在此一次完成, 渲染只落最后一行, DOM 恒为小体量。
+// messageText 提取一条 message 的文本: 字符串直接返回; 分段数组拼接 text 段,
+// tool_result(聚合循环的末条常是它)的文本嵌在 content 里, 递归取出。
+function messageText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    const parts: string[] = [];
+    for (const part of content) {
+        if (typeof part !== 'object' || part === null) continue;
+        const p = part as { type?: unknown; text?: unknown; content?: unknown };
+        if (typeof p.text === 'string') {
+            parts.push(p.text);
+        } else if (p.type === 'tool_result') {
+            parts.push(messageText(p.content));
+        }
+    }
+    return parts.filter(Boolean).join('\n');
+}
+
+// lastMessageOf 从请求体提取 messages 数组里最近一条带文本的消息(本次请求新增的用户输入)。
+// 末条是纯 tool_use/tool_result 时向前回溯; 全程无文本或结构不符返回 null, 调用方退回大小摘要。
+// 解析与提取在此一次完成, 渲染只落最后一行(超长截断), DOM 恒为小体量。
 function lastMessageOf(content: string): { role: string; text: string; count: number } | null {
     let data: unknown;
     try {
@@ -54,20 +72,19 @@ function lastMessageOf(content: string): { role: string; text: string; count: nu
     if (typeof data !== 'object' || data === null) return null;
     const messages = (data as { messages?: unknown }).messages;
     if (!Array.isArray(messages) || messages.length === 0) return null;
-    const last = messages[messages.length - 1];
-    if (typeof last !== 'object' || last === null) return null;
-    const { role, content: lastContent } = last as { role?: unknown; content?: unknown };
-    let text = '';
-    if (typeof lastContent === 'string') {
-        text = lastContent;
-    } else if (Array.isArray(lastContent)) {
-        text = lastContent
-            .map((part) => (typeof part === 'object' && part !== null && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
-            .filter(Boolean)
-            .join('\n');
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const message = messages[i];
+        if (typeof message !== 'object' || message === null) continue;
+        const { role, content: messageContent } = message as { role?: unknown; content?: unknown };
+        const text = messageText(messageContent).trim();
+        if (!text) continue;
+        return {
+            role: typeof role === 'string' ? role : 'unknown',
+            text: text.length > 20000 ? `${text.slice(0, 20000)}…` : text,
+            count: messages.length,
+        };
     }
-    if (!text) return null;
-    return { role: typeof role === 'string' ? role : 'unknown', text, count: messages.length };
+    return null;
 }
 
 // SimpleRequestBody 简洁档的请求体区: 最后一条消息 + 消息总数 + 大小摘要, 全量按需展开。
