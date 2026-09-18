@@ -697,6 +697,9 @@ func groupRefreshCache(ctx context.Context) error {
 	groupNameIndex.Clear()
 	for _, group := range groups {
 		sortGroupItems(group.Items)
+		// 补齐 Relay 配置: 早于某个配置项引入的行在库里存的是零值, 读取侧不补的话转发与界面会看到 0,
+		// 与创建/更新侧 Normalize 的结果不一致(如冷却上限)。
+		model.NormalizeGroupRelayConfig(&group.RelayConfig)
 		groupCache.Set(group.ID, group)
 		groupNameIndex.Set(group.Name, group.ID)
 	}

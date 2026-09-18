@@ -16,6 +16,7 @@ type GroupRelayConfig struct {
 	MemberNonStreamResponseTimeoutSeconds int `json:"member_non_stream_response_timeout_seconds" binding:"omitempty,min=1"` // 单个成员返回完整非流式响应的超时秒数。
 	MemberStreamFirstEventTimeoutSeconds  int `json:"member_stream_first_event_timeout_seconds" binding:"omitempty,min=1"`  // 单个成员返回首个有效流事件的超时秒数。
 	MemberCooldownSeconds                 int `json:"member_cooldown_seconds" binding:"omitempty,min=1"`                    // 单个成员耗尽尝试后被跳过的秒数，仅在故障转移模式生效。
+	MemberMaxCooldownSeconds              int `json:"member_max_cooldown_seconds" binding:"omitempty,min=1"`                // 连续冷却时按 2 倍递增后的冷却上限秒数, 取值不小于 MemberCooldownSeconds。
 	MemberAffinitySeconds                 int `json:"member_affinity_seconds" binding:"omitempty,min=0"`                    // 成员亲和时间:故障切换成功后继续保持当前成员的秒数;当前成员失败会立即结束亲和,0 表示不保持。
 }
 
@@ -27,6 +28,7 @@ func DefaultGroupRelayConfig() GroupRelayConfig {
 		MemberNonStreamResponseTimeoutSeconds: 120,
 		MemberStreamFirstEventTimeoutSeconds:  30,
 		MemberCooldownSeconds:                 60,
+		MemberMaxCooldownSeconds:              600,
 		MemberAffinitySeconds:                 300,
 	}
 }
@@ -52,6 +54,13 @@ func NormalizeGroupRelayConfig(config *GroupRelayConfig) {
 	}
 	if config.MemberCooldownSeconds < 1 {
 		config.MemberCooldownSeconds = defaults.MemberCooldownSeconds
+	}
+	if config.MemberMaxCooldownSeconds < 1 {
+		config.MemberMaxCooldownSeconds = defaults.MemberMaxCooldownSeconds
+	}
+	// 上限不得低于基础冷却: 否则首次冷却就会被上限压到比 base 还短, 与"首次冷却为 base"矛盾。
+	if config.MemberMaxCooldownSeconds < config.MemberCooldownSeconds {
+		config.MemberMaxCooldownSeconds = config.MemberCooldownSeconds
 	}
 	if config.MemberAffinitySeconds < 0 {
 		config.MemberAffinitySeconds = defaults.MemberAffinitySeconds

@@ -385,6 +385,8 @@
             "streamTimeoutHint": "等待首个有效流事件的最长时间",
             "cooldown": "冷却时间（秒）",
             "cooldownHint": "成员重试耗尽后暂停使用的时间",
+            "maxCooldown": "冷却上限（秒）",
+            "maxCooldownHint": "同一成员连续触发冷却时，时长自基础冷却起按 2 倍递增，达到本上限后不再增加；该成员成功一次即回到基础值",
             "affinity": "故障切换亲和时间（秒）",
             "affinityHint": "备用成员首次请求成功后继续使用该成员的时间",
             "affinityHintRoundrobin": "轮询按请求轮流使用成员，不使用亲和",

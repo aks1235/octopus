@@ -14,6 +14,7 @@ export interface GroupRelayConfig {
     member_non_stream_response_timeout_seconds: number;
     member_stream_first_event_timeout_seconds: number;
     member_cooldown_seconds: number;
+    member_max_cooldown_seconds: number; // 连续冷却时按 2 倍递增的冷却上限秒数，不小于 member_cooldown_seconds。
     member_affinity_seconds: number;
 }
 

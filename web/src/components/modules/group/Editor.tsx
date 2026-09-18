@@ -34,6 +34,7 @@ const defaultRelayConfig: GroupRelayConfig = {
     member_non_stream_response_timeout_seconds: 120,
     member_stream_first_event_timeout_seconds: 30,
     member_cooldown_seconds: 60,
+    member_max_cooldown_seconds: 600,
     member_affinity_seconds: 0,
 };
 
@@ -690,6 +691,25 @@ export function GroupEditor({
                                         onChange={(event) => {
                                             const value = Number.parseInt(event.target.value, 10);
                                             setRelayConfig((prev) => ({ ...prev, member_cooldown_seconds: Number.isFinite(value) && value >= 1 ? value : 1 }));
+                                        }}
+                                        className="rounded-xl"
+                                    />
+                                </Field>
+                                <Field>
+                                    <FieldLabel htmlFor="group-max-cooldown">
+                                        {t('form.maxCooldown')}
+                                        <FieldHelp text={t('form.maxCooldownHint')} />
+                                    </FieldLabel>
+                                    <Input
+                                        id="group-max-cooldown"
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={1}
+                                        step={1}
+                                        value={String(relayConfig.member_max_cooldown_seconds)}
+                                        onChange={(event) => {
+                                            const value = Number.parseInt(event.target.value, 10);
+                                            setRelayConfig((prev) => ({ ...prev, member_max_cooldown_seconds: Number.isFinite(value) && value >= 1 ? value : 1 }));
                                         }}
                                         className="rounded-xl"
                                     />

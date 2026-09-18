@@ -106,3 +106,10 @@ outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
 
 - SQLITE_BUSY:5 分钟兜底重算与吸纳撞锁,日志每 5 分钟告警,待根治。
 - 渠道健康恢复等其他路径仍受亲和窗口影响(顺序端点已重置,见 [group-channel-order.md](./group-channel-order.md));游标语义下若要"恢复立即接管"需另行设计。
+
+## 契约:成员冷却的指数退避梯度(v2.2.0 起,对齐 v1 熔断)
+
+- 同一成员**连续**触发冷却时,时长 = `min(member_cooldown_seconds × 2^(连续次数-1), member_max_cooldown_seconds)`;首次为 base,封顶默认 600s。连续次数存 `RouteState.trips`(未导出,与 Cooldowns 同生命周期;成功一次清零,成员删除时随 `groupRouteLocked` 清理)。
+- 公式实现 `route.go cooldownSeconds`:移位上限 20 + 封顶双重防溢出(`base > max>>shift` 时直接取上限)。
+- 新旋钮 `member_max_cooldown_seconds`(分组级,默认 600);旧分组加载时经 `groupRefreshCache → NormalizeGroupRelayConfig` 收敛 0 值,保证 ≥ base。
+- 语义不变项:manual 无冷却;探测单飞、亲和、请求内游标不受影响;`RouteStateOf` 只暴露 deadline,档位不出 JSON。

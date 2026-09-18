@@ -385,6 +385,8 @@
             "streamTimeoutHint": "等待首個有效串流事件的最長時間",
             "cooldown": "冷卻時間（秒）",
             "cooldownHint": "成員重試耗盡後暫停使用的時間",
+            "maxCooldown": "冷卻上限（秒）",
+            "maxCooldownHint": "同一成員連續觸發冷卻時，時長自基礎冷卻起按 2 倍遞增，達到本上限後不再增加；該成員成功一次即回到基礎值",
             "affinity": "故障切換親和時間（秒）",
             "affinityHint": "備用成員首次請求成功後繼續使用該成員的時間",
             "affinityHintRoundrobin": "輪詢按請求輪流使用成員，不使用親和",

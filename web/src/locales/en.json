@@ -385,6 +385,8 @@
             "streamTimeoutHint": "Maximum wait for the first valid stream event",
             "cooldown": "Cooldown (s)",
             "cooldownHint": "Time a member is paused after retries are exhausted",
+            "maxCooldown": "Max Cooldown (s)",
+            "maxCooldownHint": "Each consecutive cooldown of the same member doubles starting from the base cooldown, capped at this limit; one success resets it to the base value",
             "affinity": "Failover Affinity (s)",
             "affinityHint": "Time to keep the fallback member after its first successful request",
             "affinityHintRoundrobin": "Round robin rotates across members per request; affinity does not apply",

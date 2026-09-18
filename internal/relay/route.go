@@ -23,6 +23,34 @@ type RouteState struct {
 	Cooldowns     map[int]int64 `json:"cooldowns"`       // 失败成员 ID 对应的冷却截止 Unix 毫秒时间, 已到期的条目由前端按当前时间忽略。
 
 	affinityArmed bool // 当前路由下一次成功后是否开始亲和, 仅故障切换后为真。
+
+	trips map[int]int // 成员 ID 对应的连续冷却次数, 决定指数退避档位; 未导出故不出 JSON, 与 Cooldowns 同生命周期。
+}
+
+// cooldownMaxShift 是指数退避的移位上限, 防止连续冷却次数过大时移位溢出; 实际时长仍由封顶值兜底。
+const cooldownMaxShift = 20
+
+// cooldownSeconds 返回成员第 trips 次连续冷却的时长: base 起按 2 倍递增, 封顶 max。
+// 成功一次后 trips 清零, 下次回到 base。移位上限与封顶双重保护, 不做可能溢出的移位。
+func cooldownSeconds(base, max, trips int) int {
+	if base < 1 {
+		base = 1
+	}
+	if max < base {
+		max = base
+	}
+	shift := trips - 1
+	if shift < 0 {
+		shift = 0
+	}
+	if shift > cooldownMaxShift {
+		shift = cooldownMaxShift
+	}
+	// base<<shift 会超过封顶时直接取上限, 同时避免移位溢出(int 为有符号)。
+	if base > max>>uint(shift) {
+		return max
+	}
+	return base << shift
 }
 
 const routeStreamBuffer = 16 // 单个路由流连接的非阻塞消息缓冲容量。
@@ -205,6 +233,9 @@ func recordRouteSuccess(group model.Group, itemID int) {
 	now := time.Now().UnixMilli()
 	changed := false
 
+	// 成功一次即清零该成员的连续冷却次数, 下次失败回到基础冷却时长; trips 不出 JSON, 无需单独发布。
+	delete(route.trips, itemID)
+
 	// 探测成功说明该成员已恢复, 解除冷却; 若当前路由不在亲和期内则立即切回该成员。
 	if route.ProbeItemID == itemID {
 		route.ProbeItemID = 0
@@ -248,7 +279,14 @@ func recordRouteFailure(group model.Group, itemID, failures int) bool {
 	}
 
 	now := time.Now().UnixMilli()
-	route.Cooldowns[itemID] = now + int64(group.RelayConfig.MemberCooldownSeconds)*1000
+	// 连续冷却按指数退避升级: 第 N 次触发时长 = min(base × 2^(N-1), 上限); 成功一次由 recordRouteSuccess 清零。
+	if route.trips == nil {
+		route.trips = make(map[int]int)
+	}
+	route.trips[itemID]++
+	trips := route.trips[itemID]
+	cooldown := cooldownSeconds(group.RelayConfig.MemberCooldownSeconds, group.RelayConfig.MemberMaxCooldownSeconds, trips)
+	route.Cooldowns[itemID] = now + int64(cooldown)*1000
 	if route.ProbeItemID == itemID {
 		route.ProbeItemID = 0
 	}
@@ -280,7 +318,7 @@ func releaseRouteProbe(group model.Group, itemID int) {
 func groupRouteLocked(group model.Group) *RouteState {
 	route := routes[group.ID]
 	if route == nil {
-		route = &RouteState{GroupID: group.ID, Cooldowns: make(map[int]int64)}
+		route = &RouteState{GroupID: group.ID, Cooldowns: make(map[int]int64), trips: make(map[int]int)}
 		routes[group.ID] = route
 	}
 	items := make(map[int]bool, len(group.Items))
@@ -290,6 +328,12 @@ func groupRouteLocked(group model.Group) *RouteState {
 	for itemID := range route.Cooldowns {
 		if !items[itemID] {
 			delete(route.Cooldowns, itemID)
+		}
+	}
+	// 已删除成员的连续冷却次数一并清理, 与冷却同生命周期, 不留残留计数。
+	for itemID := range route.trips {
+		if !items[itemID] {
+			delete(route.trips, itemID)
 		}
 	}
 	if route.ProbeItemID != 0 && !items[route.ProbeItemID] {
