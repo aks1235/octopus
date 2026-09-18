@@ -41,26 +41,10 @@ function formatSizeBytes(bytes: number): string {
     return `${bytes} B`;
 }
 
-// messageText 提取一条 message 的文本: 字符串直接返回; 分段数组拼接 text 段,
-// tool_result(聚合循环的末条常是它)的文本嵌在 content 里, 递归取出。
-function messageText(content: unknown): string {
-    if (typeof content === 'string') return content;
-    if (!Array.isArray(content)) return '';
-    const parts: string[] = [];
-    for (const part of content) {
-        if (typeof part !== 'object' || part === null) continue;
-        const p = part as { type?: unknown; text?: unknown; content?: unknown };
-        if (typeof p.text === 'string') {
-            parts.push(p.text);
-        } else if (p.type === 'tool_result') {
-            parts.push(messageText(p.content));
-        }
-    }
-    return parts.filter(Boolean).join('\n');
-}
-
-// lastMessageOf 从请求体提取 messages 数组里最近一条带文本的消息(本次请求新增的用户输入)。
-// 末条是纯 tool_use/tool_result 时向前回溯; 全程无文本或结构不符返回 null, 调用方退回大小摘要。
+// lastMessageOf 从请求体提取最近一条**用户输入**: 用户看日志要的是自己发了什么,
+// 不是工具往返(末条的 tool_result 是模型发起的, agentic 循环里占大多数)。
+// 只认 user 角色消息里的真实文本(字符串与 text 段), tool_result 块跳过, 向前回溯;
+// 全程没有用户文本或结构不符返回 null, 调用方退回大小摘要。
 // 解析与提取在此一次完成, 渲染只落最后一行(超长截断), DOM 恒为小体量。
 function lastMessageOf(content: string): { role: string; text: string; count: number } | null {
     let data: unknown;
@@ -76,10 +60,20 @@ function lastMessageOf(content: string): { role: string; text: string; count: nu
         const message = messages[i];
         if (typeof message !== 'object' || message === null) continue;
         const { role, content: messageContent } = message as { role?: unknown; content?: unknown };
-        const text = messageText(messageContent).trim();
+        if (role !== 'user') continue;
+        let text = '';
+        if (typeof messageContent === 'string') {
+            text = messageContent;
+        } else if (Array.isArray(messageContent)) {
+            text = messageContent
+                .map((part) => (typeof part === 'object' && part !== null && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+                .filter(Boolean)
+                .join('\n');
+        }
+        text = text.trim();
         if (!text) continue;
         return {
-            role: typeof role === 'string' ? role : 'unknown',
+            role: 'user',
             text: text.length > 20000 ? `${text.slice(0, 20000)}…` : text,
             count: messages.length,
         };
