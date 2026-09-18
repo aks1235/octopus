@@ -5,6 +5,9 @@ import { apiRequest } from './client';
 // RequestState 表示 Relay 请求的实时状态。
 export type RequestState = 'running' | 'committed' | 'success' | 'failed' | 'canceled';
 
+// RelayPhase 表示流式请求在 committed 之后所处的输出相位, 仅流式请求有值。
+export type RelayPhase = 'thinking' | 'answering';
+
 // RelayUsage 保存请求结束后确认的统一 Token 用量。
 export interface RelayUsage {
     prompt_tokens: number;
@@ -37,6 +40,7 @@ export interface RelayLogOverview {
     error?: string;
     client_name?: string;
     reasoning_effort?: string;
+    phase?: RelayPhase;
 }
 
 // useClearLogs 清空已完成的内存日志。

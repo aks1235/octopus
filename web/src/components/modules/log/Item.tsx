@@ -172,6 +172,8 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     const errorText = log.error ?? '';
     const requestFailed = log.status === 'failed' || log.status === 'canceled';
     const responseCommitted = log.status === 'committed';
+    // 流式请求提交后按相位显示思考中/输出中; 无相位(非流式或尚未识别)回退既有文案。
+    const phaseText = log.phase === 'thinking' ? t('phaseThinking') : log.phase === 'answering' ? t('phaseAnswering') : undefined;
     const showRounds = log.status === 'running' || (requestFailed && rounds.length > 0);
     const isWaitingForSelection = log.status === 'running' && !log.sending && activeGroup?.mode === 'manual' && activeGroup.runtime.current_item_id === 0; // isWaitingForSelection 表示手动模式请求正等待选择渠道。
 
@@ -344,7 +346,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                             ) : !requestFailed && (
                                 <Badge variant="secondary" className="ml-auto text-xs">
                                     {responseCommitted
-                                        ? statusT('committed')
+                                        ? phaseText ?? statusT('committed')
                                         : `${log.usage.completion_tokens.toLocaleString()} ${t('tokens')}`}
                                 </Badge>
                             )}
@@ -396,7 +398,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                             ) : responseCommitted ? (
                                 <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
                                     <Loader2 className="size-4 animate-spin" />
-                                    {t('responseStreaming')}
+                                    {phaseText ?? t('responseStreaming')}
                                 </div>
                             ) : requestFailed ? (
                                 <JsonContent content={errorText} fallbackText={t('noResponseContent')} />

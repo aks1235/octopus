@@ -23,6 +23,12 @@ const (
 	StatusCanceled  Status = "canceled"  // 客户端提前断开或取消。
 )
 
+// 流式请求在 committed 之后所处的输出相位, 与 Status 正交: Status 说明"响应已提交", 相位说明当前在思考还是在输出正文。
+const (
+	phaseThinking  = "thinking"  // 模型正在思考: 正在产出 reasoning 增量。
+	phaseAnswering = "answering" // 模型正在输出正文: 已开始产出正文增量。
+)
+
 // 客户端请求的完整进程内状态, 同时作为状态流的消息形状; 上半部分在请求到达时写入并在结束时定稿, 下半部分每轮循环覆盖。
 type RequestState struct {
 	ID         uint64         `json:"id"`           // 请求在当前进程内的唯一标识。
@@ -38,6 +44,7 @@ type RequestState struct {
 
 	ClientName      string `json:"client_name,omitempty"`      // 从 User-Agent 识别的客户端标识, 如 claude-code; 未知为空。
 	ReasoningEffort string `json:"reasoning_effort,omitempty"` // 客户端请求携带的思考等级; 非推理请求为空。
+	Phase           string `json:"phase,omitempty"`            // 流式输出相位: "" 未定 / "thinking" 思考中 / "answering" 输出正文; 仅流式请求有值。
 
 	Round          int            `json:"round"`            // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
 	RoundStartedAt time.Time      `json:"round_started_at"` // 最新一轮上游请求的开始时间, 未开始过为零。
@@ -150,6 +157,19 @@ func (r *RequestState) markCommitted() {
 	defer mu.Unlock()
 
 	r.Status = StatusCommitted
+	publishRequestLocked(r)
+}
+
+// markPhase 更新流式请求的输出相位; 相位未变化时不赋值也不推送, 因而每个请求至多推送两次(进 thinking, 进 answering)。
+// 仅流式循环在提交后调用, 非流式与未识别出相位的事件保持留空。
+func (r *RequestState) markPhase(phase string) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if r.Phase == phase {
+		return
+	}
+	r.Phase = phase
 	publishRequestLocked(r)
 }
 

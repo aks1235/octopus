@@ -471,6 +471,8 @@
             "waitingChannelSelection": "Waiting for channel selection",
             "waitingResponse": "Waiting for upstream response",
             "responseStreaming": "Upstream responded; streaming is in progress",
+            "phaseThinking": "Thinking…",
+            "phaseAnswering": "Writing…",
             "attempts": "{count} attempts",
             "cached": "Cached {count}",
             "ftut": "FTUT",

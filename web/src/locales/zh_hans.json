@@ -471,6 +471,8 @@
             "waitingChannelSelection": "正在等待选择渠道",
             "waitingResponse": "正在等待上游响应",
             "responseStreaming": "上游已响应，流式传输正在进行",
+            "phaseThinking": "思考中…",
+            "phaseAnswering": "输出中…",
             "attempts": "{count} 次尝试",
             "cached": "缓存 {count}",
             "ftut": "首字",

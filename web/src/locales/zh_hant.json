@@ -471,6 +471,8 @@
             "waitingChannelSelection": "正在等待選擇供應源",
             "waitingResponse": "正在等待上游回應",
             "responseStreaming": "上游已回應，串流傳輸正在進行",
+            "phaseThinking": "思考中…",
+            "phaseAnswering": "輸出中…",
             "attempts": "{count} 次嘗試",
             "cached": "快取 {count}",
             "ftut": "首字",

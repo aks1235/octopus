@@ -148,6 +148,68 @@ func inspectStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) (bo
 	}
 }
 
+// streamEventPhase 判断一个流事件所处相位: thinking 表示模型正在思考(reasoning 增量), answering 表示模型正在输出正文。
+// 事件此时已按客户端协议编码(同协议透传的原样, 跨协议转换后亦为客户端格式), 故一律按客户端协议分类。
+// 解析失败、非增量事件或未知协议返回空串, 调用方据此保持相位不变; 本函数不 panic, 供流式循环直接调用。
+func streamEventPhase(format llm.APIFormat, event *httpclient.StreamEvent) string {
+	if event == nil || len(event.Data) == 0 {
+		return ""
+	}
+
+	switch format {
+	case llm.APIFormatOpenAIChatCompletion:
+		var chunk openai.Response
+		if err := json.Unmarshal(event.Data, &chunk); err != nil {
+			return ""
+		}
+		if len(chunk.Choices) == 0 || chunk.Choices[0].Delta == nil {
+			return ""
+		}
+		delta := chunk.Choices[0].Delta
+		if delta.ReasoningContent != nil && *delta.ReasoningContent != "" {
+			return phaseThinking
+		}
+		if delta.Content.Content != nil && *delta.Content.Content != "" {
+			return phaseAnswering
+		}
+		return ""
+
+	case llm.APIFormatAnthropicMessage:
+		var parsed anthropic.StreamEvent
+		if err := json.Unmarshal(event.Data, &parsed); err != nil {
+			return ""
+		}
+		if parsed.Type != "content_block_delta" || parsed.Delta == nil || parsed.Delta.Type == nil {
+			return ""
+		}
+		switch *parsed.Delta.Type {
+		case "thinking_delta":
+			return phaseThinking
+		case "text_delta":
+			return phaseAnswering
+		default:
+			return ""
+		}
+
+	case llm.APIFormatOpenAIResponse:
+		var parsed responses.StreamEvent
+		if err := json.Unmarshal(event.Data, &parsed); err != nil {
+			return ""
+		}
+		switch parsed.Type {
+		case responses.StreamEventTypeReasoningSummaryTextDelta, responses.StreamEventTypeReasoningTextDelta:
+			return phaseThinking
+		case responses.StreamEventTypeOutputTextDelta:
+			return phaseAnswering
+		default:
+			return ""
+		}
+
+	default:
+		return ""
+	}
+}
+
 // validateResponse 检查统一响应中需要在提交前判定为失败的终止原因; 仅 Responses 协议会以正常响应下发这类终态。
 func validateResponse(format llm.APIFormat, response *llm.Response) error {
 	if response == nil {

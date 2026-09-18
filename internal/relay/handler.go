@@ -324,8 +324,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			event := result.first
 			last := result.last // 已转发的最后一个事件是否已按客户端协议结束整个响应流。
 			committed := false
+			phaseSettled := false // 已进入输出正文相位后不再重复分类, 每请求至多两段解析。
 			for {
 				if event != nil {
+					// 相位只在首次正文增量前按客户端协议分类; markPhase 仅在相位变化时推送, 至多thinking与answering两次。
+					if !phaseSettled {
+						if phase := streamEventPhase(format, event); phase != "" {
+							request.markPhase(phase)
+							phaseSettled = phase == phaseAnswering
+						}
+					}
 					chunks = append(chunks, event)
 					encoded.Reset()
 					if encodeErr := sse.Encode(&encoded, sse.Event{Id: event.LastEventID, Event: event.Type, Data: event.Data}); encodeErr != nil {
