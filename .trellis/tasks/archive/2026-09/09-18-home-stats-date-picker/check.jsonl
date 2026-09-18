@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "校验日志表形状未被改动,聚合只读"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "校验迁移幂等与建表规范"}
