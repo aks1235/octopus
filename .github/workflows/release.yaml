@@ -117,16 +117,22 @@ jobs:
       - name: Update price
         run: python3 scripts/updatePrice.py
 
-      - name: Setup Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r28c
+      # 【为什么注释】Android 构建已停用(scripts/build.sh 的 ANDROID_TARGETS 亦已注释),
+      # 本步骤会下载约 1GB NDK,是发布耗时的主要来源之一。
+      # 【如何恢复】取消下面整段注释,并同时取消 Build 步骤的 ANDROID_NDK_HOME env 注释,
+      #            以及 scripts/build.sh 中 Android 相关注释。注意 steps.setup-ndk 输出被 Build 步骤引用。
+      # - name: Setup Android NDK
+      #   id: setup-ndk
+      #   uses: nttld/setup-ndk@v1
+      #   with:
+      #     ndk-version: r28c
 
       - name: Build
         run: bash scripts/build.sh
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        # 【为什么注释】ANDROID_NDK_HOME 只服务于已停用的 Android 构建,且其值来自已注释的 setup-ndk 步骤。
+        # 【如何恢复】与上面 "Setup Android NDK" 步骤一起取消注释。
+        # env:
+        #   ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
       - name: Upload Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -136,16 +142,19 @@ jobs:
           prerelease: false
           tag_name: ${{ steps.tag.outputs.tag_name }}
 
-      - name: Docker meta (Debian)
-        id: meta-debian
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKER_IMAGE }}
-          tags: |
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=raw,value=${{ steps.tag.outputs.tag_name }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=raw,value=${{ steps.tag.outputs.short_sha }}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev-v2' }}
+      # 【为什么注释】Debian 镜像整段停用,只保留 Alpine(部署 compose 使用 Alpine 那套)。
+      # meta 与 build 步骤必须成对恢复,否则 build 步骤会引用不存在的 meta-debian 输出。
+      # 【如何恢复】取消本段与下面 "Build and push (Debian)" 整段注释即可。
+      # - name: Docker meta (Debian)
+      #   id: meta-debian
+      #   uses: docker/metadata-action@v5
+      #   with:
+      #     images: ${{ env.DOCKER_IMAGE }}
+      #     tags: |
+      #       type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+      #       type=raw,value=${{ steps.tag.outputs.tag_name }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+      #       type=raw,value=${{ steps.tag.outputs.short_sha }}
+      #       type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev-v2' }}
 
       - name: Docker meta (Alpine)
         id: meta-alpine
@@ -158,8 +167,11 @@ jobs:
             type=raw,value=${{ steps.tag.outputs.short_sha }}-alpine
             type=raw,value=dev-alpine,enable=${{ github.ref == 'refs/heads/dev-v2' }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      # 【为什么注释】只剩 linux/amd64 单平台,runner 自身即 amd64,不需要 QEMU 跨架构模拟
+      # (非 amd64 平台全部依赖 QEMU 模拟,是原发布耗时的大头)。
+      # 【如何恢复】取消本步骤注释,并把下面 Build and push 的 platforms 改回多平台列表。
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -173,23 +185,26 @@ jobs:
       - name: Build and push (Alpine)
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./scripts/dockerfiles/Dockerfile.alpine
-          push: true
-          platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
+          # 【为什么只留 amd64】部署 compose 固定 TARGETPLATFORM=linux/amd64,其余平台全靠 QEMU 模拟,纯耗时。
+          # 【如何恢复】改回:platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
+          #            并取消 "Set up QEMU" 步骤注释。
+          platforms: linux/amd64
           tags: ${{ steps.meta-alpine.outputs.tags }}
           labels: ${{ steps.meta-alpine.outputs.labels }}
           build-args: |
             TARGETPLATFORM
 
-      - name: Build and push (Debian)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./scripts/dockerfiles/Dockerfile.debian
-          push: true
-          platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
-          tags: ${{ steps.meta-debian.outputs.tags }}
-          labels: ${{ steps.meta-debian.outputs.labels }}
-          build-args: |
-            TARGETPLATFORM
+      # 【为什么注释】Debian 镜像整段停用(与上面 "Docker meta (Debian)" 成对注释);
+      # 两者都引用 meta-debian 输出,必须一起恢复。
+      # 【如何恢复】取消本段注释,并把 platforms 改回: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
+      # - name: Build and push (Debian)
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     file: ./scripts/dockerfiles/Dockerfile.debian
+      #     push: true
+      #     platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
+      #     tags: ${{ steps.meta-debian.outputs.tags }}
+      #     labels: ${{ steps.meta-debian.outputs.labels }}
+      #     build-args: |
+      #       TARGETPLATFORM
