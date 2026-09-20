@@ -161,7 +161,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.DOCKER_IMAGE }}
+          # 【裸 tag 现归 Alpine】原先裸 tag(latest / vX.Y.Z / dev)由已注释的 Debian 那套产出,
+          # 精简后只剩 Alpine 镜像, 裸 tag 若继续存在就会指向停更的旧 Debian 镜像(实际踩过:
+          # latest 停在旧版本)。故把裸 tag 一并交给 Alpine, 与 -alpine 后缀 tag 指向同一镜像;
+          # 若将来恢复 Debian 那套, 必须先删掉下方四个裸 tag 行, 否则两个 meta 会争抢同名 tag。
           tags: |
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=${{ steps.tag.outputs.tag_name }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=${{ steps.tag.outputs.short_sha }}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev-v2' }}
             type=raw,value=latest-alpine,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=raw,value=${{ steps.tag.outputs.tag_name }}-alpine,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=raw,value=${{ steps.tag.outputs.short_sha }}-alpine
