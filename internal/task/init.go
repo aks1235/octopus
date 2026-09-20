@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	TaskPriceUpdate    = "price_update"
-	TaskStatsSave      = "stats_save"
-	TaskCleanLLM       = "clean_llm"
-	TaskGroupRegexSync = "group_regex_sync"
-	TaskRelayLogSave   = "relay_log_save"
+	TaskPriceUpdate              = "price_update"
+	TaskStatsSave                = "stats_save"
+	TaskCleanLLM                 = "clean_llm"
+	TaskGroupRegexSync           = "group_regex_sync"
+	TaskRelayLogSave             = "relay_log_save"
+	TaskRelayLogAttemptsBackfill = "relay_log_attempts_backfill"
 )
 
 // groupRegexSyncInterval 分组成员正则兜底任务的重算间隔。
@@ -26,6 +27,11 @@ const groupRegexSyncInterval = 5 * time.Minute
 // relayLogSaveInterval 转发日志周期落盘间隔。
 // 缓冲满 20 条的主动 flush 是主路径, 定时只兜低流量时段的滞留与按保留期清理, 无需人工调参。
 const relayLogSaveInterval = time.Minute
+
+// relayLogAttemptsBackfillInterval attempts 规范化回填任务的周期。
+// 只在启动时可能真有活(回填上线前的老日志), 之后每周期都是「已完成即跳过」的空转, 故间隔取分钟级即可:
+// 首轮时间预算用尽的部分, 下一分钟接着跑。
+const relayLogAttemptsBackfillInterval = time.Minute
 
 // busyRetryIntervals 兜底任务遇 SQLite BUSY 时的退避重试间隔序列。
 // 兜底大事务与转发路径的持续写入抢写锁时, 等一等通常就能拿到锁, 不值得整轮放弃;
@@ -93,4 +99,15 @@ func Init() {
 
 	// 注册转发日志周期落盘任务: flush 滞留缓冲 + 按保留期清理过期行。
 	Register(TaskRelayLogSave, relayLogSaveInterval, false, op.RelayLogSaveDBTask)
+
+	// 注册 attempts 规范化回填任务: 把上线前已存在日志的 attempts JSON 展开进 relay_log_attempts,
+	// 否则旧日志的「渠道调用详情」查不到。启动即后台跑(不阻塞启动), 一轮没跑完(时间预算用尽)后续周期接着跑;
+	// 回填本身幂等, 完成后进程内不再扫表(见 op.RelayLogAttemptsBackfill)。
+	Register(TaskRelayLogAttemptsBackfill, relayLogAttemptsBackfillInterval, true, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := op.RelayLogAttemptsBackfill(ctx); err != nil {
+			log.Warnf("failed to backfill relay log attempts: %v", err)
+		}
+	})
 }

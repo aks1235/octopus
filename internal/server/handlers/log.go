@@ -112,10 +112,10 @@ func listLog(c *gin.Context) {
 type channelAttemptsResponse struct {
 	List      []model.ChannelAttemptDetail `json:"list"`
 	Total     int                          `json:"total"`
-	Truncated bool                         `json:"truncated"` // 粗筛行数触顶时为 true,前端提示"仅展示最近 N 条"
+	Truncated bool                         `json:"truncated"` // 恒 false: attempts 规范化后分页走索引、结果不再截断(字段保留以维持前端契约)
 }
 
-// channelAttempts 按渠道返回其保留期内的每次调用明细(展开 attempts),只读。
+// channelAttempts 按渠道返回其保留期内的每次调用明细(查规范化表 relay_log_attempts),只读。
 func channelAttempts(c *gin.Context) {
 	channelIDStr := c.Query("channel_id")
 	if channelIDStr == "" {

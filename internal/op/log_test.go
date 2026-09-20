@@ -3,11 +3,15 @@ package op
 import (
 	"context"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"gorm.io/gorm"
 )
 
 func TestRelayLogList_apiKeyNamesFilter(t *testing.T) {
@@ -268,32 +272,64 @@ func setupLogTestDB(t *testing.T) {
 }
 
 // ============================================================================
-// RelayLogAttemptsByChannel — 按渠道展开 attempts 明细
+// RelayLogAttemptsByChannel — 按渠道查规范化 attempts 明细
 // ============================================================================
+
+// seedFlushedLogs 走生产落盘路径(relayLogCache → relayLogFlushToDB)写入日志与 attempts 规范化行,
+// 让查询类用例的数据形状与线上一致(日志行与其尝试行同源同事务), 而不是只塞 relay_logs 表。
+func seedFlushedLogs(t *testing.T, logs []model.RelayLog) {
+	t.Helper()
+	const chunk = 500
+	for start := 0; start < len(logs); start += chunk {
+		end := start + chunk
+		if end > len(logs) {
+			end = len(logs)
+		}
+		relayLogCacheLock.Lock()
+		relayLogCache = append(relayLogCache[:0], logs[start:end]...)
+		relayLogCacheLock.Unlock()
+		if err := relayLogFlushToDB(context.Background()); err != nil {
+			t.Fatalf("flush relay logs: %v", err)
+		}
+	}
+}
+
+// countAttempts 统计某渠道的规范化行数, 供写入/清理/回填用例断言。
+func countAttempts(t *testing.T, where string, args ...interface{}) int64 {
+	t.Helper()
+	var count int64
+	query := db.GetDB().Model(&model.RelayLogAttempt{})
+	if where != "" {
+		query = query.Where(where, args...)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		t.Fatalf("count relay_log_attempts: %v", err)
+	}
+	return count
+}
 
 func TestRelayLogAttemptsByChannel_filtersAndPaginates(t *testing.T) {
 	ctx := context.Background()
 	setupLogTestDB(t)
 
-	// keep_enabled 默认 true, keep_period 默认 7 天, 迁移来的行不会因 cutoff 被排除。
+	// keep_enabled 默认 true, keep_period 默认 7 天, 造的行不会因 cutoff 被排除。
+	now := time.Now().Unix()
 	rows := []model.RelayLog{
 		{
-			ID: 100, Time: time.Now().Unix() - 10, RequestModelName: "grp-a",
+			ID: 100, Time: now - 10, RequestModelName: "grp-a",
 			Attempts: []model.ChannelAttempt{
 				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m-x", AttemptNum: 1, Status: model.AttemptFailed, Msg: "timeout"},
 				{ChannelID: 8, ChannelName: "ch-8", ModelName: "m-x", AttemptNum: 2, Status: model.AttemptSuccess},
 			},
 		},
 		{
-			ID: 101, Time: time.Now().Unix() - 5, RequestModelName: "grp-a", Error: "all failed",
+			ID: 101, Time: now - 5, RequestModelName: "grp-a", Error: "all failed",
 			Attempts: []model.ChannelAttempt{
 				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m-x", AttemptNum: 1, Status: model.AttemptFailed, Msg: "500"},
 			},
 		},
 	}
-	if err := db.GetDB().CreateInBatches(&rows, 10).Error; err != nil {
-		t.Fatalf("seed rows: %v", err)
-	}
+	seedFlushedLogs(t, rows)
 
 	// 渠道 7: 两行各一条, 按时间倒序 → 101 在前
 	list, total, truncated, err := RelayLogAttemptsByChannel(ctx, 7, 1, 50)
@@ -301,7 +337,7 @@ func TestRelayLogAttemptsByChannel_filtersAndPaginates(t *testing.T) {
 		t.Fatalf("RelayLogAttemptsByChannel() error = %v", err)
 	}
 	if truncated {
-		t.Errorf("unexpected truncated")
+		t.Errorf("unexpected truncated: 规范化后分页不再截断")
 	}
 	if total != 2 || len(list) != 2 {
 		t.Fatalf("expected total=2 len=2, got total=%d len=%d", total, len(list))
@@ -341,6 +377,47 @@ func TestRelayLogAttemptsByChannel_filtersAndPaginates(t *testing.T) {
 	}
 	if total != 0 || list != nil {
 		t.Fatalf("unknown channel expected empty, got total=%d list=%+v", total, list)
+	}
+}
+
+// TestRelayLogAttemptsByChannel_onlyTargetChannel 验证明细只含目标渠道的尝试:
+// 同一请求里打过别的渠道(含 7 的前缀大 ID 71/700)时, 只返回 7 的那几次, 不整行返回。
+func TestRelayLogAttemptsByChannel_onlyTargetChannel(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	now := time.Now().Unix()
+	rows := []model.RelayLog{
+		{
+			// 同一行含 71/700(前缀误匹配源)与 7(真目标): 只应返回 7 的 attempt。
+			ID: 300, Time: now,
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 71, ChannelName: "ch-71", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed},
+				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 2, Status: model.AttemptSuccess},
+			},
+		},
+		{
+			// 不含目标渠道的行: 明细里应零命中。
+			ID: 301, Time: now,
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 700, ChannelName: "ch-700", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed},
+			},
+		},
+	}
+	seedFlushedLogs(t, rows)
+
+	list, total, truncated, err := RelayLogAttemptsByChannel(ctx, 7, 1, 50)
+	if err != nil {
+		t.Fatalf("RelayLogAttemptsByChannel() error = %v", err)
+	}
+	if truncated {
+		t.Errorf("unexpected truncated")
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("expected exactly 1 precise match, got total=%d len=%d", total, len(list))
+	}
+	if list[0].RequestID != 300 || list[0].ChannelID != 7 || list[0].Status != model.AttemptSuccess {
+		t.Errorf("precise match expected request 300 channel 7 success, got %+v", list[0])
 	}
 }
 
@@ -573,78 +650,501 @@ func TestRelayLogList_mergesCacheAndDB(t *testing.T) {
 	assertIDs(2, []int64{103, 102, 101, 100})
 }
 
-// TestRelayLogAttemptsByChannel_likeFalsePositiveFiltered 验证 LIKE 粗筛的
-// 前缀误匹配(查 7 误命中 71)由 Go 层按 ChannelID 精确过滤兜底。
-func TestRelayLogAttemptsByChannel_likeFalsePositiveFiltered(t *testing.T) {
+// ============================================================================
+// attempts 规范化 — 写入一致性 / 幂等 / 清理联动 / 回填 / 与旧实现等价 / 走索引
+// ============================================================================
+
+// legacyAttemptsByChannel 复刻规范化前实现的语义(从 attempts JSON 展开 → 按渠道精确过滤 →
+// 按 (request_time DESC, request_id DESC, attempt_num ASC) 排序 → 内存分页),
+// 仅用于等价性对拍: 新实现(索引查表 + SQL 分页)必须在同一数据上逐字段一致。
+func legacyAttemptsByChannel(logs []model.RelayLog, channelID, page, pageSize int) ([]model.ChannelAttemptDetail, int) {
+	matches := make([]model.ChannelAttemptDetail, 0)
+	for _, relayLog := range logs {
+		for _, a := range relayLog.Attempts {
+			if a.ChannelID != channelID {
+				continue
+			}
+			matches = append(matches, model.ChannelAttemptDetail{
+				RequestID:     relayLog.ID,
+				RequestTime:   relayLog.Time,
+				RequestModel:  relayLog.RequestModelName,
+				RequestError:  relayLog.Error,
+				AttemptNum:    a.AttemptNum,
+				Status:        a.Status,
+				ChannelID:     a.ChannelID,
+				ChannelName:   a.ChannelName,
+				ChannelKeyRem: a.ChannelKeyRemark,
+				ModelName:     a.ModelName,
+				Duration:      a.Duration,
+				Sticky:        a.Sticky,
+				Msg:           a.Msg,
+			})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].RequestTime != matches[j].RequestTime {
+			return matches[i].RequestTime > matches[j].RequestTime
+		}
+		return matches[i].RequestID > matches[j].RequestID
+	})
+
+	total := len(matches)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	offset := (page - 1) * pageSize
+	if offset >= total {
+		return nil, total
+	}
+	end := offset + pageSize
+	if end > total {
+		end = total
+	}
+	return matches[offset:end], total
+}
+
+// TestRelayLogAttemptsByChannel_matchesLegacyExpansion 是 AC2 的对拍:
+// 同一批数据下, 新实现(查规范化表)与旧实现(展开 JSON + 内存分页)的 list/total 逐字段一致,
+// 覆盖排序(同秒不同请求、同请求多次尝试)、分页越界与 page/page_size 边界收敛。
+func TestRelayLogAttemptsByChannel_matchesLegacyExpansion(t *testing.T) {
 	ctx := context.Background()
 	setupLogTestDB(t)
 
 	now := time.Now().Unix()
-	rows := []model.RelayLog{
+	// 关键构造: 同一时间戳的两个请求(验 tie-break 用 log_id 倒序)、
+	// 同一请求内同一渠道被尝试两次(验同请求内 attempt_num 升序)、
+	// 7 与 71/700 前缀冲突 ID(验精确匹配)、空 attempts 的日志(两表都零行)。
+	logs := []model.RelayLog{
 		{
-			// 同一行含 71(误匹配源)与 7(真目标): 只应返回 7 的 attempt。
-			ID: 300, Time: now,
+			ID: 9001, Time: now - 300, RequestModelName: "grp-a",
 			Attempts: []model.ChannelAttempt{
-				{ChannelID: 71, ChannelName: "ch-71", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed},
-				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 2, Status: model.AttemptSuccess},
+				{ChannelID: 7, ChannelName: "ch-7", ChannelKeyID: 31, ChannelKeyRemark: "key-a", ModelName: "m-7", AttemptNum: 1, Status: model.AttemptFailed, Duration: 111, Msg: "boom"},
+				{ChannelID: 8, ChannelName: "ch-8", ModelName: "m-8", AttemptNum: 2, Status: model.AttemptSuccess, Duration: 22, Sticky: true},
+				{ChannelID: 7, ChannelName: "ch-7", ChannelKeyID: 32, ChannelKeyRemark: "key-b", ModelName: "m-7", AttemptNum: 3, Status: model.AttemptSuccess, Duration: 33},
 			},
 		},
-		{
-			// 纯误匹配行: 只含 71, 查 7 时应整行无命中。
-			ID: 301, Time: now,
+		{ID: 9002, Time: now - 300, RequestModelName: "grp-b", Error: "all failed",
 			Attempts: []model.ChannelAttempt{
-				{ChannelID: 71, ChannelName: "ch-71", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed},
+				{ChannelID: 7, ChannelName: "ch-7", ChannelKeyID: 41, ChannelKeyRemark: "key-c", ModelName: "m-7x", AttemptNum: 1, Status: model.AttemptFailed, Duration: 44, Msg: "500"},
+			},
+		},
+		{ID: 9003, Time: now - 200, RequestModelName: "grp-a"},
+		{ID: 9004, Time: now - 100, RequestModelName: "grp-c",
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 71, ChannelName: "ch-71", ModelName: "m-71", AttemptNum: 1, Status: model.AttemptFailed},
+				{ChannelID: 700, ChannelName: "ch-700", ModelName: "m-700", AttemptNum: 2, Status: model.AttemptFailed},
+				{ChannelID: 7, ChannelName: "ch-7", ChannelKeyID: 51, ChannelKeyRemark: "key-d", ModelName: "m-7y", AttemptNum: 3, Status: model.AttemptCircuitBreak, Duration: 55, Sticky: true, Msg: "circuit"},
 			},
 		},
 	}
-	if err := db.GetDB().CreateInBatches(&rows, 10).Error; err != nil {
-		t.Fatalf("seed rows: %v", err)
-	}
+	seedFlushedLogs(t, logs)
 
-	list, total, truncated, err := RelayLogAttemptsByChannel(ctx, 7, 1, 50)
-	if err != nil {
-		t.Fatalf("RelayLogAttemptsByChannel() error = %v", err)
-	}
-	if truncated {
-		t.Errorf("unexpected truncated")
-	}
-	if total != 1 || len(list) != 1 {
-		t.Fatalf("expected exactly 1 precise match, got total=%d len=%d", total, len(list))
-	}
-	if list[0].RequestID != 300 || list[0].ChannelID != 7 || list[0].Status != model.AttemptSuccess {
-		t.Errorf("precise match expected request 300 channel 7 success, got %+v", list[0])
+	for _, tc := range []struct {
+		channelID int
+		page      int
+		pageSize  int
+	}{
+		{7, 1, 50}, {7, 1, 2}, {7, 2, 2}, {7, 3, 2}, {7, 2, 1}, {7, 4, 1},
+		{7, 1, 0}, {7, 0, 1}, {7, 1, 500}, // page/page_size 边界: 收敛规则须与旧实现一致
+		{8, 1, 50}, {71, 1, 50}, {700, 1, 50}, {999, 1, 50},
+	} {
+		wantList, wantTotal := legacyAttemptsByChannel(logs, tc.channelID, tc.page, tc.pageSize)
+		gotList, gotTotal, truncated, err := RelayLogAttemptsByChannel(ctx, tc.channelID, tc.page, tc.pageSize)
+		if err != nil {
+			t.Fatalf("channel=%d page=%d size=%d: %v", tc.channelID, tc.page, tc.pageSize, err)
+		}
+		if truncated {
+			t.Errorf("channel=%d page=%d size=%d: 规范化后不应再有 truncated", tc.channelID, tc.page, tc.pageSize)
+		}
+		if gotTotal != wantTotal {
+			t.Fatalf("channel=%d page=%d size=%d: total = %d, want %d", tc.channelID, tc.page, tc.pageSize, gotTotal, wantTotal)
+		}
+		if !reflect.DeepEqual(gotList, wantList) {
+			t.Fatalf("channel=%d page=%d size=%d:\n got %+v\nwant %+v", tc.channelID, tc.page, tc.pageSize, gotList, wantList)
+		}
 	}
 }
 
-// TestRelayLogAttemptsByChannel_truncated 验证粗筛行数触顶扫描上界时 truncated=true。
-func TestRelayLogAttemptsByChannel_truncated(t *testing.T) {
+// TestRelayLogFlushToDB_writesAttempts 是 AC3:
+// 日志落盘后规范化行齐全(条数与字段与 attempts JSON 一致), 且重复落盘同一日志不产生重复行(幂等)。
+func TestRelayLogFlushToDB_writesAttempts(t *testing.T) {
 	ctx := context.Background()
 	setupLogTestDB(t)
 
-	rowsToSeed := relayLogChannelAttemptsScanLimit // 命中上界即视为可能还有未扫到的行
 	now := time.Now().Unix()
-	batch := make([]model.RelayLog, 0, 500)
-	for i := 0; i < rowsToSeed; i++ {
-		batch = append(batch, model.RelayLog{
-			ID:   int64(1000 + i),
-			Time: now - int64(i),
+	logs := []model.RelayLog{
+		{ID: 8801, Time: now - 30, RequestModelName: "grp-a",
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 7, ChannelKeyID: 11, ChannelName: "ch-7", ChannelKeyRemark: "key-a", ModelName: "m-a",
+					AttemptNum: 1, Status: model.AttemptFailed, Duration: 120, Sticky: false, Msg: "timeout"},
+				{ChannelID: 8, ChannelKeyID: 12, ChannelName: "ch-8", ChannelKeyRemark: "key-b", ModelName: "m-b",
+					AttemptNum: 2, Status: model.AttemptSuccess, Duration: 30, Sticky: true},
+			},
+		},
+		{ID: 8802, Time: now - 20, RequestModelName: "grp-a"}, // 空 attempts: 明细表零行
+	}
+	seedFlushedLogs(t, logs)
+
+	var rows []model.RelayLogAttempt
+	if err := db.GetDB().WithContext(ctx).Order("log_id, attempt_num").Find(&rows).Error; err != nil {
+		t.Fatalf("load attempts: %v", err)
+	}
+	want := []model.RelayLogAttempt{
+		{LogID: 8801, AttemptNum: 1, ChannelID: 7, Time: now - 30, ChannelName: "ch-7", ChannelKeyID: 11,
+			ChannelKeyRemark: "key-a", ModelName: "m-a", Status: model.AttemptFailed, Duration: 120, Msg: "timeout"},
+		{LogID: 8801, AttemptNum: 2, ChannelID: 8, Time: now - 30, ChannelName: "ch-8", ChannelKeyID: 12,
+			ChannelKeyRemark: "key-b", ModelName: "m-b", Status: model.AttemptSuccess, Duration: 30, Sticky: true},
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Fatalf("attempts rows:\n got %+v\nwant %+v", rows, want)
+	}
+
+	// 幂等: 同一批日志再展开写一次(模拟重试/回填重跑)不产生重复行, 也不报错。
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return relayLogAttemptsInsert(tx, logs)
+	}); err != nil {
+		t.Fatalf("re-insert attempts: %v", err)
+	}
+	if got := countAttempts(t, ""); got != 2 {
+		t.Fatalf("after re-insert attempts = %d, want 2", got)
+	}
+}
+
+// TestRelayLogAttemptRows_dedupesDuplicateAttemptNum 锁定脏数据防御:
+// 历史数据同一日志内 attempt_num 重复时按首次出现保留, 不让 (log_id, attempt_num) 撞键结果不确定。
+func TestRelayLogAttemptRows_dedupesDuplicateAttemptNum(t *testing.T) {
+	rows := relayLogAttemptRows(model.RelayLog{
+		ID: 1, Time: 100,
+		Attempts: []model.ChannelAttempt{
+			{ChannelID: 7, AttemptNum: 1, Status: model.AttemptFailed, Msg: "first"},
+			{ChannelID: 8, AttemptNum: 1, Status: model.AttemptSuccess, Msg: "dup"},
+			{ChannelID: 9, AttemptNum: 2, Status: model.AttemptFailed},
+		},
+	})
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2 (重复 attempt_num 去重)", len(rows))
+	}
+	if rows[0].ChannelID != 7 || rows[0].Msg != "first" {
+		t.Fatalf("重复 attempt_num 应保留首次出现, got %+v", rows[0])
+	}
+	// 空 attempts 的日志零行。
+	if got := relayLogAttemptRows(model.RelayLog{ID: 2}); got != nil {
+		t.Fatalf("empty attempts should produce no rows, got %+v", got)
+	}
+}
+
+// TestRelayLogIndexesMigrated 锁定 R5 与新表的索引: 建表/迁移后索引齐备,
+// 否则渠道维度查询会退化成全表扫(AC1 的性能前提)。
+func TestRelayLogIndexesMigrated(t *testing.T) {
+	setupLogTestDB(t)
+
+	migrator := db.GetDB().Migrator()
+	for _, tc := range []struct {
+		model interface{}
+		index string
+	}{
+		{&model.RelayLog{}, "idx_relay_log_time"},                        // 日志列表按时间倒序分页 / 按天聚合 / MIN(time)
+		{&model.RelayLogAttempt{}, "idx_relay_log_attempts_channel_log"}, // (channel_id, log_id): 渠道维度过滤 + 计数
+	} {
+		if !migrator.HasIndex(tc.model, tc.index) {
+			t.Fatalf("missing index %s on %T", tc.index, tc.model)
+		}
+	}
+	// 复合主键 (log_id, attempt_num): 既是明细的唯一键, 也是清理/回填按 log_id 删除与探针的索引。
+	// 用行为断言而非 schema 断言: 同一日志的多次尝试必须各自成行(单列主键会被 OnConflict 去重成一行)。
+	seedFlushedLogs(t, []model.RelayLog{{
+		ID: 7201, Time: 1, RequestModelName: "grp",
+		Attempts: []model.ChannelAttempt{
+			{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed},
+			{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 2, Status: model.AttemptSuccess},
+		},
+	}})
+	if got := countAttempts(t, "log_id = ?", int64(7201)); got != 2 {
+		t.Fatalf("same log must keep both attempt rows (composite PK), got %d", got)
+	}
+}
+
+// TestRelayLogCleanup_deletesAttempts 是 AC4:
+// 过期日志被清理时其尝试行同步消失(同事务), 保留期内的日志尝试行不受影响, 全表无孤儿行。
+func TestRelayLogCleanup_deletesAttempts(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	// keep_period 默认 7 天; 回填/清理要对齐「整日」口径: 造 9 天前与 6 天前两组日志。
+	oldTime := time.Now().AddDate(0, 0, -9)
+	newTime := time.Now().AddDate(0, 0, -6)
+	logs := []model.RelayLog{
+		{ID: 7001, Time: oldTime.Unix(), RequestModelName: "grp-old",
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed},
+				{ChannelID: 8, ChannelName: "ch-8", ModelName: "m", AttemptNum: 2, Status: model.AttemptSuccess},
+			}},
+		{ID: 7002, Time: newTime.Unix(), RequestModelName: "grp-new",
 			Attempts: []model.ChannelAttempt{
 				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptSuccess},
+			}},
+	}
+	seedFlushedLogs(t, logs)
+	if got := countAttempts(t, ""); got != 3 {
+		t.Fatalf("seeded attempts = %d, want 3", got)
+	}
+
+	if err := relayLogCleanup(ctx); err != nil {
+		t.Fatalf("relayLogCleanup() error = %v", err)
+	}
+
+	// 过期日志与其尝试行一并消失; 保留期内日志的尝试行还在。
+	if got := countAttempts(t, "log_id = ?", int64(7001)); got != 0 {
+		t.Errorf("expired log attempts = %d, want 0", got)
+	}
+	if got := countAttempts(t, "log_id = ?", int64(7002)); got != 1 {
+		t.Errorf("kept log attempts = %d, want 1", got)
+	}
+	// 无孤儿行: 尝试行的所属日志必须仍在。
+	var orphans int64
+	if err := db.GetDB().Model(&model.RelayLogAttempt{}).
+		Where("log_id NOT IN (?)", db.GetDB().Model(&model.RelayLog{}).Select("id")).
+		Count(&orphans).Error; err != nil {
+		t.Fatalf("count orphans: %v", err)
+	}
+	if orphans != 0 {
+		t.Fatalf("orphan attempts = %d, want 0", orphans)
+	}
+}
+
+// TestRelayLogClear_clearsAttempts 清库端点同样要清尝试行(否则日志清空后明细仍能查到孤儿数据)。
+func TestRelayLogClear_clearsAttempts(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	seedFlushedLogs(t, []model.RelayLog{
+		{ID: 7101, Time: time.Now().Unix(), RequestModelName: "grp",
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptSuccess},
+			}},
+	})
+
+	if err := RelayLogClear(ctx); err != nil {
+		t.Fatalf("RelayLogClear() error = %v", err)
+	}
+	if got := countAttempts(t, ""); got != 0 {
+		t.Fatalf("attempts after clear = %d, want 0", got)
+	}
+	var logs int64
+	if err := db.GetDB().Model(&model.RelayLog{}).Count(&logs).Error; err != nil {
+		t.Fatalf("count logs: %v", err)
+	}
+	if logs != 0 {
+		t.Fatalf("logs after clear = %d, want 0", logs)
+	}
+}
+
+// TestRelayLogAttemptsBackfill_isIdempotentAndQueryable 是 AC5:
+// 上线前已存在(只有 attempts JSON、无规范化行)的日志, 回填后调用详情可查, 且重复执行不产生重复行。
+func TestRelayLogAttemptsBackfill_isIdempotentAndQueryable(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	now := time.Now().Unix()
+	// 直插 relay_logs 模拟「规范化表上线前就已存在的日志」: 没有尝试行。
+	logs := []model.RelayLog{
+		{ID: 6001, Time: now - 60, RequestModelName: "grp-a",
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 7, ChannelName: "ch-7", ChannelKeyRemark: "key-a", ModelName: "m-a",
+					AttemptNum: 1, Status: model.AttemptFailed, Duration: 11, Msg: "old-1"},
+				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m-a",
+					AttemptNum: 2, Status: model.AttemptSuccess, Duration: 22},
+			}},
+		{ID: 6002, Time: now - 30, RequestModelName: "grp-b", Error: "all failed",
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 8, ChannelName: "ch-8", ModelName: "m-b", AttemptNum: 1, Status: model.AttemptFailed, Msg: "old-2"},
+			}},
+		{ID: 6003, Time: now - 10, RequestModelName: "grp-c"}, // 空 attempts
+	}
+	if err := db.GetDB().CreateInBatches(&logs, 10).Error; err != nil {
+		t.Fatalf("seed legacy logs: %v", err)
+	}
+	if got := countAttempts(t, ""); got != 0 {
+		t.Fatalf("precondition failed: attempts = %d, want 0", got)
+	}
+
+	// 空库/未回填时明细为空(端点在回填前查不到旧日志, 这正是回填要解决的问题)。
+	if list, total, _, err := RelayLogAttemptsByChannel(ctx, 7, 1, 50); err != nil || total != 0 || list != nil {
+		t.Fatalf("before backfill: total=%d list=%+v err=%v, want empty", total, list, err)
+	}
+
+	relayLogAttemptsBackfillDone.Store(false)
+	if err := RelayLogAttemptsBackfill(ctx); err != nil {
+		t.Fatalf("RelayLogAttemptsBackfill() error = %v", err)
+	}
+	if got := countAttempts(t, ""); got != 3 {
+		t.Fatalf("attempts after backfill = %d, want 3", got)
+	}
+
+	// 回填后旧日志的调用详情可查, 内容与 JSON 一致(含请求级错误字段的 join)。
+	list, total, _, err := RelayLogAttemptsByChannel(ctx, 7, 1, 50)
+	if err != nil {
+		t.Fatalf("after backfill: %v", err)
+	}
+	wantList, wantTotal := legacyAttemptsByChannel(logs, 7, 1, 50)
+	if total != wantTotal || !reflect.DeepEqual(list, wantList) {
+		t.Fatalf("after backfill:\n got total=%d %+v\nwant total=%d %+v", total, list, wantTotal, wantList)
+	}
+
+	// 幂等: 重跑(清掉进程内 done 标记)不产生重复行。
+	relayLogAttemptsBackfillDone.Store(false)
+	if err := RelayLogAttemptsBackfill(ctx); err != nil {
+		t.Fatalf("RelayLogAttemptsBackfill() second run error = %v", err)
+	}
+	if got := countAttempts(t, ""); got != 3 {
+		t.Fatalf("attempts after second backfill = %d, want 3 (幂等)", got)
+	}
+}
+
+// TestRelayLogAttemptsBackfill_resumesInBatches 验证分批推进: 日志数超过单批上界时分多批完成(批间水位推进),
+// 且不会漏回填(总行数 = 各日志 attempts 之和)。
+func TestRelayLogAttemptsBackfill_resumesInBatches(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	total := relayLogAttemptsBackfillBatch + 7 // 跨两个批次
+	logs := make([]model.RelayLog, 0, total)
+	for i := 0; i < total; i++ {
+		logs = append(logs, model.RelayLog{
+			ID:   int64(5000 + i),
+			Time: time.Now().Unix() - int64(i),
+			Attempts: []model.ChannelAttempt{
+				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptSuccess, Duration: i},
 			},
 		})
 	}
-	if err := db.GetDB().CreateInBatches(&batch, 500).Error; err != nil {
-		t.Fatalf("seed rows: %v", err)
+	if err := db.GetDB().CreateInBatches(&logs, 200).Error; err != nil {
+		t.Fatalf("seed legacy logs: %v", err)
 	}
 
+	relayLogAttemptsBackfillDone.Store(false)
+	if err := RelayLogAttemptsBackfill(ctx); err != nil {
+		t.Fatalf("RelayLogAttemptsBackfill() error = %v", err)
+	}
+	if got := countAttempts(t, ""); got != int64(total) {
+		t.Fatalf("backfilled attempts = %d, want %d", got, total)
+	}
+	if !relayLogAttemptsBackfillDone.Load() {
+		t.Errorf("done flag should be set after a complete pass")
+	}
+}
+
+// TestRelayLogAttemptsBackfill_stopsOnContextBudget 验证时间预算用尽时安静退出且不置 done:
+// 下个周期续跑(不把未完成当完成, 否则剩下的旧日志永远查不到)。
+func TestRelayLogAttemptsBackfill_stopsOnContextBudget(t *testing.T) {
+	setupLogTestDB(t)
+
+	if err := db.GetDB().Create(&model.RelayLog{
+		ID: 5901, Time: time.Now().Unix(),
+		Attempts: []model.ChannelAttempt{
+			{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptSuccess},
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed legacy log: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 预算立即用尽
+
+	relayLogAttemptsBackfillDone.Store(false)
+	if err := RelayLogAttemptsBackfill(ctx); err != nil {
+		t.Fatalf("budget-exhausted backfill should return nil, got %v", err)
+	}
+	if got := countAttempts(t, ""); got != 0 {
+		t.Fatalf("attempts = %d, want 0 (预算用尽不应写入)", got)
+	}
+	if relayLogAttemptsBackfillDone.Load() {
+		t.Fatalf("done flag must stay false when the pass was cut short")
+	}
+}
+
+// TestRelayLogAttemptsByChannel_usesIndexAndScalesWithChannelRows 是 AC1:
+//  1. 计划断言(确定性): 渠道维度查询走 idx_relay_log_attempts_channel_log 索引, 不做 relay_log_attempts 全表扫描;
+//  2. 耗时断言(放宽阈值防抖): 5000 行日志 + 上万条尝试中, 查只有几十条尝试的渠道不随时间总量膨胀。
+func TestRelayLogAttemptsByChannel_usesIndexAndScalesWithChannelRows(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	// 计划断言用与生产同形的 SQL(过滤 + 排序 + 分页)。
+	planRows, err := db.GetDB().Raw(
+		"EXPLAIN QUERY PLAN SELECT * FROM relay_log_attempts WHERE channel_id = ? AND time >= ? ORDER BY time DESC, log_id DESC, attempt_num ASC LIMIT 50",
+		7, time.Now().Add(-7*24*time.Hour).Unix(),
+	).Rows()
+	if err != nil {
+		t.Fatalf("explain query plan: %v", err)
+	}
+	defer planRows.Close()
+	plan := ""
+	for planRows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := planRows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatalf("scan plan: %v", err)
+		}
+		plan += detail + "\n"
+	}
+	t.Logf("query plan:\n%s", plan)
+	if !strings.Contains(plan, "idx_relay_log_attempts_channel_log") {
+		t.Fatalf("channel-dimension query must use idx_relay_log_attempts_channel_log, plan:\n%s", plan)
+	}
+	if strings.Contains(plan, "SCAN relay_log_attempts") {
+		t.Fatalf("channel-dimension query must not full-scan relay_log_attempts, plan:\n%s", plan)
+	}
+
+	// 造量: 5000 行日志, 其中 4990 行各带 3 次尝试打在其他渠道(与目标渠道同表, 构成背景体量),
+	// 目标渠道 7 只有 50 次尝试(50 行日志各 1 次)。
+	const logRows = 5000
+	logs := make([]model.RelayLog, 0, logRows)
+	now := time.Now().Unix()
+	for i := 0; i < logRows; i++ {
+		channelID := 100000 + i%50 // 背景渠道, 与 7 无关
+		var attempts []model.ChannelAttempt
+		if i < 50 {
+			channelID = 7
+			attempts = []model.ChannelAttempt{
+				{ChannelID: 7, ChannelName: "ch-7", ModelName: "m", AttemptNum: 1, Status: model.AttemptSuccess, Duration: i},
+			}
+		} else {
+			attempts = []model.ChannelAttempt{
+				{ChannelID: channelID, ChannelName: "ch-bg", ModelName: "m", AttemptNum: 1, Status: model.AttemptFailed, Msg: "bg"},
+				{ChannelID: channelID + 1, ChannelName: "ch-bg", ModelName: "m", AttemptNum: 2, Status: model.AttemptFailed, Msg: "bg"},
+				{ChannelID: channelID + 2, ChannelName: "ch-bg", ModelName: "m", AttemptNum: 3, Status: model.AttemptSuccess, Msg: "bg"},
+			}
+		}
+		logs = append(logs, model.RelayLog{
+			ID: int64(100000 + i), Time: now - int64(i), RequestModelName: "grp-bg",
+			Attempts: attempts,
+		})
+	}
+	seedFlushedLogs(t, logs)
+
+	if got := countAttempts(t, "channel_id = ?", 7); got != 50 {
+		t.Fatalf("target channel attempts = %d, want 50", got)
+	}
+
+	start := time.Now()
 	list, total, truncated, err := RelayLogAttemptsByChannel(ctx, 7, 1, 50)
+	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("RelayLogAttemptsByChannel() error = %v", err)
 	}
-	if !truncated {
-		t.Errorf("expected truncated=true when scan hits the %d row limit", relayLogChannelAttemptsScanLimit)
+	if total != 50 || len(list) != 50 || truncated {
+		t.Fatalf("target channel expected total=50 len=50 truncated=false, got total=%d len=%d truncated=%v", total, len(list), truncated)
 	}
-	if total != rowsToSeed || len(list) != 50 {
-		t.Fatalf("expected total=%d len=50, got total=%d len=%d", rowsToSeed, total, len(list))
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("channel-attempts query took %v with %d background attempts, want < 500ms", elapsed, logRows*3)
+	} else {
+		t.Logf("channel-attempts query: %v (背景 %d 日志 / %d 条尝试)", elapsed, logRows, logRows*3)
 	}
 }

@@ -6,7 +6,7 @@
 
 ### 2. Signatures
 
-**DB(表形状冻结,23 列 = fork 完整形状)**:`internal/model/log.go` 的 `RelayLog`。json tag 沿 fork(注意 `ChannelId → "channel"`、`Attempts gorm:"serializer:json"`)。**任何列裁剪都会破坏迁移「列取交集」造成 fork 数据丢弃**;任务5 只往 `user_agent`/`client_name`/`reasoning_effort` 写值,不许改列。
+**DB(表形状冻结,23 列 = fork 完整形状)**:`internal/model/log.go` 的 `RelayLog`。json tag 沿 fork(注意 `ChannelId → "channel"`、`Attempts gorm:"serializer:json"`)。**任何列裁剪都会破坏迁移「列取交集」造成 fork 数据丢弃**;任务5 只往 `user_agent`/`client_name`/`reasoning_effort` 写值,不许改列。`RelayLog.Time` 加 `index:idx_relay_log_time`(日志列表按时间倒序分页)。attempts 的规范化副本另立新表 `relay_log_attempts`(`RelayLogAttempt`,2026-09-20 起,见 database-guidelines「relay_log_attempts 规范化表」),**不属于冻结的 relay_logs 形状**,JSON 列本身照旧保留。
 
 **迁移拦截**:`internal/db/migrate/009.go` 已删 `DropTable("relay_logs")` 段(注释引 ADR-0005)。**revert 该文件会恢复 DROP——任何含 relay_logs 数据的库再启动即删表**;回滚规程:先备份库文件再 revert。
 
@@ -20,7 +20,7 @@
 |---|---|---|
 | `/api/v1/log/list` | GET | page/page_size/start_time/end_time/has_error/api_key_names/model_names(逗号多选);Omit 大字段 |
 | `/api/v1/log/:id` | GET | 详情按需加载(含 request/response/debug_content + attempts) |
-| `/api/v1/log/channel-attempts` | GET | channel_id/page/page_size → `{list,total,truncated}` |
+| `/api/v1/log/channel-attempts` | GET | channel_id/page/page_size → `{list,total,truncated}`(truncated 恒 false,见 database-guidelines) |
 | `/api/v1/log/history/clear` | DELETE | 清库+内存缓冲(**与上游 `/clear` 清进程内状态是两个语义,勿合并**) |
 
 ### 3. Contracts
@@ -35,11 +35,11 @@
 
 | 条件 | 行为 |
 |---|---|
-| 全新库首启 | AutoMigrate 建 relay_logs → 009(改后)不碰表;migration_records 全跑 |
-| 已跑过 009 的库 | migration_records 命中跳过,AutoMigrate 补建表 |
-| keep_period ≤ 0 | cleanup 不删(无期限) |
-| channel-attempts 粗筛行数 ≥ 5000 | truncated=true,提示仅展示最近记录 |
-| LIKE 粗筛误匹配(90 命中 900) | Go 层 `a.ChannelID == channelID` 精确过滤兜底 |
+| 全新库首启 | AutoMigrate 建 relay_logs + relay_log_attempts → 009(改后)不碰表;migration_records 全跑 |
+| 已跑过 009 的库 | migration_records 命中跳过,AutoMigrate 补建表/补索引 |
+| keep_period ≤ 0 | cleanup 不删(无期限);channel-attempts 不按时间过滤 |
+| channel-attempts 查询 | 走 `relay_log_attempts` 索引(channel_id, log_id),SQL 层分页,`total` 精确 COUNT,`truncated` 恒 false |
+| 上线前已存在的日志 | 启动后台任务 `RelayLogAttemptsBackfill` 展开 attempts JSON 回填(幂等);回填前该渠道调用详情为空 |
 | 未启用 keep_enabled 时查 channel-attempts | 直接返回空(DB 无历史语义) |
 
 ### 5. Good/Base/Bad Cases
@@ -50,7 +50,7 @@
 
 ### 6. Tests Required
 
-- `internal/op/log_test.go`:筛选组合、缓存+DB 合并分页、LIKE 误匹配精确过滤、5000 上界 truncated、cleanup cutoff、disabledKeep 空返回
+- `internal/op/log_test.go`:筛选组合、缓存+DB 合并分页、cleanup cutoff、disabledKeep 空返回;attempts 规范化(2026-09-20 起):写入一致性/幂等、清理联动无孤儿、回填幂等+分批+预算中断、**新旧实现对拍等价**、走索引计划 + 量级耗时
 - `internal/relay/log_finalize_test.go`:attempts 尾取语义(成功优先/无成功回退/空 attempts)、token/cost/ftut 组装(flush 后查 DB 断言)
 - 演练对账:`conditional_status` 中 relay_logs 须「转换」且 dropped 为空
 

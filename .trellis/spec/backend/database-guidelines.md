@@ -69,12 +69,40 @@ group.Items = items                 // 整体替换 slice header
 - `relay_log_keep_period` 通过 `SettingGetInt(model.SettingKeyRelayLogKeepPeriod)` 读取(单位:天),`<=0` 表示无时间过滤(但仍受其它上界保护)。照 `relayLogCleanup` 的 `cutoff = now - keep*24h` 写法。
 
 **JSON 字段展开查询**(attempts 是 `gorm:"serializer:json"`,无法 SQL 直接展开):
-- 「先限缩再展开」:SQL `attempts LIKE '%"channel_id":<id>%'` 粗筛收窄行集(`serializer:json` 序列化无空格、整数字段无引号,模板须匹配 jsoniter 实际字节),再 Go 层 `json.Unmarshal` 或直接遍历 GORM 已反序列化的 `[]ChannelAttempt` 做精确过滤(`ChannelID == int`)。
-- 三库统一走 LIKE 粗筛 + Go 展开,不依赖 dialect jsonb(SQLite 无 jsonb,PG/MySQL 即便有也避免 dialect 分叉)。
-- 粗筛可能误匹配前缀相同的大 ID(如查 90 误匹配 900),由 Go 层精确过滤兜底——粗筛只求缩小范围。
-- 上界保护:粗筛行数设上限(如 5000),超则 `truncated=true` 标志,前端提示「仅展示最近 N 条」,不静默截断。
+- **按维度查明细必须规范化,不要 LIKE 扫 JSON 列**(2026-09-20 起):对巨型 JSON 文本列做前缀通配 LIKE 是零索引全表扫 + 全表排序,代价随日志量线性恶化(485 行实测 205ms,量上来即秒级)。正解是拆出维度表:attempts → `relay_log_attempts`(`internal/model/log.go`),按 `(channel_id, log_id)` 建索引查询,见下节。
+- 仍走「先限缩再展开」的场合(必须按 JSON 内容过滤且无维度表时):LIKE 粗筛 + Go 层精确过滤只能作为**临时手段**,且须明确上界与 truncation 语义。
+- 三库统一不依赖 dialect jsonb(SQLite 无 jsonb,PG/MySQL 即便有也避免 dialect 分叉)。
 
-**实例**:`RelayLogAttemptsByChannel(ctx, channelID, page, pageSize)`(`op/log.go`)按渠道查 attempts 明细;`RelayLogAttemptsByChannel` 走 DB 直查,展开过滤后内存分页,`total=len(matches)` 精确。
+**实例**:`RelayLogAttemptsByChannel(ctx, channelID, page, pageSize)`(`op/log.go`)按渠道查调用明细;走 `relay_log_attempts` 索引查表 + SQL 层分页,`total` 由 COUNT 精确给出。
+
+---
+
+## 契约:relay_log_attempts 规范化表(2026-09-20 起)
+
+**What**:`relay_logs.attempts`(JSON 数组)的规范化副本,一行 = 一次渠道尝试。`model.RelayLogAttempt`,表名 `relay_log_attempts`,进 `db.AutoMigrate`。
+
+| 列 | 说明 |
+|---|---|
+| `(log_id, attempt_num)` | 复合主键:log_id = 所属 `relay_logs.id`(Snowflake),attempt_num 与 JSON 内序号同值。**同一请求内 attempt_num 由 `len(attempts)+1` 递增**(`relay/handler.go`),故唯一 |
+| `channel_id` | **本次尝试**的渠道(不是日志的最终渠道 `relay_logs.channel`) |
+| `time` | 冗余自所属日志的 `time`(unix 秒):渠道维度查询只碰本表即可按时间过滤/排序,不回表扫大 JSON 列 |
+| 其余 | channel_name / channel_key_id / channel_key_remark / model_name / status / duration / sticky / msg |
+
+索引:主键 `(log_id, attempt_num)`(明细唯一键;同时是清理/回填按 log_id 删除与 `NOT EXISTS` 探针的索引)、`(channel_id, log_id)`(`idx_relay_log_attempts_channel_log`,渠道维度查询与计数的唯一入口)。另 `relay_logs(time)` 加 `idx_relay_log_time`(日志列表按时间倒序分页 + 按天聚合 + `MIN(time)`)。
+
+**不要再给 `relay_log_attempts.time` 单列加索引**:没有任何查询只按 time 过滤本表(渠道维度查询恒带 `channel_id = ?`,复合索引已覆盖),`EXPLAIN QUERY PLAN` 实测该列索引不会被选中;而本表是转发热路径每次请求都写,多一个索引就是持续的写放大(INSERT 时多维护一棵 B 树 + WAL 增量)。将来若真出现「只按时间扫本表」的查询,再加 `gorm:"index:idx_relay_log_attempts_time"` 不迟。
+
+**Why**:「渠道调用详情」要列出该渠道在失败转移途中撞过的每次尝试,而这些只存在于 attempts JSON(日志行的 `channel_id` 只记最终渠道)。旧实现用 `attempts LIKE '%"channel_id":<id>%'` 粗筛 + Go 层展开,零索引全表扫 + 全表排序,代价随日志总量线性恶化。规范化后查询只与该渠道命中行数相关(实测迁移库 890 日志:旧 5.39s / 22 渠道 → 新 17ms / 22 渠道)。
+
+**四条不变量**:
+1. **同事务写入**:`relayLogFlushToDB` 在写日志行的同一事务内展开写入尝试行(`relayLogAttemptsInsert`),不允许「日志已落、尝试行缺失」的中间态。
+2. **幂等**:写入用 `clause.OnConflict{DoNothing: true}` 按 `(log_id, attempt_num)` 去重;同一日志重复落盘(重试、回填重跑)不产生重复行。
+3. **清理联动**:`relayLogCleanup` 删日志行的同一事务内先按 `log_id IN (SELECT id FROM relay_logs WHERE time < cutoff)` 删尝试行;`RelayLogClear` 清库同样两表一起清。表内不留孤儿行,保留期口径与日志完全一致。
+4. **历史回填**:`RelayLogAttemptsBackfill`(`op/log.go`,由 `task.Init` 注册为 runOnStart 后台任务)把现存日志的 attempts JSON 展开进新表。分批(500 行/批)、按 id 水位推进、`NOT EXISTS` 探针跳过已回填行、ctx 预算用尽安静退出(不置 done,下周期续跑);跑完一轮完整扫描后进程内不再扫表(此后新日志由不变量 1 覆盖)。
+
+**truncated 语义变更**:`/api/v1/log/channel-attempts` 响应仍带 `list/total/truncated`,但 `truncated` **恒为 false**——旧语义是「LIKE 粗筛命中 5000 行上界,可能还有未扫到的行」,现在分页完全在 SQL 层按索引完成、结果不再截断。字段保留以维持前端契约(前端仅在 true 时提示「仅展示最近 N 条」)。`total` 现在是精确 COUNT(旧实现是展开后切片长度,粗筛触顶时是截断值)。
+
+**排序键**:`ORDER BY time DESC, log_id DESC, attempt_num ASC`,与旧实现的 (request_time DESC, request_id DESC, 展开顺序即 attempt_num ASC) 等价——改查询时必须保持该键,否则分页结果与历史行为不一致。
 
 ---
 

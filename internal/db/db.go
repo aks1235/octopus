@@ -70,6 +70,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.LLMInfo{},
 		&model.APIKey{},
 		&model.RelayLog{},
+		&model.RelayLogAttempt{},
 		&model.Setting{},
 		&model.StatsTotal{},
 		&model.StatsDaily{},
