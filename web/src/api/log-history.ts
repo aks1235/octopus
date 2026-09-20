@@ -47,7 +47,7 @@ export interface ChannelAttemptDetail {
 export interface ChannelAttemptsResponse {
     list: ChannelAttemptDetail[];
     total: number;
-    truncated: boolean; // 粗筛行数触顶时为 true,前端提示"仅展示最近 N 条"
+    truncated: boolean; // 恒 false(attempts 规范化后分页走索引、结果不再截断);字段保留以维持契约,前端仅在 true 时提示"仅展示最近 N 条"
 }
 
 /**

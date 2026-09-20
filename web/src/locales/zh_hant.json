@@ -479,7 +479,10 @@
             "requestBodySummary": "請求體 {size}，點開查看",
             "messageCount": "共 {count} 條訊息",
             "viewRequestBody": "查看請求體",
-            "hideRequestBody": "收起請求體"
+            "hideRequestBody": "收起請求體",
+            "responseBodySummary": "回應內容 {size}，點開檢視",
+            "viewResponseBody": "檢視回應內容",
+            "hideResponseBody": "收起回應內容"
         },
         "tabs": {
             "live": "即時",

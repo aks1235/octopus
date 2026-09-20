@@ -479,7 +479,10 @@
             "requestBodySummary": "Request body {size}, click to view",
             "messageCount": "{count} messages",
             "viewRequestBody": "View request body",
-            "hideRequestBody": "Hide request body"
+            "hideRequestBody": "Hide request body",
+            "responseBodySummary": "Response body {size} — tap to view",
+            "viewResponseBody": "View response",
+            "hideResponseBody": "Hide response"
         },
         "tabs": {
             "live": "Live",

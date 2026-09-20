@@ -1,16 +1,14 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useState, type CSSProperties } from 'react';
 import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, KeyRound, Loader2, Square } from 'lucide-react';
 import { useTranslations } from 'use-intl';
-import JsonView from '@uiw/react-json-view';
-import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
-import { githubLightTheme } from '@uiw/react-json-view/githubLight';
-import { useTheme } from '@/provider/theme';
 import { type RelayLogOverview, useLogRequestBody, useLogResponseBody, useStopRound } from '@/api/log';
 import { useGroup, useUpdateGroup } from '@/api/group';
 import { Protocol } from '@/api/channel';
 import { getModelIcon } from '@/lib/model-icons';
 import { ClientIconBadge, ReasoningEffortBadge } from '@/components/modules/log/ClientIcon';
+import { FullContentBody, SimpleContentBody } from '@/components/modules/log/ContentBody';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { CopyIconButton } from '@/components/common/CopyButton';
@@ -105,54 +103,6 @@ interface ObservedRound {
     startedAt: string; // 服务端记录的本轮开始时间。
 }
 
-// JsonContent 渲染请求或响应正文, 能解析为 JSON 时使用折叠视图, 否则按纯文本展示。
-function JsonContent({ content, fallbackText }: { content: string | object | undefined; fallbackText: string }) {
-    const { resolvedTheme } = useTheme();
-
-    const parsed = useMemo(() => {
-        if (content === undefined || content === '') return null;
-        if (typeof content !== 'string') return { isJson: true, data: content };
-        try {
-            return { isJson: true, data: JSON.parse(content) as object };
-        } catch {
-            return { isJson: false, data: content };
-        }
-    }, [content]);
-
-    if (!parsed) {
-        return (
-            <pre className="p-4 text-xs text-muted-foreground whitespace-pre-wrap wrap-break-word leading-relaxed">
-                {fallbackText}
-            </pre>
-        );
-    }
-
-    if (!parsed.isJson) {
-        return (
-            <pre className="p-4 text-xs text-muted-foreground whitespace-pre-wrap wrap-break-word font-mono leading-relaxed animate-in fade-in duration-200">
-                {parsed.data as string}
-            </pre>
-        );
-    }
-
-    return (
-        <div className="p-4 animate-in fade-in duration-200">
-            <JsonView
-                value={parsed.data as object}
-                style={{
-                    ...(resolvedTheme === 'dark' ? githubDarkTheme : githubLightTheme),
-                    fontSize: '12px',
-                    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                    backgroundColor: 'transparent',
-                }}
-                displayDataTypes={false}
-                displayObjectSize={false}
-                collapsed={false}
-            />
-        </div>
-    );
-}
-
 // LogDetail 渲染日志详情弹窗内容, 仅在弹窗打开期间挂载, 由此避免列表中的卡片持有详情查询和状态。
 function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     const t = useTranslations('log.card');
@@ -161,6 +111,10 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     const [rounds, setRounds] = useState<ObservedRound[]>([]);
     const [observedRoundKey, setObservedRoundKey] = useState(''); // observedRoundKey 是已记入 rounds 的最近一次日志快照, 用于跳过重复渲染。
     const [detailReady, setDetailReady] = useState(false); // 展开动画结束后才允许加载详情数据。
+    // 请求体默认简洁档(只画最后一条用户输入), 「查看请求体」才渲染全量; 收起即卸载全量视图。
+    const [showRequestBody, setShowRequestBody] = useState(false);
+    // 响应体同理默认简洁档: 响应体可能很大, 未展开时不解析、不渲染。
+    const [showResponseBody, setShowResponseBody] = useState(false);
     const [switchingItemId, setSwitchingItemId] = useState<number | null>(null);
     const requestBody = useLogRequestBody(log.id, log.started_at, detailReady && leftTab === 'request');
     const responseBody = useLogResponseBody(log.id, log.started_at, detailReady && log.status === 'success');
@@ -241,9 +195,22 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                 </TabsList>
                             </Tabs>
                             {leftTab === 'request' && (
-                                <Badge variant="secondary" className="ml-auto text-xs">
-                                    {(log.usage.prompt_tokens - (log.usage.prompt_tokens_details?.cached_tokens ?? 0)).toLocaleString()} {t('tokens')}
-                                </Badge>
+                                <>
+                                    <Badge variant="secondary" className="ml-auto text-xs">
+                                        {(log.usage.prompt_tokens - (log.usage.prompt_tokens_details?.cached_tokens ?? 0)).toLocaleString()} {t('tokens')}
+                                    </Badge>
+                                    {/* 展开后提供收起入口; 收起即卸载全量视图, 不保留 DOM(与历史弹窗一致)。 */}
+                                    {showRequestBody && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 rounded-lg px-2 text-xs text-muted-foreground"
+                                            onClick={() => setShowRequestBody(false)}
+                                        >
+                                            {t('hideRequestBody')}
+                                        </Button>
+                                    )}
+                                </>
                             )}
                         </div>
                         <div className="flex-1 overflow-auto min-h-0">
@@ -261,8 +228,18 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                         <AlertCircle className="size-5" />
                                         <span>{t('detailUnavailable')}</span>
                                     </div>
+                                ) : requestBody.data ? (
+                                    showRequestBody ? (
+                                        // 全量档: 与改前一致的 JsonView 全展开视图, 按内容串 memo, 心跳不重建。
+                                        <FullContentBody content={requestBody.data} collapsed={false} dense className="p-4" />
+                                    ) : (
+                                        // 简洁档(默认): 只画最后一条用户输入 + 消息总数 + 大小摘要, 未展开时零解析。
+                                        <SimpleContentBody content={requestBody.data} onViewFull={() => setShowRequestBody(true)} />
+                                    )
                                 ) : (
-                                    <JsonContent content={requestBody.data} fallbackText={t('noRequestContent')} />
+                                    <pre className="p-4 text-xs text-muted-foreground whitespace-pre-wrap wrap-break-word leading-relaxed">
+                                        {t('noRequestContent')}
+                                    </pre>
                                 )
                             ) : !activeGroup ? (
                                 <div className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground">
@@ -350,6 +327,17 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                         : `${log.usage.completion_tokens.toLocaleString()} ${t('tokens')}`}
                                 </Badge>
                             )}
+                            {/* 响应体展开后提供收起入口; 收起即卸载全量视图, 与历史弹窗一致。 */}
+                            {showResponseBody && responseBody.data && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 rounded-lg px-2 text-xs text-muted-foreground"
+                                    onClick={() => setShowResponseBody(false)}
+                                >
+                                    {t('hideResponseBody')}
+                                </Button>
+                            )}
                         </div>
                         <div className="min-h-0 flex-1 overflow-auto">
                             {!detailReady ? (
@@ -401,7 +389,14 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                     {phaseText ?? t('responseStreaming')}
                                 </div>
                             ) : requestFailed ? (
-                                <JsonContent content={errorText} fallbackText={t('noResponseContent')} />
+                                errorText ? (
+                                    // 失败请求展示错误正文(本身就是完整信息), 走全量档按内容串 memo。
+                                    <FullContentBody content={errorText} collapsed={false} dense className="p-4" />
+                                ) : (
+                                    <pre className="p-4 text-xs text-muted-foreground whitespace-pre-wrap wrap-break-word leading-relaxed">
+                                        {t('noResponseContent')}
+                                    </pre>
+                                )
                             ) : responseBody.isLoading ? (
                                 <div className="flex h-full items-center justify-center">
                                     <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -411,8 +406,18 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                     <AlertCircle className="size-5" />
                                     <span>{t('detailUnavailable')}</span>
                                 </div>
+                            ) : responseBody.data ? (
+                                showResponseBody ? (
+                                    // 全量档: 响应体只在 status=success 时拉取一次, 内容串稳定, 心跳不重建。
+                                    <FullContentBody content={responseBody.data} collapsed={false} dense className="p-4" />
+                                ) : (
+                                    // 简洁档(默认): 响应体不是消息数组, 只给大小摘要与「查看响应体」入口, 零解析。
+                                    <SimpleContentBody content={responseBody.data} mode="response" onViewFull={() => setShowResponseBody(true)} />
+                                )
                             ) : (
-                                <JsonContent content={responseBody.data} fallbackText={t('noResponseContent')} />
+                                <pre className="p-4 text-xs text-muted-foreground whitespace-pre-wrap wrap-break-word leading-relaxed">
+                                    {t('noResponseContent')}
+                                </pre>
                             )}
                         </div>
                     </div>
