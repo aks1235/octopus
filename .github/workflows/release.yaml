@@ -188,11 +188,18 @@ jobs:
           # 【为什么只留 amd64】部署 compose 固定 TARGETPLATFORM=linux/amd64,其余平台全靠 QEMU 模拟,纯耗时。
           # 【如何恢复】改回:platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
           #            并取消 "Set up QEMU" 步骤注释。
+          context: .
+          file: ./scripts/dockerfiles/Dockerfile.alpine
+          push: true
           platforms: linux/amd64
           tags: ${{ steps.meta-alpine.outputs.tags }}
           labels: ${{ steps.meta-alpine.outputs.labels }}
-          build-args: |
-            TARGETPLATFORM
+          # 【为什么不再写 build-args】原为裸名 `TARGETPLATFORM`(值取自调用方环境变量, CI 里该变量不存在)。
+          # TARGETPLATFORM 属 BuildKit 的自动构建参数: 由 --platform 按目标平台注入, Dockerfile 里
+          # 声明 ARG 即可用, 无需手工传参, 也不该用可能为空的值去覆盖它
+          # (本地实测: 显式传空值会让 COPY build/docker/${TARGETPLATFORM}/octopus 塌成
+          #  build/docker//octopus 而失败; 不传则自动注入正确)。
+          # 【如何恢复】不用恢复, 保持不写; 多平台构建同样由 BuildKit 自动注入每个目标平台的值。
 
       # 【为什么注释】Debian 镜像整段停用(与上面 "Docker meta (Debian)" 成对注释);
       # 两者都引用 meta-debian 输出,必须一起恢复。
