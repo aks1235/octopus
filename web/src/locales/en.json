@@ -476,6 +476,7 @@
             "cached": "Cached {count}",
             "ftut": "FTUT",
             "speed": "Output speed",
+            "speedChars": "c/s",
             "requestBodySummary": "Request body {size}, click to view",
             "messageCount": "{count} messages",
             "viewRequestBody": "View request body",

@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type CSSProperties } from 'react';
-import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, KeyRound, Loader2, Square } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { type RelayLogOverview, useLogRequestBody, useLogResponseBody, useStopRound } from '@/api/log';
 import { useGroup, useUpdateGroup } from '@/api/group';
@@ -10,7 +10,7 @@ import { FullContentBody, SimpleContentBody } from '@/components/modules/log/Con
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn } from '@/lib/utils';
+import { cn, formatRate, outputSpeed } from '@/lib/utils';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { toast } from 'sonner';
 import { MemberStatus } from '@/components/modules/group/MemberStatus';
@@ -66,26 +66,38 @@ const PROTOCOL_LABELS: Record<number, string> = {
 
 // LogMetrics 渲染时间, 来源 Key, 耗时, 费用和 Token 指标; card 变体用于卡片栅格, footer 变体用于弹窗底部。
 function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; now: number; brandColor: string; variant: 'card' | 'footer' }) {
+    const t = useTranslations('log.card');
     const cachedTokens = log.usage.prompt_tokens_details?.cached_tokens ?? 0;
+    // 缓存率取缓存输入 token 占全部输入 token 的比例; 输入为 0 时不算比例, 只显示缓存量 (R1)。
+    const cacheRate = log.usage.prompt_tokens > 0 ? Math.round((cachedTokens / log.usage.prompt_tokens) * 100) : null;
+    const requestActive = log.status === 'running' || log.status === 'committed';
     // 进行中的请求按共享时钟推算耗时, 结束后改用后端记录的最终耗时。
-    const duration = log.status === 'running' || log.status === 'committed'
+    const duration = requestActive
         ? formatMilliseconds(now - new Date(log.started_at).getTime())
         : formatMilliseconds(log.duration / 1_000_000);
+    // 速度: 进行中显示后端按增量正文长度累加的实时字符速度; 结束后用与历史面板同一口径推导精确 tok/s (R5):
+    // 生成窗口 = 总耗时 − 首字耗时, 故同一请求在实时卡片与历史面板/请求详情得到相同数值。
+    const liveSpeed = log.output_speed ?? 0;
+    const finalSpeed = outputSpeed(log.usage.completion_tokens, log.duration / 1_000_000, log.first_token_ms ?? 0);
+    const speedText = requestActive
+        ? (liveSpeed > 0 ? `${liveSpeed.toLocaleString()} ${t('speedChars')}` : '-')
+        : (finalSpeed !== null ? `${formatRate(finalSpeed).formatted.value} ${formatRate(finalSpeed).formatted.unit}` : '-');
     const metrics = [
         { key: 'time', Icon: Clock, iconClassName: 'size-3.5 shrink-0', iconStyle: { color: brandColor } as CSSProperties, value: formatTime(log.started_at), valueClassName: 'tabular-nums', cellClassName: 'col-span-4 whitespace-nowrap md:col-span-1' },
         { key: 'apiKey', Icon: KeyRound, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: log.api_key_name || '-', valueClassName: 'truncate', cellClassName: 'col-span-4 md:col-span-1' },
         { key: 'duration', Icon: Cpu, iconClassName: 'size-3.5 shrink-0 text-blue-500', value: duration, cellClassName: 'col-span-4 md:col-span-1' },
         { key: 'cost', Icon: DollarSign, iconClassName: 'size-3.5 shrink-0 text-emerald-500', value: log.cost.toFixed(6), valueClassName: 'font-medium text-emerald-600 dark:text-emerald-400', cellClassName: 'col-span-4 md:col-span-1' },
         { key: 'prompt', Icon: ArrowDownToLine, iconClassName: 'size-3.5 shrink-0 text-green-500', value: (log.usage.prompt_tokens - cachedTokens).toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
-        { key: 'cached', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-cyan-500', value: cachedTokens.toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
+        { key: 'cached', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-cyan-500', value: cacheRate === null ? cachedTokens.toLocaleString() : `${cachedTokens.toLocaleString()} (${cacheRate}%)`, cellClassName: 'col-span-3 md:col-span-1' },
         { key: 'completion', Icon: ArrowUpFromLine, iconClassName: 'size-3.5 shrink-0 text-purple-500', value: log.usage.completion_tokens.toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
         { key: 'cacheWrite', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: (log.usage.prompt_tokens_details?.write_cached_tokens ?? 0).toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
+        { key: 'speed', Icon: Gauge, iconClassName: 'size-3.5 shrink-0 text-sky-500', value: speedText, cellClassName: 'col-span-3 md:col-span-1' },
     ];
 
     return metrics.map((metric) => (
         <div
             key={metric.key}
-            title={metric.key === 'apiKey' ? log.api_key_name : undefined}
+            title={metric.key === 'apiKey' ? log.api_key_name : metric.key === 'speed' ? t('speed') : undefined}
             className={cn('flex min-w-0 items-center gap-1.5', variant === 'card' && metric.cellClassName)}
         >
             <metric.Icon className={metric.iconClassName} style={metric.iconStyle} />
@@ -490,7 +502,9 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                                 {actualModel}
                             </span>
                         </div>
-                        <div className="grid grid-cols-12 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-8">
+                        {/* 九项指标在 md/lg 宽度下挤成一行会溢出(缓存率与速度为长文本, 单元格仅剩约 50-75px),
+                            故 md 起每行五项、xl(容器已到 max-w-6xl)才并成一行, 与移动端 col-span 断点配合。 */}
+                        <div className="grid grid-cols-12 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-5 xl:grid-cols-9">
                             <LogMetrics log={log} now={now} brandColor={brandColor} variant="card" />
                         </div>
                         {requestFailed && errorText && (

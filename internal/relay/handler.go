@@ -266,6 +266,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式响应只统计等待首帧的时间。
 			if firstValidAt.IsZero() {
 				firstValidAt = time.Now()
+				// 首个有效响应到达即记录首字耗时, 供界面与转发日志的 ftut 用同一数值推导输出速度。
+				request.markFirstToken(firstValidAt)
 			}
 			attempts = append(attempts, model.ChannelAttempt{
 				ChannelID:        channel.ID,
@@ -322,18 +324,22 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			var encoded bytes.Buffer
 			var chunks []*httpclient.StreamEvent
 			event := result.first
-			last := result.last // 已转发的最后一个事件是否已按客户端协议结束整个响应流。
 			committed := false
-			phaseSettled := false // 已进入输出正文相位后不再重复分类, 每请求至多两段解析。
+			phaseSettled := false // 已进入输出正文相位后不再重复分类。
+			last := false         // 当前事件是否已按客户端协议结束整个响应流, 由下方单次解析给出。
 			for {
 				if event != nil {
-					// 相位只在首次正文增量前按客户端协议分类; markPhase 仅在相位变化时推送, 至多thinking与answering两次。
-					if !phaseSettled {
-						if phase := streamEventPhase(format, event); phase != "" {
-							request.markPhase(phase)
-							phaseSettled = phase == phaseAnswering
-						}
+					// 每事件只解析一次 (R4): 结束判定, 相位与正文增量字符数搭车同一份解析。
+					// 已提交的响应不能再换目标重试, 结束事件自身携带的失败原样转发给客户端, 并在转发后作为本请求终态。
+					parsed := parseStreamEvent(format, event)
+					last, err = parsed.last, parsed.err
+					// 相位只在首次正文增量前分类; markPhase 仅在相位变化时推送, 至多thinking与answering两次。
+					if !phaseSettled && parsed.phase != "" {
+						request.markPhase(parsed.phase)
+						phaseSettled = parsed.phase == phaseAnswering
 					}
+					// 正文字符量按同一份解析的增量长度累加, 供进行中的实时速度; 思考增量不计入 (R3)。
+					request.addOutputChars(parsed.textLen)
 					chunks = append(chunks, event)
 					encoded.Reset()
 					if encodeErr := sse.Encode(&encoded, sse.Event{Id: event.LastEventID, Event: event.Type, Data: event.Data}); encodeErr != nil {
@@ -362,8 +368,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					break
 				}
 				event = result.events.Current()
-				// 已提交的响应不能再换目标重试, 结束事件自身携带的失败原样转发给客户端, 并在转发后作为本请求终态。
-				last, err = inspectStreamEvent(format, event)
 			}
 			result.events.Close()
 			// 事件流已读完, 渠道专用代理的独占连接池到此归还。
@@ -458,8 +462,9 @@ func relayLogFinalize(request *RequestState, requestModel string, attempts []mod
 	}
 
 	// 首字时间为首次取得可提交响应的时刻, 多轮重试时含前面轮次的耗时, 与 fork 语义一致。
+	// 与实时状态的首字字段共用同一算法, 保证历史面板与实时卡片的速度数值一致。
 	if !firstValidAt.IsZero() {
-		relayLog.Ftut = int(firstValidAt.Sub(request.StartedAt).Milliseconds())
+		relayLog.Ftut = firstTokenElapsedMs(request.StartedAt, firstValidAt)
 	}
 
 	if err := op.RelayLogAdd(context.Background(), relayLog); err != nil {

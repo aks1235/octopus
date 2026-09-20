@@ -45,6 +45,9 @@ type RequestState struct {
 	ClientName      string `json:"client_name,omitempty"`      // 从 User-Agent 识别的客户端标识, 如 claude-code; 未知为空。
 	ReasoningEffort string `json:"reasoning_effort,omitempty"` // 客户端请求携带的思考等级; 非推理请求为空。
 	Phase           string `json:"phase,omitempty"`            // 流式输出相位: "" 未定 / "thinking" 思考中 / "answering" 输出正文; 仅流式请求有值。
+	FirstTokenMs    int    `json:"first_token_ms,omitempty"`   // 首字耗时(毫秒), 首个有效上游响应到达时相对请求到达时间计; 未取得响应前为空, 定稿后保留。
+	OutputChars     int64  `json:"output_chars,omitempty"`     // 进行中的流式请求已产出的正文字符数, 由增量正文长度累加, 思考增量不计; 仅流式进行中有值。
+	OutputSpeed     int    `json:"output_speed,omitempty"`     // 进行中的流式请求的输出速度(字符/秒), 按发布时点计算; 结束后由前端改用用量推导的精确速度。
 
 	Round          int            `json:"round"`            // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
 	RoundStartedAt time.Time      `json:"round_started_at"` // 最新一轮上游请求的开始时间, 未开始过为零。
@@ -58,10 +61,16 @@ type RequestState struct {
 	responseBody string             // 聚合后的完整最终响应体, 同样按需拉取。
 	apiKeyID     int                // 发起请求的 API Key ID, 用于请求完成后的归属统计。
 	cancel       context.CancelFunc // 中止最新一轮上游请求, 仅在该轮等待响应期间非空。
+	// outputPublishAt 是实时速度下一次允许发布的时点, 用于把每个增量事件的推送收敛到每秒一次。
+	outputPublishAt time.Time
 }
 
 const streamBuffer = 16 // 单个状态流连接的非阻塞消息缓冲容量。
 const maxFinished = 50  // 进程内最多保留的已结束请求数量。
+
+// outputPublishInterval 是流式实时速度的发布节流间隔: 增量事件每秒可达数十上百个, 每事件推送会淹没状态流,
+// 故最快每秒发布一次速度快照, 期间只累加字符数。
+const outputPublishInterval = time.Second
 
 var (
 	idSeq    atomic.Uint64                          // 进程内严格递增的请求 ID。
@@ -173,6 +182,68 @@ func (r *RequestState) markPhase(phase string) {
 	publishRequestLocked(r)
 }
 
+// markFirstToken 记录首个有效上游响应到达时的首字耗时, 已记录过则不再覆盖(多轮重试取首次成功的时刻)。
+// 起点与转发日志落库的 ftut 同源同算法(见 firstTokenElapsedMs), 界面据此用「总耗时 − 首字」推导输出速度,
+// 使实时日志卡片与历史面板对同一请求给出相同数值。
+func (r *RequestState) markFirstToken(at time.Time) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if r.FirstTokenMs > 0 {
+		return
+	}
+	r.FirstTokenMs = firstTokenElapsedMs(r.StartedAt, at)
+}
+
+// firstTokenElapsedMs 计算首字耗时(毫秒): 首个有效上游响应到达时刻相对请求到达时间的毫秒数。
+// 实时状态的首字字段与转发日志的 ftut 共用此函数, 两处数值不会因算法分歧而不同。
+func firstTokenElapsedMs(startedAt, firstValidAt time.Time) int {
+	return int(firstValidAt.Sub(startedAt).Milliseconds())
+}
+
+// addOutputChars 累加流式输出已产出的正文字符数, 并按节流间隔发布速度快照 (R2)。
+// count 由事件解析搭车得出(见 parseStreamEvent), 思考增量与其它事件传零, 直接返回且不产生任何推送。
+// 首帧只立节流基线而不发布: 此刻距本轮开始不足一个间隔, 直接发布会把刚产出的字符数除以极短耗时得出虚高速度。
+func (r *RequestState) addOutputChars(count int) {
+	if count <= 0 {
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	r.OutputChars += int64(count)
+	now := time.Now()
+	if r.outputPublishAt.IsZero() {
+		r.outputPublishAt = now.Add(outputPublishInterval)
+		return
+	}
+	if now.Before(r.outputPublishAt) {
+		return
+	}
+	r.outputPublishAt = now.Add(outputPublishInterval)
+	r.OutputSpeed = outputCharSpeed(r.OutputChars, r.outputWindowStart(), now)
+	publishRequestLocked(r)
+}
+
+// outputWindowStart 返回实时速度的耗时窗口起点: 已提交的流式请求不会再换轮, 故取本轮上游请求的开始时间;
+// 尚未开始过轮次(例如测试直接构造的状态)时回退到请求到达时间。
+func (r *RequestState) outputWindowStart() time.Time {
+	if !r.RoundStartedAt.IsZero() {
+		return r.RoundStartedAt
+	}
+	return r.StartedAt
+}
+
+// outputCharSpeed 由已产出字符数与耗时窗口算出字符速度(字符/秒); 窗口非正时返回零, 避免除零或负速度。
+func outputCharSpeed(chars int64, start, now time.Time) int {
+	elapsed := now.Sub(start).Seconds()
+	if elapsed <= 0 {
+		return 0
+	}
+	return int(float64(chars) / elapsed)
+}
+
 // markSucceeded 以成功终态定稿请求。
 func (r *RequestState) markSucceeded(responseBody string, usage *llm.Usage) {
 	mu.Lock()
@@ -214,6 +285,9 @@ func (r *RequestState) markCanceled(err error, responseBody string, usage *llm.U
 func (r *RequestState) finishLocked(usage *llm.Usage) {
 	r.Sending = false
 	r.cancel = nil
+	// 实时速度只在流式进行中有值: 定稿后归零, 界面改用 usage 与耗时推导的精确速度 (R2/R5)。
+	r.OutputChars = 0
+	r.OutputSpeed = 0
 	if usage != nil {
 		r.Usage = *usage
 	}

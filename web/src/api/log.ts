@@ -41,6 +41,11 @@ export interface RelayLogOverview {
     client_name?: string;
     reasoning_effort?: string;
     phase?: RelayPhase;
+    // first_token_ms 是首个有效上游响应到达的首字耗时(毫秒), 定稿后保留, 与历史日志的 ftut 同一口径。
+    first_token_ms?: number;
+    // output_chars / output_speed 仅在流式进行中有值: 已产出的正文字符数与实时字符速度, 结束后归零改用用量推导的精确速度。
+    output_chars?: number;
+    output_speed?: number;
 }
 
 // useClearLogs 清空已完成的内存日志。

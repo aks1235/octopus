@@ -26,8 +26,7 @@ type upstreamResponse struct {
 	body   []byte                                  // 非流式响应的完整正文。
 	header http.Header                             // 同协议透传时需要原样返回的上游响应头。
 	events streams.Stream[*httpclient.StreamEvent] // 流式响应中首个事件之后的剩余事件。
-	first  *httpclient.StreamEvent                 // 已预读并验证的首个事件。
-	last   bool                                    // 首个事件已经终止整个响应流。
+	first  *httpclient.StreamEvent                 // 已预读并验证的首个事件; 其结束判定由转发循环统一解析得出。
 	usage  *llm.Usage                              // 上游本次可确认的用量。
 	// closeIdle 非 nil 时为渠道专用代理独占客户端的空闲连接归还入口, 消费方读完事件流后必须调用。
 	// 仅流式响应会带上它: 非流式响应返回时连接已经用完, 由发起方就地归还。
@@ -127,12 +126,12 @@ func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *h
 		if event == nil || len(event.Data) == 0 {
 			continue
 		}
-		last, err := inspectStreamEvent(format, event)
-		if err != nil {
+		// 首个事件必须先过结束判定: 以错误事件开场说明本轮不可提交, 交给外层换目标重试。
+		if _, err := inspectStreamEvent(format, event); err != nil {
 			events.Close()
 			return nil, fmt.Errorf("%w: %s", err, event.Data)
 		}
-		return &upstreamResponse{header: response.Header.Clone(), events: events, first: event, last: last}, nil
+		return &upstreamResponse{header: response.Header.Clone(), events: events, first: event}, nil
 	}
 
 	err = events.Err()
@@ -228,13 +227,12 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		if event == nil || len(event.Data) == 0 {
 			continue
 		}
-		last, err := inspectStreamEvent(format, event)
-		if err != nil {
+		if _, err := inspectStreamEvent(format, event); err != nil {
 			events.Close()
 			return nil, fmt.Errorf("%w: %s", err, event.Data)
 		}
 		committed = true
-		return &upstreamResponse{events: events, first: event, last: last, closeIdle: closeIdle}, nil
+		return &upstreamResponse{events: events, first: event, closeIdle: closeIdle}, nil
 	}
 
 	err = events.Err()

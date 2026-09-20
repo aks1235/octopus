@@ -476,6 +476,7 @@
             "cached": "快取 {count}",
             "ftut": "首字",
             "speed": "輸出速度",
+            "speedChars": "字元/秒",
             "requestBodySummary": "請求體 {size}，點開查看",
             "messageCount": "共 {count} 條訊息",
             "viewRequestBody": "查看請求體",
