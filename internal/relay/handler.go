@@ -325,21 +325,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			var chunks []*httpclient.StreamEvent
 			event := result.first
 			committed := false
-			phaseSettled := false // 已进入输出正文相位后不再重复分类。
-			last := false         // 当前事件是否已按客户端协议结束整个响应流, 由下方单次解析给出。
+			last := false // 当前事件是否已按客户端协议结束整个响应流, 由下方单次解析给出。
 			for {
 				if event != nil {
-					// 每事件只解析一次 (R4): 结束判定, 相位与正文增量字符数搭车同一份解析。
+					// 每事件只解析一次 (R4): 结束判定, 相位与增量字符数搭车同一份解析。
 					// 已提交的响应不能再换目标重试, 结束事件自身携带的失败原样转发给客户端, 并在转发后作为本请求终态。
 					parsed := parseStreamEvent(format, event)
 					last, err = parsed.last, parsed.err
-					// 相位只在首次正文增量前分类; markPhase 仅在相位变化时推送, 至多thinking与answering两次。
-					if !phaseSettled && parsed.phase != "" {
-						request.markPhase(parsed.phase)
-						phaseSettled = parsed.phase == phaseAnswering
-					}
-					// 正文字符量按同一份解析的增量长度累加, 供进行中的实时速度; 思考增量不计入 (R3)。
-					request.addOutputChars(parsed.textLen)
+					// 相位与字符量搭车同一份解析入账 (R1): 相位变化时重计时并推送, 思考增量计思考相位速度、
+					// 正文增量计输出相位速度; 相位未定或非增量事件不累计不发布。
+					request.addPhaseChars(parsed.phase, parsed.textLen+parsed.thinkingLen)
 					chunks = append(chunks, event)
 					encoded.Reset()
 					if encodeErr := sse.Encode(&encoded, sse.Event{Id: event.LastEventID, Event: event.Type, Data: event.Data}); encodeErr != nil {

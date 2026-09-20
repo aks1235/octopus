@@ -43,9 +43,10 @@ export interface RelayLogOverview {
     phase?: RelayPhase;
     // first_token_ms 是首个有效上游响应到达的首字耗时(毫秒), 定稿后保留, 与历史日志的 ftut 同一口径。
     first_token_ms?: number;
-    // output_chars / output_speed 仅在流式进行中有值: 已产出的正文字符数与实时字符速度, 结束后归零改用用量推导的精确速度。
-    output_chars?: number;
-    output_speed?: number;
+    // phase_chars / phase_speed 仅在流式进行中有值: 当前相位(phase)已产出的字符数与字符速度。
+    // 思考相位计思考增量、正文相位计正文增量, 相位切换时重新计时; 结束后归零改用用量推导的精确 tok/s。
+    phase_chars?: number;
+    phase_speed?: number;
 }
 
 // useClearLogs 清空已完成的内存日志。

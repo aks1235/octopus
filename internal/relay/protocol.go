@@ -57,17 +57,19 @@ func buildPassthroughRequest(format llm.APIFormat, raw *httpclient.Request, chan
 }
 
 // streamEventParse 是一次流事件解析的全部结论, 供流式循环按事件一次取用:
-// 结束判定与错误、输出相位、本次增量正文的字符数。四个字段的语义与既有的 inspectStreamEvent/streamEventPhase 一一对应。
+// 结束判定与错误、输出相位、本次增量正文与思考增量的字符数。
+// 其中 last/err/phase 与既有的 inspectStreamEvent/streamEventPhase 语义一一对应。
 type streamEventParse struct {
-	last    bool   // 该事件是否结束了整个响应流。
-	err     error  // 该事件本身导致的失败, 非 nil 时本轮不可提交。
-	phase   string // 该事件归属的输出相位, 空串表示不改变既有相位。
-	textLen int    // 该事件携带的正文增量字符数, 思考增量与其它事件为零。
+	last        bool   // 该事件是否结束了整个响应流。
+	err         error  // 该事件本身导致的失败, 非 nil 时本轮不可提交。
+	phase       string // 该事件归属的输出相位, 空串表示不改变既有相位。
+	textLen     int    // 该事件携带的正文增量字符数, 思考增量与其它事件为零。
+	thinkingLen int    // 该事件携带的思考增量字符数, 正文增量与其它事件为零; 用于思考相位的实时速度 (R1)。
 }
 
-// parseStreamEvent 按客户端协议单次解析一个流事件, 同时得出结束判定, 输出相位与正文增量字符数。
-// 每事件只解析一次 (R4): 相位分类, 实时速度的字符量与结束判定搭车同一份解析, 不为其中任何一项新增解析;
-// 思考增量不计入字符量, 与"输出速度"语义一致 (R3)。
+// parseStreamEvent 按客户端协议单次解析一个流事件, 同时得出结束判定, 输出相位与增量字符数。
+// 每事件只解析一次 (R4): 相位分类, 实时速度的字符量与结束判定搭车同一份解析, 不为其中任何一项新增解析。
+// 思考增量与正文增量分列两个字段: 思考期计思考相位速度、正文期计输出相位速度 (R1), 两者不混。
 // 事件此时已按客户端协议编码(同协议透传的原样, 跨协议转换后亦为客户端格式), 故一律按客户端协议分类;
 // 本函数不 panic, 供流式循环直接调用。
 func parseStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) streamEventParse {
@@ -97,7 +99,7 @@ func parseStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) strea
 		}
 		delta := chunk.Choices[0].Delta
 		if delta.ReasoningContent != nil && *delta.ReasoningContent != "" {
-			return streamEventParse{phase: phaseThinking}
+			return streamEventParse{phase: phaseThinking, thinkingLen: textCharCount(*delta.ReasoningContent)}
 		}
 		if delta.Content.Content != nil && *delta.Content.Content != "" {
 			return streamEventParse{phase: phaseAnswering, textLen: textCharCount(*delta.Content.Content)}
@@ -138,7 +140,7 @@ func parseStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) strea
 			}
 			return streamEventParse{last: true, err: &llm.ResponseError{Detail: llm.ErrorDetail{Code: parsed.Code, Message: parsed.Message, Type: "stream_error"}}}
 		case responses.StreamEventTypeReasoningSummaryTextDelta, responses.StreamEventTypeReasoningTextDelta:
-			return streamEventParse{phase: phaseThinking}
+			return streamEventParse{phase: phaseThinking, thinkingLen: textCharCount(parsed.Delta)}
 		case responses.StreamEventTypeOutputTextDelta:
 			return streamEventParse{phase: phaseAnswering, textLen: textCharCount(parsed.Delta)}
 		default:
@@ -176,7 +178,11 @@ func parseStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) strea
 		}
 		switch *parsed.Delta.Type {
 		case "thinking_delta":
-			return streamEventParse{phase: phaseThinking}
+			thinkingLen := 0
+			if parsed.Delta.Thinking != nil {
+				thinkingLen = textCharCount(*parsed.Delta.Thinking)
+			}
+			return streamEventParse{phase: phaseThinking, thinkingLen: thinkingLen}
 		case "text_delta":
 			textLen := 0
 			if parsed.Delta.Text != nil {

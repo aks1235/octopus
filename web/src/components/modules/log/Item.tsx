@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, type CSSProperties } from 'react';
-import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, Timer } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { type RelayLogOverview, useLogRequestBody, useLogResponseBody, useStopRound } from '@/api/log';
 import { useGroup, useUpdateGroup } from '@/api/group';
@@ -64,7 +64,7 @@ const PROTOCOL_LABELS: Record<number, string> = {
     [Protocol.AnthropicMessage]: 'Message',
 };
 
-// LogMetrics 渲染时间, 来源 Key, 耗时, 费用和 Token 指标; card 变体用于卡片栅格, footer 变体用于弹窗底部。
+// LogMetrics 渲染时间, 来源 Key, 耗时, 费用, 首字与 Token 指标; card 变体用于卡片栅格, footer 变体用于弹窗底部。
 function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; now: number; brandColor: string; variant: 'card' | 'footer' }) {
     const t = useTranslations('log.card');
     const cachedTokens = log.usage.prompt_tokens_details?.cached_tokens ?? 0;
@@ -75,29 +75,40 @@ function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; 
     const duration = requestActive
         ? formatMilliseconds(now - new Date(log.started_at).getTime())
         : formatMilliseconds(log.duration / 1_000_000);
-    // 速度: 进行中显示后端按增量正文长度累加的实时字符速度; 结束后用与历史面板同一口径推导精确 tok/s (R5):
-    // 生成窗口 = 总耗时 − 首字耗时, 故同一请求在实时卡片与历史面板/请求详情得到相同数值。
-    const liveSpeed = log.output_speed ?? 0;
+    // 速度: 进行中按后端下发的当前相位字符速度分阶段显示 (R1)——思考期「思考 N c/s」、正文期「输出 N c/s」,
+    // 相位切换时后端已重新计时, 故数字反映当前阶段自身速度; 相位未定或尚无快照时显示 -。
+    // 结束后用与历史面板同一口径推导精确 tok/s (R5): 生成窗口 = 总耗时 − 首字耗时,
+    // 故同一请求在实时卡片与历史面板/请求详情得到相同数值。
+    const liveSpeed = log.phase_speed ?? 0;
+    const liveSpeedText = log.phase === 'thinking'
+        ? (liveSpeed > 0 ? t('speedThinking', { value: liveSpeed.toLocaleString() }) : '-')
+        : log.phase === 'answering'
+            ? (liveSpeed > 0 ? t('speedAnswering', { value: liveSpeed.toLocaleString() }) : '-')
+            : '-';
     const finalSpeed = outputSpeed(log.usage.completion_tokens, log.duration / 1_000_000, log.first_token_ms ?? 0);
     const speedText = requestActive
-        ? (liveSpeed > 0 ? `${liveSpeed.toLocaleString()} ${t('speedChars')}` : '-')
+        ? liveSpeedText
         : (finalSpeed !== null ? `${formatRate(finalSpeed).formatted.value} ${formatRate(finalSpeed).formatted.unit}` : '-');
+    // 首字耗时 (R2): 首个有效响应到达即由后端写下毫秒数, 进行中尚未取得时为空, 此刻显示 -。
+    const firstTokenText = (log.first_token_ms ?? 0) > 0 ? formatMilliseconds(log.first_token_ms ?? 0) : '-';
+    // 每一项都带 title (R3): 指标格含义一句话说清, 文案走 i18n; API Key 格另附完整名称, 便于截断时辨认。
     const metrics = [
-        { key: 'time', Icon: Clock, iconClassName: 'size-3.5 shrink-0', iconStyle: { color: brandColor } as CSSProperties, value: formatTime(log.started_at), valueClassName: 'tabular-nums', cellClassName: 'col-span-4 whitespace-nowrap md:col-span-1' },
-        { key: 'apiKey', Icon: KeyRound, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: log.api_key_name || '-', valueClassName: 'truncate', cellClassName: 'col-span-4 md:col-span-1' },
-        { key: 'duration', Icon: Cpu, iconClassName: 'size-3.5 shrink-0 text-blue-500', value: duration, cellClassName: 'col-span-4 md:col-span-1' },
-        { key: 'cost', Icon: DollarSign, iconClassName: 'size-3.5 shrink-0 text-emerald-500', value: log.cost.toFixed(6), valueClassName: 'font-medium text-emerald-600 dark:text-emerald-400', cellClassName: 'col-span-4 md:col-span-1' },
-        { key: 'prompt', Icon: ArrowDownToLine, iconClassName: 'size-3.5 shrink-0 text-green-500', value: (log.usage.prompt_tokens - cachedTokens).toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
-        { key: 'cached', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-cyan-500', value: cacheRate === null ? cachedTokens.toLocaleString() : `${cachedTokens.toLocaleString()} (${cacheRate}%)`, cellClassName: 'col-span-3 md:col-span-1' },
-        { key: 'completion', Icon: ArrowUpFromLine, iconClassName: 'size-3.5 shrink-0 text-purple-500', value: log.usage.completion_tokens.toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
-        { key: 'cacheWrite', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: (log.usage.prompt_tokens_details?.write_cached_tokens ?? 0).toLocaleString(), cellClassName: 'col-span-3 md:col-span-1' },
-        { key: 'speed', Icon: Gauge, iconClassName: 'size-3.5 shrink-0 text-sky-500', value: speedText, cellClassName: 'col-span-3 md:col-span-1' },
+        { key: 'time', Icon: Clock, iconClassName: 'size-3.5 shrink-0', iconStyle: { color: brandColor } as CSSProperties, value: formatTime(log.started_at), valueClassName: 'tabular-nums', cellClassName: 'whitespace-nowrap', title: t('tipTime') },
+        { key: 'apiKey', Icon: KeyRound, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: log.api_key_name || '-', valueClassName: 'truncate', title: log.api_key_name ? `${t('tipApiKey')}: ${log.api_key_name}` : t('tipApiKey') },
+        { key: 'duration', Icon: Cpu, iconClassName: 'size-3.5 shrink-0 text-blue-500', value: duration, title: t('tipDuration') },
+        { key: 'cost', Icon: DollarSign, iconClassName: 'size-3.5 shrink-0 text-emerald-500', value: log.cost.toFixed(6), valueClassName: 'font-medium text-emerald-600 dark:text-emerald-400', title: t('tipCost') },
+        { key: 'prompt', Icon: ArrowDownToLine, iconClassName: 'size-3.5 shrink-0 text-green-500', value: (log.usage.prompt_tokens - cachedTokens).toLocaleString(), title: t('tipPrompt') },
+        { key: 'cached', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-cyan-500', value: cacheRate === null ? cachedTokens.toLocaleString() : `${cachedTokens.toLocaleString()} (${cacheRate}%)`, title: t('tipCached') },
+        { key: 'completion', Icon: ArrowUpFromLine, iconClassName: 'size-3.5 shrink-0 text-purple-500', value: log.usage.completion_tokens.toLocaleString(), title: t('tipCompletion') },
+        { key: 'cacheWrite', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: (log.usage.prompt_tokens_details?.write_cached_tokens ?? 0).toLocaleString(), title: t('tipCacheWrite') },
+        { key: 'speed', Icon: Gauge, iconClassName: 'size-3.5 shrink-0 text-sky-500', value: speedText, title: t('tipSpeed') },
+        { key: 'firstToken', Icon: Timer, iconClassName: 'size-3.5 shrink-0 text-amber-500', value: firstTokenText, valueClassName: 'tabular-nums', cellClassName: 'whitespace-nowrap', title: t('tipFirstToken') },
     ];
 
     return metrics.map((metric) => (
         <div
             key={metric.key}
-            title={metric.key === 'apiKey' ? log.api_key_name : metric.key === 'speed' ? t('speed') : undefined}
+            title={metric.title}
             className={cn('flex min-w-0 items-center gap-1.5', variant === 'card' && metric.cellClassName)}
         >
             <metric.Icon className={metric.iconClassName} style={metric.iconStyle} />
@@ -502,9 +513,10 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                                 {actualModel}
                             </span>
                         </div>
-                        {/* 九项指标在 md/lg 宽度下挤成一行会溢出(缓存率与速度为长文本, 单元格仅剩约 50-75px),
-                            故 md 起每行五项、xl(容器已到 max-w-6xl)才并成一行, 与移动端 col-span 断点配合。 */}
-                        <div className="grid grid-cols-12 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-5 xl:grid-cols-9">
+                        {/* 十项指标挤成一行会溢出(缓存率与相位速度为长文本, 单元格仅剩约 50-75px):
+                            移动端每行两项(宽度充足), md 起每行五项共两行; 十项要单行需每格约 98px, 容不下「1,234 (87%)」
+                            与「输出 1,234 字符/秒」这类最长值, 故不再按 xl 并成一行。 */}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-5">
                             <LogMetrics log={log} now={now} brandColor={brandColor} variant="card" />
                         </div>
                         {requestFailed && errorText && (

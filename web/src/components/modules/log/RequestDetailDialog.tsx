@@ -87,18 +87,18 @@ export function RequestDetailDialog({ open, onOpenChange, requestId }: RequestDe
                     <div className="flex-1 min-h-0 flex flex-col gap-3 p-6 overflow-hidden">
                         {/* 顶部指标条 */}
                         <div className="flex flex-wrap items-center gap-2 text-xs shrink-0">
-                            <Badge variant="secondary" className="gap-1">
+                            <Badge variant="secondary" className="gap-1" title={t('tipDuration')}>
                                 <Clock className="size-3" /> {detail.use_time}ms
                             </Badge>
-                            <Badge variant="secondary">
+                            <Badge variant="secondary" title={`${t('tipPrompt')} / ${t('tipCompletion')}`}>
                                 {detail.input_tokens.toLocaleString()} → {detail.output_tokens.toLocaleString()} {t('tokens')}
                             </Badge>
                             {speedText && (
-                                <Badge variant="secondary" className="gap-1" title={t('speed')}>
+                                <Badge variant="secondary" className="gap-1" title={t('tipSpeed')}>
                                     <Gauge className="size-3" /> {speedText.value} {speedText.unit}
                                 </Badge>
                             )}
-                            <Badge variant="secondary" className="gap-1">
+                            <Badge variant="secondary" className="gap-1" title={t('tipCost')}>
                                 <Coins className="size-3" /> ${detail.cost.toFixed(4)}
                             </Badge>
                             <span className="text-muted-foreground ml-auto truncate">{detail.request_model_name}</span>

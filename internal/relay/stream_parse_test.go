@@ -155,37 +155,37 @@ func drainSnapshotCount(stream chan RequestState) int {
 	}
 }
 
-// TestRequestStateAddOutputCharsThrottles 验证字符量累加与节流发布 (R2 / AC2):
-// 非正文事件不累加不推送; 首个正文事件只立节流基线; 节流期内的增量只累加; 到达发布时点才推送一次速度快照。
-func TestRequestStateAddOutputCharsThrottles(t *testing.T) {
+// TestRequestStateAddPhaseCharsThrottles 验证字符量累加与节流发布 (R1/R2):
+// 非增量事件不累加不推送; 首个增量事件只立节流基线; 节流期内的增量只累加; 到达发布时点才推送一次速度快照。
+func TestRequestStateAddPhaseCharsThrottles(t *testing.T) {
 	stream, unwatch := watchRequestState()
 	defer unwatch()
 
-	// 耗时窗口固定为 2 秒, 使速度断言可预期。
-	request := &RequestState{RoundStartedAt: time.Now().Add(-2 * time.Second)}
+	// 相位起点固定为 2 秒前, 使速度断言可预期。
+	request := &RequestState{Phase: phaseAnswering, phaseStartedAt: time.Now().Add(-2 * time.Second)}
 
-	request.addOutputChars(0) // 思考增量与其他非正文事件传 0。
-	if request.OutputChars != 0 {
-		t.Fatalf("OutputChars = %d, want 0 for zero-count event", request.OutputChars)
+	request.addPhaseChars("", 0) // 非增量事件传 0, 也不带相位。
+	if request.PhaseChars != 0 {
+		t.Fatalf("PhaseChars = %d, want 0 for zero-count event", request.PhaseChars)
 	}
 	if got := drainSnapshotCount(stream); got != 0 {
 		t.Fatalf("published %d snapshots for zero-count event, want 0", got)
 	}
 
-	request.addOutputChars(5) // 首个正文增量只立节流基线, 不发布。
-	if request.OutputChars != 5 {
-		t.Fatalf("OutputChars = %d, want 5", request.OutputChars)
+	request.addPhaseChars("", 5) // 首个增量只立节流基线, 不发布。
+	if request.PhaseChars != 5 {
+		t.Fatalf("PhaseChars = %d, want 5", request.PhaseChars)
 	}
 	if got := drainSnapshotCount(stream); got != 0 {
-		t.Fatalf("published %d snapshots on first text event, want 0", got)
+		t.Fatalf("published %d snapshots on first increment, want 0", got)
 	}
-	if request.OutputSpeed != 0 {
-		t.Fatalf("OutputSpeed = %d, want 0 before first publish", request.OutputSpeed)
+	if request.PhaseSpeed != 0 {
+		t.Fatalf("PhaseSpeed = %d, want 0 before first publish", request.PhaseSpeed)
 	}
 
-	request.addOutputChars(7) // 节流期内: 累加但不发布。
-	if request.OutputChars != 12 {
-		t.Fatalf("OutputChars = %d, want 12", request.OutputChars)
+	request.addPhaseChars("", 7) // 节流期内: 累加但不发布。
+	if request.PhaseChars != 12 {
+		t.Fatalf("PhaseChars = %d, want 12", request.PhaseChars)
 	}
 	if got := drainSnapshotCount(stream); got != 0 {
 		t.Fatalf("published %d snapshots inside throttle window, want 0", got)
@@ -196,15 +196,131 @@ func TestRequestStateAddOutputCharsThrottles(t *testing.T) {
 	request.outputPublishAt = time.Now().Add(-time.Millisecond)
 	mu.Unlock()
 
-	request.addOutputChars(8)
-	if request.OutputChars != 20 {
-		t.Fatalf("OutputChars = %d, want 20", request.OutputChars)
+	request.addPhaseChars("", 8)
+	if request.PhaseChars != 20 {
+		t.Fatalf("PhaseChars = %d, want 20", request.PhaseChars)
 	}
 	if got := drainSnapshotCount(stream); got != 1 {
 		t.Fatalf("published %d snapshots at throttle deadline, want 1", got)
 	}
-	if request.OutputSpeed < 9 || request.OutputSpeed > 10 { // 20 字符 / 约 2 秒
-		t.Fatalf("OutputSpeed = %d, want about 10", request.OutputSpeed)
+	if request.PhaseSpeed < 9 || request.PhaseSpeed > 10 { // 20 字符 / 约 2 秒
+		t.Fatalf("PhaseSpeed = %d, want about 10", request.PhaseSpeed)
+	}
+}
+
+// TestRequestStateAddPhaseCharsResetsOnPhaseSwitch 验证相位切换(思考→正文)时重新计时 (R1):
+// 思考期速度按思考字符与思考窗口算; 切入正文后字符量与计时起点归零, 正文速度只反映正文阶段的字符与时间。
+func TestRequestStateAddPhaseCharsResetsOnPhaseSwitch(t *testing.T) {
+	_, unwatch := watchRequestState()
+	defer unwatch()
+
+	// 思考期: 固定窗口 2 秒, 到达发布时点后速度约 20 c/s。
+	request := &RequestState{Phase: phaseThinking, phaseStartedAt: time.Now().Add(-2 * time.Second), PhaseChars: 38}
+	mu.Lock()
+	request.outputPublishAt = time.Now().Add(-time.Millisecond)
+	mu.Unlock()
+
+	request.addPhaseChars(phaseThinking, 2)
+	if request.PhaseChars != 40 {
+		t.Fatalf("thinking PhaseChars = %d, want 40", request.PhaseChars)
+	}
+	if request.PhaseSpeed < 19 || request.PhaseSpeed > 21 {
+		t.Fatalf("thinking PhaseSpeed = %d, want about 20", request.PhaseSpeed)
+	}
+
+	// 切入正文: 字符量与计时起点重置, 相位切换本身推送一次, 首批正文字符只立新的节流基线。
+	request.addPhaseChars(phaseAnswering, 10)
+	if request.Phase != phaseAnswering {
+		t.Fatalf("Phase = %q, want %q", request.Phase, phaseAnswering)
+	}
+	if request.PhaseChars != 10 || request.PhaseSpeed != 0 {
+		t.Fatalf("after switch PhaseChars/PhaseSpeed = %d/%d, want 10/0", request.PhaseChars, request.PhaseSpeed)
+	}
+	if time.Since(request.phaseStartedAt) > time.Second {
+		t.Fatalf("phaseStartedAt not reset on phase switch: %v", request.phaseStartedAt)
+	}
+
+	// 正文期到达发布时点: 速度按正文阶段的字符与时间算 (30 字符 / 2 秒 = 15 c/s)。
+	mu.Lock()
+	request.phaseStartedAt = time.Now().Add(-2 * time.Second)
+	request.outputPublishAt = time.Now().Add(-time.Millisecond)
+	mu.Unlock()
+	request.addPhaseChars(phaseAnswering, 20)
+	if request.PhaseChars != 30 {
+		t.Fatalf("answering PhaseChars = %d, want 30", request.PhaseChars)
+	}
+	if request.PhaseSpeed < 14 || request.PhaseSpeed > 16 {
+		t.Fatalf("answering PhaseSpeed = %d, want about 15", request.PhaseSpeed)
+	}
+}
+
+// TestRequestStateAddPhaseCharsWithoutPhase 验证相位未定(未识别出相位)时不累计也不发布 (R1):
+// 界面据此在该状态下继续显示「-」, 与既有的相位未定表现一致。
+func TestRequestStateAddPhaseCharsWithoutPhase(t *testing.T) {
+	stream, unwatch := watchRequestState()
+	defer unwatch()
+
+	request := &RequestState{StartedAt: time.Now().Add(-2 * time.Second)}
+	request.addPhaseChars("", 7)
+	if request.PhaseChars != 0 || request.PhaseSpeed != 0 {
+		t.Fatalf("PhaseChars/PhaseSpeed = %d/%d, want 0/0 while phase is unset", request.PhaseChars, request.PhaseSpeed)
+	}
+	if got := drainSnapshotCount(stream); got != 0 {
+		t.Fatalf("published %d snapshots without phase, want 0", got)
+	}
+}
+
+// TestRequestStateAddPhaseCharsNoBackToThinking 固定既有语义 (AC5):
+// 已进入正文相位后, 收尾分片混入的思考增量既不让相位与计时倒退, 也不计入正文相位的字符量
+// (否则思考字符会抬高「输出 c/s」), 该阶段字符量保持不变。
+func TestRequestStateAddPhaseCharsNoBackToThinking(t *testing.T) {
+	stream, unwatch := watchRequestState()
+	defer unwatch()
+
+	start := time.Now().Add(-2 * time.Second)
+	request := &RequestState{Phase: phaseAnswering, phaseStartedAt: start, PhaseChars: 30}
+
+	request.addPhaseChars(phaseThinking, 5)
+	if request.Phase != phaseAnswering {
+		t.Fatalf("Phase = %q, want %q (must not fall back to thinking)", request.Phase, phaseAnswering)
+	}
+	if request.PhaseChars != 30 {
+		t.Fatalf("PhaseChars = %d, want 30 (thinking chars must not be counted into the answering phase)", request.PhaseChars)
+	}
+	if !request.phaseStartedAt.Equal(start) {
+		t.Fatalf("phaseStartedAt = %v, want the answering window %v kept unchanged", request.phaseStartedAt, start)
+	}
+	if got := drainSnapshotCount(stream); got != 0 {
+		t.Fatalf("published %d snapshots for blocked thinking delta, want 0", got)
+	}
+}
+
+// TestParseStreamEventThinkingChars 验证思考增量带出思考字符数 (R1):
+// 三种协议均按字符计, 正文增量与其它事件为零, 与正文增量字段互不重叠。
+func TestParseStreamEventThinkingChars(t *testing.T) {
+	cases := []struct {
+		name   string
+		format llm.APIFormat
+		data   string
+		want   int
+	}{
+		{"chat reasoning", llm.APIFormatOpenAIChatCompletion, `{"choices":[{"delta":{"reasoning_content":"思考中"}}]}`, 3},
+		{"chat content", llm.APIFormatOpenAIChatCompletion, `{"choices":[{"delta":{"content":"abcd"}}]}`, 0},
+		{"anthropic thinking", llm.APIFormatAnthropicMessage, `{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"思考中"}}`, 3},
+		{"anthropic thinking without text", llm.APIFormatAnthropicMessage, `{"type":"content_block_delta","delta":{"type":"thinking_delta"}}`, 0},
+		{"anthropic text", llm.APIFormatAnthropicMessage, `{"type":"content_block_delta","delta":{"type":"text_delta","text":"abcd"}}`, 0},
+		{"responses reasoning text", llm.APIFormatOpenAIResponse, `{"type":"response.reasoning_text.delta","delta":"思考中"}`, 3},
+		{"responses reasoning summary", llm.APIFormatOpenAIResponse, `{"type":"response.reasoning_summary_text.delta","delta":"思考中"}`, 3},
+		{"responses output text", llm.APIFormatOpenAIResponse, `{"type":"response.output_text.delta","delta":"abcd"}`, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed := parseStreamEvent(tc.format, rawStreamEvent(tc.data))
+			if parsed.thinkingLen != tc.want {
+				t.Errorf("thinkingLen = %d, want %d", parsed.thinkingLen, tc.want)
+			}
+		})
 	}
 }
 
@@ -297,14 +413,14 @@ func TestRequestState_finishClearsLiveSpeed(t *testing.T) {
 	setupRelayLogTest(t)
 
 	request := &RequestState{Status: StatusCommitted, StartedAt: time.Now().Add(-time.Second)}
-	request.OutputChars = 120
-	request.OutputSpeed = 60
+	request.PhaseChars = 120
+	request.PhaseSpeed = 60
 	request.markFirstToken(time.Now())
 
 	request.markSucceeded("RESP-BODY", nil)
 
-	if request.OutputChars != 0 || request.OutputSpeed != 0 {
-		t.Errorf("OutputChars/OutputSpeed = %d/%d after finish, want 0/0", request.OutputChars, request.OutputSpeed)
+	if request.PhaseChars != 0 || request.PhaseSpeed != 0 {
+		t.Errorf("PhaseChars/PhaseSpeed = %d/%d after finish, want 0/0", request.PhaseChars, request.PhaseSpeed)
 	}
 	if request.FirstTokenMs <= 0 {
 		t.Errorf("FirstTokenMs = %d after finish, want it kept for the completed speed", request.FirstTokenMs)

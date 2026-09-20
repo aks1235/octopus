@@ -63,18 +63,18 @@ function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><Zap className="size-3" />{log.channel_name || '-'}</span>
                 {log.request_api_key_name && (
-                    <span className="inline-flex items-center gap-1"><KeyRound className="size-3" />{log.request_api_key_name}</span>
+                    <span title={t('tipApiKey')} className="inline-flex items-center gap-1"><KeyRound className="size-3" />{log.request_api_key_name}</span>
                 )}
-                <span>{log.input_tokens.toLocaleString()} → {log.output_tokens.toLocaleString()} {t('tokens')}</span>
+                <span title={`${t('tipPrompt')} / ${t('tipCompletion')}`}>{log.input_tokens.toLocaleString()} → {log.output_tokens.toLocaleString()} {t('tokens')}</span>
                 {speedText && (
-                    <span title={t('speed')} className="inline-flex items-center gap-1">
+                    <span title={t('tipSpeed')} className="inline-flex items-center gap-1">
                         <Gauge className="size-3" />{speedText.value} {speedText.unit}
                     </span>
                 )}
-                {log.cached_tokens > 0 && <span>{t('cached', { count: log.cached_tokens.toLocaleString() })}</span>}
-                <span className="inline-flex items-center gap-1"><Clock className="size-3" />{formatDuration(log.use_time)}</span>
-                {log.ftut > 0 && <span>{t('ftut')}: {formatDuration(log.ftut)}</span>}
-                <span className="inline-flex items-center gap-1"><Coins className="size-3" />${log.cost.toFixed(4)}</span>
+                {log.cached_tokens > 0 && <span title={t('tipCached')}>{t('cached', { count: log.cached_tokens.toLocaleString() })}</span>}
+                <span title={t('tipDuration')} className="inline-flex items-center gap-1"><Clock className="size-3" />{formatDuration(log.use_time)}</span>
+                {log.ftut > 0 && <span title={t('tipFirstToken')}>{t('ftut')}: {formatDuration(log.ftut)}</span>}
+                <span title={t('tipCost')} className="inline-flex items-center gap-1"><Coins className="size-3" />${log.cost.toFixed(4)}</span>
             </div>
             {failed && (
                 <div className="mt-2 rounded-lg bg-destructive/10 px-2 py-1 text-xs text-destructive/90 font-mono truncate">

@@ -46,8 +46,8 @@ type RequestState struct {
 	ReasoningEffort string `json:"reasoning_effort,omitempty"` // 客户端请求携带的思考等级; 非推理请求为空。
 	Phase           string `json:"phase,omitempty"`            // 流式输出相位: "" 未定 / "thinking" 思考中 / "answering" 输出正文; 仅流式请求有值。
 	FirstTokenMs    int    `json:"first_token_ms,omitempty"`   // 首字耗时(毫秒), 首个有效上游响应到达时相对请求到达时间计; 未取得响应前为空, 定稿后保留。
-	OutputChars     int64  `json:"output_chars,omitempty"`     // 进行中的流式请求已产出的正文字符数, 由增量正文长度累加, 思考增量不计; 仅流式进行中有值。
-	OutputSpeed     int    `json:"output_speed,omitempty"`     // 进行中的流式请求的输出速度(字符/秒), 按发布时点计算; 结束后由前端改用用量推导的精确速度。
+	PhaseChars      int64  `json:"phase_chars,omitempty"`      // 进行中的流式请求在当前相位已产出的字符数(思考相位计思考增量, 正文相位计正文增量); 相位未定或已定稿时为空。
+	PhaseSpeed      int    `json:"phase_speed,omitempty"`      // 进行中的流式请求在当前相位的字符速度(字符/秒), 按相位起点到发布时点计算; 结束后由前端改用用量推导的精确速度。
 
 	Round          int            `json:"round"`            // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
 	RoundStartedAt time.Time      `json:"round_started_at"` // 最新一轮上游请求的开始时间, 未开始过为零。
@@ -63,6 +63,8 @@ type RequestState struct {
 	cancel       context.CancelFunc // 中止最新一轮上游请求, 仅在该轮等待响应期间非空。
 	// outputPublishAt 是实时速度下一次允许发布的时点, 用于把每个增量事件的推送收敛到每秒一次。
 	outputPublishAt time.Time
+	// phaseStartedAt 是当前相位的计时起点: 相位切换(思考→正文)时重置, 使速度快照反映新相位自身的速度而非整轮均值。
+	phaseStartedAt time.Time
 }
 
 const streamBuffer = 16 // 单个状态流连接的非阻塞消息缓冲容量。
@@ -170,15 +172,32 @@ func (r *RequestState) markCommitted() {
 }
 
 // markPhase 更新流式请求的输出相位; 相位未变化时不赋值也不推送, 因而每个请求至多推送两次(进 thinking, 进 answering)。
-// 仅流式循环在提交后调用, 非流式与未识别出相位的事件保持留空。
+// 相位切换时一并重置相位字符量与计时起点(思考→正文重新计时), 使速度反映新相位自身的速度; 仅流式循环在提交后调用,
+// 非流式与未识别出相位的事件保持留空。
 func (r *RequestState) markPhase(phase string) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	r.markPhaseLocked(phase)
+}
+
+// markPhaseLocked 是 markPhase 的持锁版本, 供相位与字符量在同一次加锁内一并入账 (见 addPhaseChars) 时复用。
+func (r *RequestState) markPhaseLocked(phase string) {
 	if r.Phase == phase {
 		return
 	}
+	// 已进入正文后不再回退到思考: 少数上游会在收尾分片里混入 reasoning 增量, 不应把相位与计时倒退
+	// (与合并前「进入 answering 即不再分类」的既有语义一致)。
+	if r.Phase == phaseAnswering && phase == phaseThinking {
+		return
+	}
 	r.Phase = phase
+	// 新相位从零开始: 思考期与正文期的字符量各归各, 互不掺入对方的字符与时间。
+	r.PhaseChars = 0
+	r.PhaseSpeed = 0
+	r.phaseStartedAt = time.Now()
+	// 节流基线一并重置, 使新相位的首个速度快照在完整间隔后发布, 避免除以极短窗口得出虚高速度。
+	r.outputPublishAt = time.Time{}
 	publishRequestLocked(r)
 }
 
@@ -201,18 +220,25 @@ func firstTokenElapsedMs(startedAt, firstValidAt time.Time) int {
 	return int(firstValidAt.Sub(startedAt).Milliseconds())
 }
 
-// addOutputChars 累加流式输出已产出的正文字符数, 并按节流间隔发布速度快照 (R2)。
-// count 由事件解析搭车得出(见 parseStreamEvent), 思考增量与其它事件传零, 直接返回且不产生任何推送。
-// 首帧只立节流基线而不发布: 此刻距本轮开始不足一个间隔, 直接发布会把刚产出的字符数除以极短耗时得出虚高速度。
-func (r *RequestState) addOutputChars(count int) {
-	if count <= 0 {
-		return
-	}
-
+// addPhaseChars 把一次流事件的相位与增量字符数入账, 并按节流间隔发布当前相位的速度快照 (R1/R2)。
+// phase 非空时按事件相位切换(见 markPhaseLocked), 切换即重置字符量与计时起点, 使思考→正文重新计时;
+// count 为该事件携带的增量字符数, 由事件解析搭车得出(见 parseStreamEvent): 思考增量计思考字符, 正文增量计正文
+// 字符, 一次事件至多落入其中一类, 故两者可相加传入。
+// 相位未定(未识别出相位)时不累计也不发布, 与界面「相位未定显示 -」的既有表现一致。
+// 首帧只立节流基线而不发布: 此刻距相位起点不足一个间隔, 直接发布会把刚产出的字符数除以极短耗时得出虚高速度。
+func (r *RequestState) addPhaseChars(phase string, count int) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	r.OutputChars += int64(count)
+	if phase != "" {
+		r.markPhaseLocked(phase)
+	}
+	// 入账相位必须与当前相位一致: 被阻断的相位回退(进入正文后收尾分片混入的思考增量)不并入当前相位,
+	// 否则思考字符会抬高正文相位的「输出 c/s」, 与界面「输出速度只反映正文增量」的语义不符 (R1)。
+	if count <= 0 || r.Phase == "" || (phase != "" && phase != r.Phase) {
+		return
+	}
+	r.PhaseChars += int64(count)
 	now := time.Now()
 	if r.outputPublishAt.IsZero() {
 		r.outputPublishAt = now.Add(outputPublishInterval)
@@ -222,8 +248,17 @@ func (r *RequestState) addOutputChars(count int) {
 		return
 	}
 	r.outputPublishAt = now.Add(outputPublishInterval)
-	r.OutputSpeed = outputCharSpeed(r.OutputChars, r.outputWindowStart(), now)
+	r.PhaseSpeed = outputCharSpeed(r.PhaseChars, r.phaseWindowStart(), now)
 	publishRequestLocked(r)
+}
+
+// phaseWindowStart 返回当前相位速度的耗时窗口起点: 正常路径下相位切换时已写入相位起点;
+// 尚未识别出相位(例如测试直接构造的状态)时回退到本轮或请求起点, 保证窗口非零。
+func (r *RequestState) phaseWindowStart() time.Time {
+	if !r.phaseStartedAt.IsZero() {
+		return r.phaseStartedAt
+	}
+	return r.outputWindowStart()
 }
 
 // outputWindowStart 返回实时速度的耗时窗口起点: 已提交的流式请求不会再换轮, 故取本轮上游请求的开始时间;
@@ -286,8 +321,8 @@ func (r *RequestState) finishLocked(usage *llm.Usage) {
 	r.Sending = false
 	r.cancel = nil
 	// 实时速度只在流式进行中有值: 定稿后归零, 界面改用 usage 与耗时推导的精确速度 (R2/R5)。
-	r.OutputChars = 0
-	r.OutputSpeed = 0
+	r.PhaseChars = 0
+	r.PhaseSpeed = 0
 	if usage != nil {
 		r.Usage = *usage
 	}
