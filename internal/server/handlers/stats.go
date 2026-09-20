@@ -105,7 +105,9 @@ func getStatsHourly(c *gin.Context) {
 	resp.Success(c, hourly)
 }
 
-// getStatsRank 按选中日从 relay_logs 聚合渠道与模型排名; date 缺省为今天。
+// getStatsRank 按选中日返回渠道与模型排名; date 缺省为今天。
+// 数据来源以永久汇总表(stats_channel_dailies/stats_model_dailies)为先, 该日尚无汇总行时
+// 回退实时聚合 relay_logs(覆盖首次折叠前的窗口)。
 func getStatsRank(c *gin.Context) {
 	date, ok := statsDateQuery(c)
 	if !ok {

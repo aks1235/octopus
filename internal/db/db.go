@@ -74,6 +74,8 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.StatsTotal{},
 		&model.StatsDaily{},
 		&model.StatsHourly{},
+		&model.StatsChannelDaily{},
+		&model.StatsModelDaily{},
 		&model.StatsAPIKey{},
 		&migrate.MigrationRecord{},
 	); err != nil {

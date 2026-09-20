@@ -136,8 +136,7 @@
             "noData": "No ranking data",
             "successRate": "Success Rate",
             "daily": "Daily",
-            "total": "All-time",
-            "beyondRetention": "This date is beyond the log retention period; no daily data"
+            "total": "All-time"
         }
     },
     "setting": {

@@ -68,8 +68,12 @@ var attempts []model.ChannelAttempt
 defer func() { relayLogFinalize(request, metadata.Model, attempts, apiKeyID, userAgent, firstValidAt) }()
 ```
 
-## 关联:stats_hourlies 按日期留存(v2.2.0 起)
+## 关联:统计永久化(v2.3.0 起)
 
-- StatsHourly 复合主键 (date, hour),不再是 24 格环形——历史小时曲线按日期留存,跨天写新行。
-- 清理挂 `relayLogCleanup`:与转发日志同一 `relay_log_keep_period` 口径(DB 行与内存缓存同步淘汰)。已知边界:`relay_log_keep_enabled=false` 时小时行不清理(与 stats_dailies 永久留存现状一致,已接受)。
-- 按天渠道/模型排名(`/stats/rank?date=`)从 relay_logs GROUP BY 聚合,渠道只按 channel_id 分组(名称取 MAX,防同日改名拆行撞 React key);超保留期整日 `available=false`。
+- StatsHourly 复合主键 (date, hour),不再是 24 格环形——历史小时曲线按日期留存,跨天写新行。**不再随日志保留期清理**(曲线永久留存,与 `relay_log_keep_period` 解耦)。
+- 每日渠道/模型排名落永久汇总表 `StatsChannelDaily(date,channel_id)` / `StatsModelDaily(date,model_name)(`internal/model/stats.go`): `op.StatsDailyRankFold(ctx, dates)` 从 relay_logs 聚合后整体替换(事务内 delete+insert),幂等;渠道按 channel_id 分组名称取 MAX(防同日改名拆行撞 React key)。
+- 折叠触发点两处: `StatsSaveDBTask` 每周期折叠今天+昨天(未启用日志保存时跳过);`relayLogCleanup` 删日志前折叠即将被删的整日。
+- `relayLogCleanup` 只按「整日」淘汰(cutoff 取整到本地日 0 点):保证删前折叠时该日日志完整,避免同一天被多次部分删除后重复折叠把当日汇总覆盖小(丢账);折叠失败则本轮不删,下轮幂等重试。
+- `/stats/rank?date=` 按日期分流:**今天**直接实时聚合 relay_logs(今日数据每分钟在变,读每周期重算的汇总表会落后一个周期;今日日志必在保留期内);**历史日**优先读汇总表,无汇总行时回退实时聚合。`available` 恒 true(统计永久化后数据来源恒存在,不再表示「超出保留期」)。
+- **折叠空聚合护栏**:`statsDailyRankFoldOne` 聚合为空时,仅今天/昨天照常整体替换(这两天在保留期内,空即真实无流量);更早的历史日直接跳过,保留既有汇总——避免「清空历史日志」或历史日日志更早被清理后,整日 delete+insert 把永久汇总抹空(抹账)。
+- **时区无关**:清理前定位「即将被删的日期」不折算 SQL 方言日期(`relayLogDistinctDatesBefore`,`internal/op/log.go`):先 `SELECT MIN(time) FROM relay_logs WHERE time < cutoff`(纯数值比较),再在 Go 侧用 `time.Unix(...).In(time.Local)` + `AddDate` 从最早日志的本地日逐日迭代到 cutoff 所在日。这样与 Go `time.Local` 强一致,DST 由 `AddDate` 自然处理,不再依赖数据库会话时区(旧方案 mysql/postgres 取会话时区,与 Go 不一致时会折叠错日期、抹空永久汇总)。

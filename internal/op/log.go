@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -127,6 +128,15 @@ func relayLogSaveDB(ctx context.Context) error {
 	return nil
 }
 
+// relayLogCleanup 按 relay_log_keep_period(天)清理过期转发日志。
+//
+// 三处与「统计永久化」相关的约定:
+//  1. 曲线永久: 删日志不再顺带删小时统计行(stats_hourlies 按 (date, hour) 永久留存)。
+//  2. 汇总不丢账: 只按「整日」淘汰 —— cutoff 取整到本地日边界, 一次只删整天的日志。
+//     这样删之前折叠这些日期时, 其日志必然完整, 折叠出的当日汇总与日志聚合一致;
+//     若按滑动时刻删(旧行为), 同一天会被多次部分删除, 折叠只能看到残缺日志, 会把先前
+//     折叠好的当日汇总覆盖小 —— 那是丢账。整日淘汰 + 删前折叠 + 折叠幂等, 三者合起来才成立。
+//  3. 折叠失败则本轮不删: 宁可日志晚一轮清理, 也不删掉尚未入账的日志; 下一轮幂等重试。
 func relayLogCleanup(ctx context.Context) error {
 	keepPeriod, err := SettingGetInt(model.SettingKeyRelayLogKeepPeriod)
 	if err != nil {
@@ -137,13 +147,64 @@ func relayLogCleanup(ctx context.Context) error {
 		return nil
 	}
 
-	cutoffTime := time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Unix()
-	if err := db.GetDB().WithContext(ctx).Where("time < ?", cutoffTime).Delete(&model.RelayLog{}).Error; err != nil {
+	// cutoff 取「now - keep 天」所在本地日的 0 点: 早于该时刻的整天日志整批淘汰。
+	cutoffDate := time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Format("20060102")
+	cutoffDay, err := time.ParseInLocation("20060102", cutoffDate, time.Local)
+	if err != nil {
 		return err
 	}
-	// 小时统计跟随日志保留期: 顺手删超期小时行并同步淘汰内存缓存, 同一保留期口径, 不另开任务。
-	cutoffDate := time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Format("20060102")
-	return StatsHourlyCleanupBefore(ctx, cutoffDate)
+	cutoff := cutoffDay.Unix()
+
+	// 删日志前先把即将被删的日期折叠进永久汇总表: 汇总表是永久账, 清理不能丢账。
+	if err := statsDailyRankFoldBeforeLogPurge(ctx, cutoff); err != nil {
+		// 折叠失败不删日志(见上方约定 3), 交由下一轮清理重试。
+		return err
+	}
+
+	return db.GetDB().WithContext(ctx).Where("time < ?", cutoff).Delete(&model.RelayLog{}).Error
+}
+
+// statsDailyRankFoldBeforeLogPurge 折叠所有含「time < cutoff」日志的日期, 供清理前封账。
+// cutoff 已在 relayLogCleanup 对齐到本地日边界, 故命中的都是被整天淘汰的日期, 其日志此刻完整。
+func statsDailyRankFoldBeforeLogPurge(ctx context.Context, cutoff int64) error {
+	dates, err := relayLogDistinctDatesBefore(ctx, cutoff)
+	if err != nil {
+		return err
+	}
+	return StatsDailyRankFold(ctx, dates)
+}
+
+// relayLogDistinctDatesBefore 返回「存在 time < cutoff 日志」的本地日期集合(YYYYMMDD), 供清理前封账。
+//
+// 只取最早一条日志的时刻(MIN(time)), 再在 Go 侧按其本地日逐日展开到 cutoff 所在日。
+// 刻意不用 SQL 方言折算日期: mysql 的 FROM_UNIXTIME / postgres 的 to_char 取的是**会话/服务器时区**,
+// 与 Go 进程的 time.Local 不一致时会多返回一个已封账日期, 折叠该日时日志早已不在、聚合为空,
+// 若照常整日 delete+insert 就把永久汇总抹空 —— 那是丢账。MIN 是纯数值比较, 与时区无关。
+func relayLogDistinctDatesBefore(ctx context.Context, cutoff int64) ([]string, error) {
+	var minTime sql.NullInt64
+	if err := db.GetDB().WithContext(ctx).Model(&model.RelayLog{}).
+		Where("time < ?", cutoff).
+		Select("MIN(time)").
+		Row().Scan(&minTime); err != nil {
+		return nil, err
+	}
+	if !minTime.Valid {
+		// 无早于 cutoff 的日志: 没有待封账的日期。
+		return nil, nil
+	}
+
+	// 归一到本地日 0 点后按日历日推进(AddDate 自动处理 DST), 与 relayLogCleanup 的整日口径一致。
+	startOfDay := func(t time.Time) time.Time {
+		t = t.In(time.Local)
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+	}
+	day := startOfDay(time.Unix(minTime.Int64, 0))
+	last := startOfDay(time.Unix(cutoff, 0))
+	dates := make([]string, 0, 8)
+	for ; !day.After(last); day = day.AddDate(0, 0, 1) {
+		dates = append(dates, day.Format("20060102"))
+	}
+	return dates, nil
 }
 
 // RelayLogList 查询日志列表，支持可选的时间范围过滤和错误筛选

@@ -401,6 +401,121 @@ func TestRelayLogCleanup_deletesExpired(t *testing.T) {
 	}
 }
 
+// TestRelayLogCleanup_foldsDailyAndKeepsHourly 锁定统计永久化的清理联动:
+//  1. 删日志前先折叠被删日期的渠道/模型汇总(账不丢);
+//  2. 曲线小时行不再随日志保留期清理(小时行仍在)。
+func TestRelayLogCleanup_foldsDailyAndKeepsHourly(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	if err := SettingSetInt(model.SettingKeyRelayLogKeepPeriod, 1); err != nil {
+		t.Fatalf("set keep period: %v", err)
+	}
+
+	oldDate := at(3, 0).Format("20060102")
+	oldTime := at(3, 8)
+	// 过期日的日志(整日淘汰)。
+	logs := []model.RelayLog{
+		{ID: 21, Time: oldTime.Unix(), ChannelId: 1, ChannelName: "alpha", RequestModelName: "gpt-4o",
+			InputTokens: 40, OutputTokens: 4, Cost: 0.4},
+		{ID: 22, Time: oldTime.Add(time.Minute).Unix(), ChannelId: 1, ChannelName: "alpha", RequestModelName: "gpt-4o",
+			InputTokens: 60, OutputTokens: 6, Cost: 0.6},
+	}
+	if err := db.GetDB().CreateInBatches(&logs, 10).Error; err != nil {
+		t.Fatalf("seed logs: %v", err)
+	}
+	// 过期日的小时行(永久留存)。
+	hourly := model.StatsHourly{Date: oldDate, Hour: 8, StatsMetrics: model.StatsMetrics{RequestSuccess: 2, InputToken: 100}}
+	if err := db.GetDB().Create(&hourly).Error; err != nil {
+		t.Fatalf("seed hourly: %v", err)
+	}
+
+	if err := relayLogCleanup(ctx); err != nil {
+		t.Fatalf("relayLogCleanup() error = %v", err)
+	}
+
+	// 1. 过期日志被删。
+	var logCount int64
+	if err := db.GetDB().Model(&model.RelayLog{}).Count(&logCount).Error; err != nil {
+		t.Fatalf("count logs: %v", err)
+	}
+	if logCount != 0 {
+		t.Fatalf("relay logs = %d, want 0 (过期日志应被清理)", logCount)
+	}
+
+	// 2. 曲线小时行仍在(不再跟随日志保留期)。
+	var hourlyRows []model.StatsHourly
+	if err := db.GetDB().WithContext(ctx).Find(&hourlyRows).Error; err != nil {
+		t.Fatalf("load hourly: %v", err)
+	}
+	if len(hourlyRows) != 1 || hourlyRows[0].Date != oldDate || hourlyRows[0].Hour != 8 || hourlyRows[0].InputToken != 100 {
+		t.Fatalf("hourly rows = %+v, want the expired day row kept", hourlyRows)
+	}
+
+	// 3. 被删日期已折叠入库: 删日志后仍可从汇总表读出(账不丢)。
+	rank, err := StatsRankDaily(ctx, oldDate)
+	if err != nil {
+		t.Fatalf("StatsRankDaily() error = %v", err)
+	}
+	if !rank.Available || len(rank.Channels) != 1 ||
+		rank.Channels[0].InputToken != 100 || rank.Channels[0].RequestSuccess != 2 {
+		t.Fatalf("rank = %+v, want folded alpha 100 input / 2 success", rank)
+	}
+}
+
+// TestRelayLogDistinctDatesBefore_rangeAndEmpty 锁定 R1 的时区无关实现:
+// 待封账日期由 MIN(time) 在 Go 侧按本地日逐日展开(不再用 SQL 方言折算), 无日志时为空。
+func TestRelayLogDistinctDatesBefore_rangeAndEmpty(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	cutoff := at(1, 0).Unix() // 昨天 0 点, 与 relayLogCleanup 的整日口径一致
+
+	// 空库: 无早于 cutoff 的日志 → 无待封账日期。
+	dates, err := relayLogDistinctDatesBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("RelayLogDistinctDatesBefore() error = %v", err)
+	}
+	if len(dates) != 0 {
+		t.Fatalf("empty db: want no dates, got %v", dates)
+	}
+
+	// 只有今天(>= cutoff)的日志同样不算待封账。
+	if err := db.GetDB().Create(&model.RelayLog{ID: 1, Time: at(0, 8).Unix()}).Error; err != nil {
+		t.Fatalf("seed today log: %v", err)
+	}
+	dates, err = relayLogDistinctDatesBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("RelayLogDistinctDatesBefore() error = %v", err)
+	}
+	if len(dates) != 0 {
+		t.Fatalf("only-today logs: want no dates, got %v", dates)
+	}
+
+	// 补 3 天前与 2 天前的日志 → 从最早日志的本地日逐日覆盖到 cutoff 所在日(含)。
+	old := []model.RelayLog{
+		{ID: 2, Time: at(3, 8).Unix()},
+		{ID: 3, Time: at(3, 20).Unix()},
+		{ID: 4, Time: at(2, 1).Unix()},
+	}
+	if err := db.GetDB().CreateInBatches(&old, 10).Error; err != nil {
+		t.Fatalf("seed old logs: %v", err)
+	}
+	dates, err = relayLogDistinctDatesBefore(ctx, cutoff)
+	if err != nil {
+		t.Fatalf("RelayLogDistinctDatesBefore() error = %v", err)
+	}
+	want := []string{at(3, 0).Format("20060102"), at(2, 0).Format("20060102"), at(1, 0).Format("20060102")}
+	if len(dates) != len(want) {
+		t.Fatalf("dates = %v, want %v", dates, want)
+	}
+	for i := range want {
+		if dates[i] != want[i] {
+			t.Fatalf("dates = %v, want %v", dates, want)
+		}
+	}
+}
+
 // ============================================================================
 // 缓存+DB 合并分页 / LIKE 误匹配精确过滤 / truncated 上界
 // ============================================================================

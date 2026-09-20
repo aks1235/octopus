@@ -81,7 +81,7 @@ export interface StatsRankEntry extends StatsMetrics {
     channel_id: number;
     name: string;
 }
-// available 为 false 表示该日期超出日志保留期(或日志保存关闭), 无按天数据。
+// available 语义为「是否有数据来源」; 统计永久化后数据来源恒存在, 恒为 true(字段保留仅为兼容响应结构)。
 export interface StatsRankResponse {
     available: boolean;
     channels: StatsRankEntry[];
@@ -174,7 +174,7 @@ const statsRankDailyFormattedQueryOptions = (date: string) => queryOptions({
 });
 
 /**
- * 获取按天排名数据 Hook; date 为 YYYYMMDD, 超出日志保留期时 available 为 false。
+ * 获取按天排名数据 Hook; date 为 YYYYMMDD, 数据永久留存(汇总表, 无汇总行时回退实时聚合)。
  */
 export function useStatsRankDaily(date: string, enabled = true) {
     return useQuery({ ...statsRankDailyFormattedQueryOptions(date), enabled });

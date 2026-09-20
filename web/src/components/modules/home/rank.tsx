@@ -21,21 +21,19 @@ interface RankItem {
     formatted: RankMetrics;
 }
 
-// RankCard 渲染单个排行榜: 标题, 维度切换和榜单列表; hint 非空且无数据时替代「暂无数据」。
+// RankCard 渲染单个排行榜: 标题, 维度切换和榜单列表; 无数据时统一显示「暂无数据」。
 function RankCard({
     title,
     items,
     sortMode,
     onSortModeChange,
     hideChannelName,
-    hint,
 }: {
     title: string;
     items: RankItem[];
     sortMode: MetricKey;
     onSortModeChange: (value: MetricKey) => void;
     hideChannelName?: boolean;
-    hint?: string;
 }) {
     const t = useTranslations('home.rank');
     const sortField = sortMode === 'cost' ? 'total_cost' : sortMode === 'count' ? 'request_count' : 'total_token';
@@ -51,7 +49,7 @@ function RankCard({
             {ranked.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                     <TrendingUp className="w-12 h-12 mb-3 opacity-30" />
-                    <p className="text-sm">{hint ?? t('noData')}</p>
+                    <p className="text-sm">{t('noData')}</p>
                 </div>
             ) : (
                 <div className="space-y-3 max-h-[300px] overflow-y-auto">
@@ -122,7 +120,8 @@ export function Rank() {
     const rankViewMode = useHomeViewStore((state) => state.rankViewMode);
     const setRankViewMode = useHomeViewStore((state) => state.setRankViewMode);
 
-    // 按天走 relay_logs 聚合端点; 累计走渠道统计接口。两份数据互斥拉取, 不看的那个不请求。
+    // 按天走永久汇总表端点(后端无汇总行时回退 relay_logs 实时聚合); 累计走渠道统计接口。
+    // 两份数据互斥拉取, 不看的那个不请求。
     const { data: dailyRank } = useStatsRankDaily(selectedDate, rankViewMode === 'daily');
     const { data: channelStats } = useChannelStats(rankViewMode === 'total');
 
@@ -132,10 +131,6 @@ export function Rank() {
     const setModelSortMode = useHomeViewStore((state) => state.setModelRankSortMode);
     const isChannelNameHidden = useHomeViewStore((state) => state.isChannelNameHidden);
 
-    // 按天数据超出日志保留期时给明确提示; 空列表(当天无流量)仍用常规「暂无数据」。
-    const emptyHint = rankViewMode === 'daily' && dailyRank && !dailyRank.available
-        ? t('beyondRetention')
-        : undefined;
     // 模糊渠道名只作用于渠道榜与累计模型榜的渠道名; 按天模型条目不携带渠道名, 模型名本身不糊。
     const modelHideChannelName = isChannelNameHidden && rankViewMode === 'total';
 
@@ -185,7 +180,6 @@ export function Rank() {
                     sortMode={channelSortMode}
                     onSortModeChange={setChannelSortMode}
                     hideChannelName={isChannelNameHidden}
-                    hint={emptyHint}
                 />
                 <RankCard
                     title={t('model')}
@@ -193,7 +187,6 @@ export function Rank() {
                     sortMode={modelSortMode}
                     onSortModeChange={setModelSortMode}
                     hideChannelName={modelHideChannelName}
-                    hint={emptyHint}
                 />
             </div>
         </div>

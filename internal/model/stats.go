@@ -28,6 +28,23 @@ type StatsDaily struct {
 	StatsMetrics
 }
 
+// StatsChannelDaily 渠道按天汇总(永久账): 由 relay_logs 聚合折叠而来, 不随日志保留期清理。
+// (date, channel_id) 复合主键: 同日同渠道恒一行, 折叠时整体替换即幂等;
+// 名称取当日字典序最大值(与聚合口径一致), 同日改名不拆行。
+type StatsChannelDaily struct {
+	Date        string `json:"date" gorm:"primaryKey"`       // 统计日期, 格式 20060102
+	ChannelID   int    `json:"channel_id" gorm:"primaryKey"` // 渠道 ID
+	ChannelName string `json:"channel_name"`                 // 渠道名(当日 MAX)
+	StatsMetrics
+}
+
+// StatsModelDaily 模型(请求模型名, 即分组名)按天汇总(永久账), 语义同 StatsChannelDaily。
+type StatsModelDaily struct {
+	Date      string `json:"date" gorm:"primaryKey"`       // 统计日期, 格式 20060102
+	ModelName string `json:"model_name" gorm:"primaryKey"` // 请求模型名(分组名)
+	StatsMetrics
+}
+
 type StatsAPIKey struct {
 	APIKeyID int `json:"api_key_id" gorm:"primaryKey"`
 	StatsMetrics

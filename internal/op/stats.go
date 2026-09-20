@@ -54,7 +54,22 @@ func StatsSaveDBTask() {
 	}()
 	if err := StatsSaveDB(ctx); err != nil {
 		log.Errorf("stats save db error: %v", err)
+	}
+	// 折叠今天与昨天: 汇总表始终贴近实时, 覆盖"日志尚未被清理"的整段窗口。
+	// 幂等且成本低(每天两次按日聚合)。未启用日志保存时 relay_logs 无行, 跳过折叠,
+	// 以免用空聚合把既有的当日汇总覆盖掉。
+	enabled, err := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
+	if err != nil {
+		log.Warnf("stats daily rank fold skipped, read keep enabled: %v", err)
 		return
+	}
+	if !enabled {
+		return
+	}
+	now := time.Now()
+	dates := []string{now.Format("20060102"), now.AddDate(0, 0, -1).Format("20060102")}
+	if err := StatsDailyRankFold(ctx, dates); err != nil {
+		log.Warnf("stats daily rank fold error: %v", err)
 	}
 }
 
@@ -413,24 +428,6 @@ func StatsHourlyGet(date string) ([]model.StatsHourly, error) {
 	return result, nil
 }
 
-// StatsHourlyCleanupBefore 删除 date 早于 cutoffDate(YYYYMMDD) 的小时统计行, 并同步淘汰内存缓存。
-// 由日志清理任务调用, 与 relay_logs 共用 relay_log_keep_period 保留期口径, 不另开任务。
-func StatsHourlyCleanupBefore(ctx context.Context, cutoffDate string) error {
-	if err := db.GetDB().WithContext(ctx).Where("date < ?", cutoffDate).Delete(&model.StatsHourly{}).Error; err != nil {
-		return err
-	}
-
-	statsHourlyCacheLock.Lock()
-	for key := range statsHourlyCache {
-		// YYYYMMDD 字典序即时间序, 字符串比较即日期比较。
-		if key.date < cutoffDate {
-			delete(statsHourlyCache, key)
-		}
-	}
-	statsHourlyCacheLock.Unlock()
-	return nil
-}
-
 // StatsGetDaily 返回 since 当天及其之后的每日统计, since 为 20060102 格式。
 // 只取窗口内的数据: 界面上的热力图与趋势图都有固定跨度, 全量返回会随运行时长无界增长。
 func StatsGetDaily(ctx context.Context, since string) ([]model.StatsDaily, error) {
@@ -514,8 +511,9 @@ type StatsRankEntry struct {
 	model.StatsMetrics
 }
 
-// StatsDailyRank 按天排名的聚合结果。Available 为 false 表示该日期提供不了按天数据
-// (日志保存关闭或整日落入保留期之外), 前端据此区分「没有流量」与「数据不可用」。
+// StatsDailyRank 按天排名的聚合结果。Available 语义为「是否有数据来源」:
+// 统计永久化后数据来源恒存在(永久汇总表, 或首次折叠前回退的实时日志聚合),
+// 因此恒为 true; 字段保留仅为兼容既有响应结构(前端已不再据此切换提示)。
 type StatsDailyRank struct {
 	Available bool             `json:"available"`
 	Channels  []StatsRankEntry `json:"channels"`
@@ -543,58 +541,25 @@ type relayLogModelAgg struct {
 	CostTotal        float64
 }
 
-// StatsRankDaily 按选中日从 relay_logs 聚合渠道排名与模型排名, 时间窗为 [当日 0 点, 次日 0 点)。
-// 按天数据与日志同一可用口径: 日志保存关闭或整日超出 relay_log_keep_period 保留期时,
-// 返回 Available=false 且空数组(数组恒非 nil, 见 api-serialization 规范)。
-// relay_logs 行内已冗余渠道 ID/名称与请求模型名, 按天聚合无需 join 任何表。
-func StatsRankDaily(ctx context.Context, date string) (*StatsDailyRank, error) {
-	dayStart, err := time.ParseInLocation("20060102", date, time.Local)
-	if err != nil {
-		return nil, fmt.Errorf("invalid date %q, expect YYYYMMDD", date)
-	}
-	dayEnd := dayStart.AddDate(0, 0, 1)
-
-	rank := &StatsDailyRank{
-		Available: true,
-		Channels:  make([]StatsRankEntry, 0),
-		Models:    make([]StatsRankEntry, 0),
-	}
-
-	enabled, err := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
-	if err != nil {
-		return nil, err
-	}
-	if !enabled {
-		rank.Available = false
-		return rank, nil
-	}
-	keepPeriod, err := SettingGetInt(model.SettingKeyRelayLogKeepPeriod)
-	if err != nil {
-		return nil, err
-	}
-	// 与 relayLogCleanup 同口径的删除线: 整日都在保留期之外(次日 0 点 <= cutoff)才视为不可用,
-	// 部分落入保留期的日期仍返回现存数据。
-	if keepPeriod > 0 && !dayEnd.After(time.Now().Add(-time.Duration(keepPeriod)*24*time.Hour)) {
-		rank.Available = false
-		return rank, nil
-	}
-
+// statsRankFromLogs 从 relay_logs 实时聚合某日(时间窗 [当日 0 点, 次日 0 点))的渠道榜与模型榜。
+// 之所以按「日窗口」而非「保留期」聚合: 时间窗由参数给定, 与日志是否仍在保留期内无关, 聚合本身不判可用性。
+// 渠道只按 channel_id 分组、名称取 MAX(同日改名聚合为一行, 防前端 React key 撞键)。
+// 返回的切片恒非 nil(见 api-serialization 规范)。
+func statsRankFromLogs(dbConn *gorm.DB, dayStart, dayEnd time.Time) ([]StatsRankEntry, []StatsRankEntry, error) {
 	successExpr := "SUM(CASE WHEN COALESCE(error, '') = '' THEN 1 ELSE 0 END)"
 	timeRange := "time >= ? AND time < ?"
 
 	var channelRows []relayLogChannelAgg
-	// GROUP BY 只按 channel_id: 同日改名的渠道聚合为一行, 名称取字典序最大值——
-	// 若把名称并入分组键, 改名会把同渠道拆成两行, 且前端以 channel_id 作 React key 会撞键。
-	if err := db.GetDB().WithContext(ctx).Model(&model.RelayLog{}).
+	if err := dbConn.Model(&model.RelayLog{}).
 		Select("channel_id, MAX(channel_name) AS channel_name, COUNT(*) AS request_total, "+successExpr+" AS success_total, "+
 			"SUM(input_tokens) AS input_token, SUM(output_tokens) AS output_token, SUM(cost) AS cost_total").
 		Where(timeRange, dayStart.Unix(), dayEnd.Unix()).
 		Group("channel_id").
 		Order("request_total DESC").
 		Scan(&channelRows).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rank.Channels = make([]StatsRankEntry, 0, len(channelRows))
+	channels := make([]StatsRankEntry, 0, len(channelRows))
 	for _, row := range channelRows {
 		entry := StatsRankEntry{ChannelID: row.ChannelID, Name: row.ChannelName}
 		entry.InputToken = row.InputToken
@@ -603,20 +568,20 @@ func StatsRankDaily(ctx context.Context, date string) (*StatsDailyRank, error) {
 		entry.InputCost = row.CostTotal
 		entry.RequestSuccess = row.SuccessTotal
 		entry.RequestFailed = row.RequestTotal - row.SuccessTotal
-		rank.Channels = append(rank.Channels, entry)
+		channels = append(channels, entry)
 	}
 
 	var modelRows []relayLogModelAgg
-	if err := db.GetDB().WithContext(ctx).Model(&model.RelayLog{}).
+	if err := dbConn.Model(&model.RelayLog{}).
 		Select("request_model_name, COUNT(*) AS request_total, "+successExpr+" AS success_total, "+
 			"SUM(input_tokens) AS input_token, SUM(output_tokens) AS output_token, SUM(cost) AS cost_total").
 		Where(timeRange, dayStart.Unix(), dayEnd.Unix()).
 		Group("request_model_name").
 		Order("request_total DESC").
 		Scan(&modelRows).Error; err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rank.Models = make([]StatsRankEntry, 0, len(modelRows))
+	models := make([]StatsRankEntry, 0, len(modelRows))
 	for _, row := range modelRows {
 		entry := StatsRankEntry{Name: row.RequestModelName}
 		entry.InputToken = row.InputToken
@@ -624,8 +589,169 @@ func StatsRankDaily(ctx context.Context, date string) (*StatsDailyRank, error) {
 		entry.InputCost = row.CostTotal
 		entry.RequestSuccess = row.SuccessTotal
 		entry.RequestFailed = row.RequestTotal - row.SuccessTotal
-		rank.Models = append(rank.Models, entry)
+		models = append(models, entry)
 	}
 
-	return rank, nil
+	return channels, models, nil
+}
+
+// statsRankFromDaily 从永久汇总表读取某日的渠道榜与模型榜, 按请求数倒序。
+// 返回的切片恒非 nil; 两榜皆空表示该日尚无汇总行(调用方据此回退实时聚合)。
+func statsRankFromDaily(dbConn *gorm.DB, date string) ([]StatsRankEntry, []StatsRankEntry, error) {
+	var channelRows []model.StatsChannelDaily
+	if err := dbConn.Where("date = ?", date).
+		Order("(request_success + request_failed) DESC").
+		Find(&channelRows).Error; err != nil {
+		return nil, nil, err
+	}
+	channels := make([]StatsRankEntry, 0, len(channelRows))
+	for _, row := range channelRows {
+		channels = append(channels, StatsRankEntry{
+			ChannelID:    row.ChannelID,
+			Name:         row.ChannelName,
+			StatsMetrics: row.StatsMetrics,
+		})
+	}
+
+	var modelRows []model.StatsModelDaily
+	if err := dbConn.Where("date = ?", date).
+		Order("(request_success + request_failed) DESC").
+		Find(&modelRows).Error; err != nil {
+		return nil, nil, err
+	}
+	models := make([]StatsRankEntry, 0, len(modelRows))
+	for _, row := range modelRows {
+		models = append(models, StatsRankEntry{
+			Name:         row.ModelName,
+			StatsMetrics: row.StatsMetrics,
+		})
+	}
+
+	return channels, models, nil
+}
+
+// StatsDailyRankFold 把指定日期从 relay_logs 聚合后整体替换进永久汇总表(渠道榜 + 模型榜)。
+// 每个日期在同一事务内 delete 该日两表旧行 + insert 新行, 重复执行结果一致(幂等):
+// 清理联动"先折叠再删日志"依赖这一性质, 窗口重叠或重跑都不会产生重复行。
+// 空日期列表直接返回。逐个日期尽力而为: 单日失败只告警不中断其余日期, 最后返回首个错误
+// 供调用方决定是否暂缓删除(见 relayLogCleanup), 与兜底任务的告警风格一致。
+func StatsDailyRankFold(ctx context.Context, dates []string) error {
+	if len(dates) == 0 {
+		return nil
+	}
+	var firstErr error
+	for _, date := range dates {
+		if err := statsDailyRankFoldOne(ctx, date); err != nil {
+			log.Warnf("stats daily rank fold failed for %s: %v", date, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+// statsDailyRankFoldOne 折叠单个日期的汇总行。
+func statsDailyRankFoldOne(ctx context.Context, date string) error {
+	dayStart, err := time.ParseInLocation("20060102", date, time.Local)
+	if err != nil {
+		return fmt.Errorf("invalid date %q, expect YYYYMMDD", date)
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+
+	return db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		channels, models, err := statsRankFromLogs(tx, dayStart, dayEnd)
+		if err != nil {
+			return err
+		}
+
+		// 空聚合护栏: 聚合为空时, 只有在「今天或昨天」才照常整体替换。
+		// 这两天在保留期内, 空聚合是真实的「无流量」; 更早的历史日若聚合为空, 多半是该日日志
+		// 已不在(用户清空历史日志 / 历史日日志更早被清理), 此时 delete+insert 会把既有永久汇总
+		// 抹成空 —— 那是抹账。直接跳过, 保留既有汇总。
+		if len(channels) == 0 && len(models) == 0 && !isTodayOrYesterday(date) {
+			return nil
+		}
+
+		channelRows := make([]model.StatsChannelDaily, 0, len(channels))
+		for _, entry := range channels {
+			channelRows = append(channelRows, model.StatsChannelDaily{
+				Date:         date,
+				ChannelID:    entry.ChannelID,
+				ChannelName:  entry.Name,
+				StatsMetrics: entry.StatsMetrics,
+			})
+		}
+		modelRows := make([]model.StatsModelDaily, 0, len(models))
+		for _, entry := range models {
+			modelRows = append(modelRows, model.StatsModelDaily{
+				Date:         date,
+				ModelName:    entry.Name,
+				StatsMetrics: entry.StatsMetrics,
+			})
+		}
+
+		// 整体替换: 先删该日旧行再插新行, 重跑不会累积重复行。
+		if err := tx.Where("date = ?", date).Delete(&model.StatsChannelDaily{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("date = ?", date).Delete(&model.StatsModelDaily{}).Error; err != nil {
+			return err
+		}
+		if len(channelRows) > 0 {
+			if err := tx.Create(&channelRows).Error; err != nil {
+				return err
+			}
+		}
+		if len(modelRows) > 0 {
+			if err := tx.Create(&modelRows).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// isTodayOrYesterday 判断 date(YYYYMMDD) 是否为本地今天或昨天。
+func isTodayOrYesterday(date string) bool {
+	now := time.Now()
+	return date == now.Format("20060102") || date == now.AddDate(0, 0, -1).Format("20060102")
+}
+
+// StatsRankDaily 返回选中日的渠道排名与模型排名。
+// 读路径按日期分流(取舍: 今日要实时, 历史要永久):
+//   - 今天: 直接走 relay_logs 实时聚合。今日数据每分钟都在变, 若读汇总表(由周期任务每
+//     stats_save_interval 重算)会落后一个周期, 排名观感发卡; 今日日志必在保留期内, 实时聚合无风险。
+//   - 历史日: 优先读永久汇总表(日志终将按保留期清理, 汇总是唯一可信来源); 该日尚无汇总行
+//     (首次折叠前的窗口)时回退实时聚合。
+//
+// 统计永久化后 Available 恒为 true(数据来源恒存在), 不再因日志开关或保留期返回不可用。
+// 空数组仍表示「该日没有流量」(数组恒非 nil, 见 api-serialization 规范)。
+func StatsRankDaily(ctx context.Context, date string) (*StatsDailyRank, error) {
+	dayStart, err := time.ParseInLocation("20060102", date, time.Local)
+	if err != nil {
+		return nil, fmt.Errorf("invalid date %q, expect YYYYMMDD", date)
+	}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	dbConn := db.GetDB().WithContext(ctx)
+
+	var channels, models []StatsRankEntry
+	if date == time.Now().Format("20060102") {
+		channels, models, err = statsRankFromLogs(dbConn, dayStart, dayEnd)
+	} else {
+		channels, models, err = statsRankFromDaily(dbConn, date)
+		if err == nil && len(channels) == 0 && len(models) == 0 {
+			// 尚无汇总行: 回退实时聚合, 覆盖"日志仍在但还没折叠入库"的过渡窗口。
+			channels, models, err = statsRankFromLogs(dbConn, dayStart, dayEnd)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &StatsDailyRank{
+		Available: true,
+		Channels:  channels,
+		Models:    models,
+	}, nil
 }

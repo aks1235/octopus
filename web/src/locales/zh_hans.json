@@ -136,8 +136,7 @@
             "noData": "暂无排行数据",
             "successRate": "成功率",
             "daily": "按天",
-            "total": "累计",
-            "beyondRetention": "该日期超出日志保留期,无按天数据"
+            "total": "累计"
         }
     },
     "setting": {

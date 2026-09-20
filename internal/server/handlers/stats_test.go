@@ -158,39 +158,43 @@ func TestStatsRank_defaultsToToday(t *testing.T) {
 	}
 }
 
-// TestStatsRank_beyondRetention 锁定保留期边界: 整日落入保留期之外时 available=false 且数组为空。
-func TestStatsRank_beyondRetention(t *testing.T) {
+// TestStatsRank_availableBeyondRetention 锁定 R5 语义变更(有意变更):
+// 统计永久化后 available 恒为 true(数据来源恒存在), 不再因整日超出 relay_log_keep_period 返回不可用;
+// 该日尚无汇总行时回退实时聚合 relay_logs。
+// (旧实现整日超出保留期即 available=false 且置空, 已随本任务移除, 断言按新语义更新。)
+func TestStatsRank_availableBeyondRetention(t *testing.T) {
 	seedStatsHandlerDB(t)
 	engine := newOrderHandlerEngine(t)
 
-	// 收紧保留期为 1 天: 前天整天(次日 0 点 <= cutoff)不可用。
+	// 保留期收紧为 1 天: 前天整日落在保留期之外。
 	if err := op.SettingSetInt(model.SettingKeyRelayLogKeepPeriod, 1); err != nil {
 		t.Fatalf("set keep period: %v", err)
 	}
 
 	dayBefore := time.Now().AddDate(0, 0, -2).Format("20060102")
-	var expired statsRankResponse
-	if code := doStatsRequest(t, engine, fmt.Sprintf("/api/v1/stats/rank?date=%s", dayBefore), &expired); code != http.StatusOK {
+	var rank statsRankResponse
+	if code := doStatsRequest(t, engine, fmt.Sprintf("/api/v1/stats/rank?date=%s", dayBefore), &rank); code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
-	if expired.Available {
-		t.Fatalf("available = true, want false beyond retention")
+	if !rank.Available {
+		t.Fatalf("available = false, want true (统计永久化后恒有数据来源)")
 	}
-	if expired.Channels == nil || expired.Models == nil {
-		t.Fatalf("arrays must be non-nil, got channels=%v models=%v", expired.Channels == nil, expired.Models == nil)
+	if rank.Channels == nil || rank.Models == nil {
+		t.Fatalf("arrays must be non-nil, got channels=%v models=%v", rank.Channels == nil, rank.Models == nil)
 	}
-	if len(expired.Channels) != 0 || len(expired.Models) != 0 {
-		t.Fatalf("expired date must return empty arrays, got %d/%d", len(expired.Channels), len(expired.Models))
+	// 该日日志仍在(本测试未跑清理), 回退实时聚合应读出前天的 alpha 999。
+	if len(rank.Channels) != 1 || rank.Channels[0].Name != "alpha" || rank.Channels[0].InputToken != 999 {
+		t.Fatalf("rank channels = %+v, want fallback alpha 999", rank.Channels)
 	}
 
-	// 保留期内(昨天部分落入 1 天窗口)仍可用。
+	// 保留期内的昨天同样可用。
 	yesterday := time.Now().AddDate(0, 0, -1).Format("20060102")
 	var retained statsRankResponse
 	if code := doStatsRequest(t, engine, fmt.Sprintf("/api/v1/stats/rank?date=%s", yesterday), &retained); code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
-	if !retained.Available {
-		t.Fatalf("available = false, want true for partially retained day")
+	if !retained.Available || len(retained.Channels) != 2 {
+		t.Fatalf("retained rank = %+v, want available with 2 channels", retained)
 	}
 }
 
