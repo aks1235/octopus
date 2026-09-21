@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规范索引: 定位错误处理与转发日志契约"}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "转发日志终态落库契约: 本任务改终态判定(markFailed/markSucceeded), 不得破坏 error/usage 落库形状与表形状冻结"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用纪律: 事件解析沿用既有 parseStreamEvent, 不得新增解析次数"}

@@ -325,13 +325,18 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			var chunks []*httpclient.StreamEvent
 			event := result.first
 			committed := false
-			last := false // 当前事件是否已按客户端协议结束整个响应流, 由下方单次解析给出。
+			last := false      // 当前事件是否已按客户端协议结束整个响应流, 由下方单次解析给出。
+			completed := false // 上游业务终态是否已到达 (R1): 决定收尾时的读取失败是否算真失败。
 			for {
 				if event != nil {
 					// 每事件只解析一次 (R4): 结束判定, 相位与增量字符数搭车同一份解析。
 					// 已提交的响应不能再换目标重试, 结束事件自身携带的失败原样转发给客户端, 并在转发后作为本请求终态。
 					parsed := parseStreamEvent(format, event)
 					last, err = parsed.last, parsed.err
+					// 业务终态只记标记、不结束转发: OpenAI Chat 的 finish_reason 之后仍有 usage 分片需收取 (R4)。
+					if parsed.completed {
+						completed = true
+					}
 					// 相位与字符量搭车同一份解析入账 (R1): 相位变化时重计时并推送, 思考增量计思考相位速度、
 					// 正文增量计输出相位速度; 相位未定或非增量事件不累计不发布。
 					request.addPhaseChars(parsed.phase, parsed.textLen+parsed.thinkingLen)
@@ -360,6 +365,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 				if !result.events.Next() {
 					err = result.events.Err()
+					// 业务已正常收尾 (R2): 尾部读取失败不再计为请求失败 —— 部分上游发完 finish_reason 后
+					// 不发 [DONE] 也不干净关闭连接, 成败不应取决于 TCP 如何关闭。未见业务终态即中断仍按真中断报错 (R3)。
+					if err != nil && completed {
+						err = nil
+					}
 					break
 				}
 				event = result.events.Current()

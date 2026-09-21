@@ -60,7 +60,8 @@ func buildPassthroughRequest(format llm.APIFormat, raw *httpclient.Request, chan
 // 结束判定与错误、输出相位、本次增量正文与思考增量的字符数。
 // 其中 last/err/phase 与既有的 inspectStreamEvent/streamEventPhase 语义一一对应。
 type streamEventParse struct {
-	last        bool   // 该事件是否结束了整个响应流。
+	last        bool   // 该事件是否结束了整个响应流: 为 true 时转发循环立即 break。
+	completed   bool   // 上游业务终态是否已到达, 但仍需继续读取流转发剩余事件。
 	err         error  // 该事件本身导致的失败, 非 nil 时本轮不可提交。
 	phase       string // 该事件归属的输出相位, 空串表示不改变既有相位。
 	textLen     int    // 该事件携带的正文增量字符数, 思考增量与其它事件为零。
@@ -93,6 +94,14 @@ func parseStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) strea
 				detail.Message = "openai stream error"
 			}
 			return streamEventParse{last: true, err: &llm.ResponseError{Detail: detail}}
+		}
+		// 业务终态与协议流结束分离 (R1): OpenAI Chat 在 finish_reason 之后仍有 usage 分片与 [DONE],
+		// 故此处只标记业务已收尾、不结束转发, 否则会丢掉用量 (R4)。
+		// 判定须早于下方 delta 检查: 部分上游的终态分片不带 delta 字段。
+		// 空串防御不可省: FinishReason 是 *string, 有上游(如 Sensenova)在每一个流分片里下发
+		// finish_reason:"", 不防空串会把每一片都误判成业务终态。
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != nil && *chunk.Choices[0].FinishReason != "" {
+			return streamEventParse{completed: true}
 		}
 		if len(chunk.Choices) == 0 || chunk.Choices[0].Delta == nil {
 			return streamEventParse{}
