@@ -359,3 +359,26 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 - 教训: ① 打 tag 与后续 push 必须拉开时序,或先修 CI 再发版;② 发布验证
   不能只看容器名/HTTP,必须核版本横幅+Commit+Hub digest 三件套;③
   metadata-action 的 raw tag 在分支 run 也会推,enable 条件只挡 latest 类
+
+
+## Session 9: 流式结束判定修复:业务终态与协议流结束分离
+
+**Date**: 2026-09-21
+**Task**: 流式结束判定修复:业务终态与协议流结束分离
+**Branch**: `dev-v2`
+
+### Summary
+
+修复 OpenAI Chat 流式结束判定缺口:此前只认 [DONE], 不发该信号的上游即便响应内容已完整交付也被判 failed/unexpected EOF 且 output_tokens 为 0(生产实例 #1789977036413/#1789974660477)。改为业务终态(finish_reason)与协议流结束([DONE])分离为两个信号, 收尾读取失败在已见终态时不计为失败, 未见终态即中断仍按真中断报错。Anthropic/Responses 未改动。沉淀契约 .trellis/spec/backend/relay-stream-end.md; 测试经 4 个 mutation 验证判别力。已发 v2.1.5 并更新生产。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f31297` | (see git log) |
+| `90c123e` | (see git log) |
+| `55179be` | (see git log) |
+
+### Status
+
+[OK] **Completed**
