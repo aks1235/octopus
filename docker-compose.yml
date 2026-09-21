@@ -1,6 +1,5 @@
-# ⚠️ 本文件是 dev-v2 线的 compose(镜像 v2.0.0)。数据迁移就绪前,禁止对本文件执行
-# up/down/build——生产容器 octopus-new 当前由 octopus:utls-test 镜像直接运行(8080, ./data),
-# 属 v1.0.x 旧库结构,v2 迁移链(含 DROP relay_logs)未演练前绝不能套上去。切换统一走 v2-smoke-switch 任务。
+# 生产 compose:容器 octopus-new(8080),数据挂 ./data。image tag 随每次发版更新
+# (发布流程见 .claude/skills/octopus-publish;推 dev-v2 + tag 后由 CI 出镜像)。
 services:
   octopus:
     image: raynmy/octopus:v2.1.5
