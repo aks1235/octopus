@@ -213,3 +213,36 @@ export function useDeleteGroup() {
         onSuccess: (_, id) => removeGroupCache(id),
     });
 }
+
+// GroupMemberTestResult 是分组成员连通性测试的单个成员结果，与后端 JSON 逐字段对齐。
+export interface GroupMemberTestResult {
+    item_id: number; // 分组成员 ID，前端按它把结果对到成员行。
+    channel_name: string;
+    model_name: string;
+    key_name: string;
+    success: boolean; // 任一协议取得可解析 2xx 响应即为成功；不可用成员为假。
+    protocol: number; // 成功时使用的 Protocol 位；失败或不可用时为 0。
+    error: string; // 失败/不可用原因摘要；成功时为空。
+    use_time: number; // 该成员整体测试耗时（毫秒）。
+    cooldown_cleared: boolean; // 成功且原本在冷却中时为真，表示冷却已被本次测试清除。
+}
+
+// useTestGroupMembers 对分组全部成员发起最小真实请求，返回逐成员连通性结果。
+// 测试产生真实计费，进行中不要重复触发（按钮以 isPending 禁用）。
+// body 必须给 {}: apiRequest 只在有 body 时带 Content-Type, 而路由组的 RequireJSON 对 POST 强制要求 JSON 类型。
+export function useTestGroupMembers() {
+    return useMutation({
+        mutationFn: (id: number) =>
+            apiRequest<GroupMemberTestResult[]>(`/api/v1/group/test/${id}`, { method: 'POST', body: {} }),
+    });
+}
+
+// useResetGroupCooldown 清空分组的全部成员冷却，响应即最新分组（含 runtime），写回两处缓存。
+// 当前承载成员与亲和不受影响：重置只恢复冷却成员的候选资格。
+export function useResetGroupCooldown() {
+    return useMutation({
+        mutationFn: (id: number) =>
+            apiRequest<Group>(`/api/v1/group/cooldown-reset/${id}`, { method: 'POST', body: {} }),
+        onSuccess: writeGroupCache,
+    });
+}

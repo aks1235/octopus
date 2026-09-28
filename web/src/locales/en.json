@@ -356,7 +356,20 @@
             "empty": "No rules",
             "activate": "Set as active",
             "cooling": "Cooling {seconds}s",
-            "affinity": "Affinity {seconds}s"
+            "affinity": "Affinity {seconds}s",
+            "test": "Test all members",
+            "testRunning": "Testing...",
+            "testFailed": "Member test failed",
+            "testToastAll": "All {count} members available",
+            "testToastNone": "All {count} members unavailable",
+            "testToastPartial": "{ok} available, {failed} unavailable",
+            "cooldownReset": "Reset all cooldowns",
+            "cooldownResetDone": "Cooldowns reset",
+            "cooldownResetFailed": "Failed to reset cooldowns",
+            "testOk": "Available ({protocol})",
+            "testRecovered": "Available ({protocol}), cooldown cleared",
+            "testUnavailableReason": "Unavailable: {reason}",
+            "testUnavailable": "Unavailable"
         },
         "detail": {
             "actions": {

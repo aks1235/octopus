@@ -113,3 +113,26 @@ outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
 - 公式实现 `route.go cooldownSeconds`:移位上限 20 + 封顶双重防溢出(`base > max>>shift` 时直接取上限)。
 - 新旋钮 `member_max_cooldown_seconds`(分组级,默认 600);旧分组加载时经 `groupRefreshCache → NormalizeGroupRelayConfig` 收敛 0 值,保证 ≥ base。
 - 语义不变项:manual 无冷却;探测单飞、亲和、请求内游标不受影响;`RouteStateOf` 只暴露 deadline,档位不出 JSON。
+
+## 契约:冷却清理的三个入口与语义分级(2026-09-24 起)
+
+**What**:清理分组成员冷却有三个入口,语义刻意不同,勿混用:
+- `ClearGroupCooldowns(groupID)`(人工"重置冷却"按钮,`POST /api/v1/group/cooldown-reset/:id`):持 routeMu 清空 Cooldowns/trips 整表、ProbeItemID 归 0;**保留** CurrentItemID/AffinityUntil/affinityArmed 与轮询计数器。语义是"恢复候选资格",不是"路由从头再来"。
+- `clearMemberCooldown(groupID, itemID)`(分组测试成功后调用):只清该成员 cooldowns/trips,按需释放其 ProbeItemID 占用,不动 current/affinity。
+- `ResetRouteState(groupID)`(模式切换/删除/顺序变更):整表丢弃含轮询计数器——旧状态按新配置已失效,必须全弃。
+
+**Why**:重置/测试若顺手"切回当前成员"会改变主路由,测试行为干扰正在进行的请求序列;清掉冷却后扫描自然轮到该成员,无需强制切流量。而模式切换后旧 current/亲和按新成员集合已无意义,必须全弃。
+
+**边界**:
+- ProbeItemID 与冷却同生命周期——只清冷却留 probe 会让"到期放行一个探测"的成员被永久卡住,清理时必须一并释放。
+- 清理后走 `publishRouteLocked` 发布,SSE runtime 增量驱动前端徽标即时消失,前端无需轮询。
+
+## 模式:分组成员级测试(TestGroupMembers,2026-09-24 起)
+
+**What**:`relay.TestGroupMembers(ctx, group)` 对分组全部成员逐个发起最小真实请求(`max_tokens=1`,与渠道 key 测试同口径),复用 keytest 机制:
+- 授权解析走转发链路同款 `op.ChannelGrantGet → op.ChannelGet`;解析失败(不可用成员)不发请求不计费,直接报原因且不写测试日志。
+- 协议位取 `grant.Protocols` 按 `keyTestProtocols` 顺序(message → responses → chat)过滤,**与渠道 key 测试共用顺序常量,勿另立**;任一协议成功即停并记录成功协议。
+- 成功后 `clearMemberCooldown` 清该成员冷却(见上);成员间有界并发(信号量 4),结果按成员提交序。
+- 日志标识 `client_name="分组测试"` / `user_agent="octopus-group-test"`,与渠道测试("面板测试")、真实转发在日志页两维度可区分。
+
+**坑**:group 路由组的 `RequireJSON` 对空 body POST 放行,但前端 `apiRequest` 只在 `body !== undefined` 时设置 Content-Type——无字段 mutation 必须显式 `body: {}`(详见 [api-serialization.md](./api-serialization.md))。

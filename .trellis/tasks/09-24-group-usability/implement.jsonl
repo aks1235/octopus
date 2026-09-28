@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "冷却/探测/亲和/轮询的路由状态语义与锁约定,ClearGroupCooldowns 与测试清冷却必须遵循"}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "测试日志走 keyTestLogFinalize 同构路径,需遵守 relay 日志落库口径"}
+{"file": ".trellis/spec/backend/api-serialization.md", "reason": "新增 GroupMemberTestResult 与两个端点的 JSON 形状须与既有序列化约定一致"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "handler 404/错误响应与错误摘要截断风格"}
+{"file": ".trellis/spec/backend/group-channel-order.md", "reason": "正则分组语义约束:成员只读,测试/重置不得改成员集合"}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "dev-v2 分支构建/验证命令口径(golang 版本、前端构建产物注意项)"}

@@ -356,7 +356,20 @@
             "empty": "暂无规则",
             "activate": "设为活动项",
             "cooling": "冷却 {seconds}s",
-            "affinity": "亲和 {seconds}s"
+            "affinity": "亲和 {seconds}s",
+            "test": "测试全部成员",
+            "testRunning": "测试中...",
+            "testFailed": "成员测试失败",
+            "testToastAll": "{count} 个成员全部可用",
+            "testToastNone": "{count} 个成员全部不可用",
+            "testToastPartial": "{ok} 个可用，{failed} 个不可用",
+            "cooldownReset": "重置全部冷却",
+            "cooldownResetDone": "冷却已重置",
+            "cooldownResetFailed": "重置冷却失败",
+            "testOk": "可用（{protocol}）",
+            "testRecovered": "可用（{protocol}），冷却已清除",
+            "testUnavailableReason": "不可用：{reason}",
+            "testUnavailable": "不可用"
         },
         "detail": {
             "actions": {

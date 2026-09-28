@@ -356,7 +356,20 @@
             "empty": "暫無規則",
             "activate": "設為活動項",
             "cooling": "冷卻 {seconds}s",
-            "affinity": "親和 {seconds}s"
+            "affinity": "親和 {seconds}s",
+            "test": "測試全部成員",
+            "testRunning": "測試中...",
+            "testFailed": "成員測試失敗",
+            "testToastAll": "{count} 個成員全部可用",
+            "testToastNone": "{count} 個成員全部不可用",
+            "testToastPartial": "{ok} 個可用，{failed} 個不可用",
+            "cooldownReset": "重置全部冷卻",
+            "cooldownResetDone": "冷卻已重置",
+            "cooldownResetFailed": "重置冷卻失敗",
+            "testOk": "可用（{protocol}）",
+            "testRecovered": "可用（{protocol}），冷卻已清除",
+            "testUnavailableReason": "不可用：{reason}",
+            "testUnavailable": "不可用"
         },
         "detail": {
             "actions": {

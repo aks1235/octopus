@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "检查路由状态变更是否符合锁/发布/生命周期约定"}
+{"file": ".trellis/spec/backend/relay-log-persistence.md", "reason": "检查测试日志落库与标识区分是否合规"}
+{"file": ".trellis/spec/backend/api-serialization.md", "reason": "检查新端点响应形状与命名风格"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查错误响应与摘要截断"}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "检查验证命令是否照抄 skill 会出事的坑位(golang 1.26.4 / 勿删 static/out)"}

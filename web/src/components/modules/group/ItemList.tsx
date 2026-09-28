@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2 } from 'lucide-react';
+import { Layers, GripVertical, X, Trash2, CircleCheck, CircleX, Ban } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslations } from 'use-intl';
-import type { Group } from '@/api/group';
+import type { Group, GroupMemberTestResult } from '@/api/group';
+import { Protocol } from '@/api/channel';
 import { MemberStatus } from './MemberStatus';
 
 export interface SelectedMember {
@@ -41,6 +42,62 @@ type MemberItemDnd = {
     isDragging: boolean;
 };
 
+// protocolLabel 把成功的协议位显示成路径里讲的端点名, 与渠道 key 测试结果面板同款口径。
+function protocolLabel(bit: number) {
+    if (bit & Protocol.AnthropicMessage) return 'message';
+    if (bit & Protocol.OpenAIResponse) return 'response';
+    return 'chat';
+}
+
+// MemberTestBadge 成员行的连通性测试结果徽标: 成功绿(带成功协议)、失败红(带错误摘要)、不可用灰。
+// 不可用按成员行自身的 available 口径判定(渠道/凭据被禁用, 未发上游请求), 与列表的置灰展示同源。
+// 仅在有该成员的结果时渲染, 重新测试由父级整体覆盖, 不持久化。
+function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResult; unavailable: boolean }) {
+    const t = useTranslations('group.card');
+    const iconClass = 'size-3.5 shrink-0';
+    if (result.success) {
+        const tip = result.cooldown_cleared
+            ? t('testRecovered', { protocol: protocolLabel(result.protocol) })
+            : t('testOk', { protocol: protocolLabel(result.protocol) });
+        return (
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="inline-flex shrink-0 text-accent">
+                        <CircleCheck className={iconClass} />
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent>{tip}</TooltipContent>
+            </Tooltip>
+        );
+    }
+    if (unavailable) {
+        return (
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="inline-flex shrink-0 text-muted-foreground">
+                        <Ban className={iconClass} />
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72 whitespace-normal break-all">
+                    {result.error ? t('testUnavailableReason', { reason: result.error }) : t('testUnavailable')}
+                </TooltipContent>
+            </Tooltip>
+        );
+    }
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0 text-destructive">
+                    <CircleX className={iconClass} />
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-72 whitespace-normal break-all">
+                {result.error || t('testFailed')}
+            </TooltipContent>
+        </Tooltip>
+    );
+}
+
 // MemberItem 渲染可拖拽成员及其删除确认状态。
 // onRemove 缺省时不渲染删除按钮: 正则分组的成员集合由正则定稿, 界面不允许删除。
 function MemberItem({
@@ -50,6 +107,7 @@ function MemberItem({
     isActive,
     group,
     now,
+    testResult,
     isRemoving,
     showConfirmDelete = true,
     layoutScope,
@@ -61,6 +119,7 @@ function MemberItem({
     isActive?: boolean;
     group?: Group; // group 提供成员当前的冷却和亲和时间。
     now: number; // now 是成员列表共享的当前 Unix 毫秒时间。
+    testResult?: GroupMemberTestResult; // 最近一次整组测试中该成员的结果, 无则不渲染徽标。
     isRemoving?: boolean;
     showConfirmDelete?: boolean;
     layoutScope?: string;
@@ -139,6 +198,7 @@ function MemberItem({
                     </span>
                 </div>
 
+                {testResult && <MemberTestBadge result={testResult} unavailable={isDisabled} />}
                 {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
 
                 {onRemove && (!showConfirmDelete || !confirmDelete) && (
@@ -202,6 +262,7 @@ interface MemberListProps {
     activeItemId?: number;
     group?: Group; // group 提供当前模式和成员运行状态。
     now?: number; // now 是页面共享的当前 Unix 毫秒时间，仅展示运行态时需要。
+    testResults?: Record<number, GroupMemberTestResult>; // 整组测试结果按 item_id 索引, 供成员行渲染结果徽标。
     /**
      * When true, auto-scroll the list to bottom when a *new visible* member appears
      * (i.e. a new member id is added). Useful in "editor" flows. Defaults to true.
@@ -236,6 +297,7 @@ export function MemberList({
     activeItemId,
     group,
     now = 0,
+    testResults,
     autoScrollOnAdd = true,
     onDragStart,
     onDrop,
@@ -323,25 +385,29 @@ export function MemberList({
                 >
                     <Droppable
                         droppableId={`members-${layoutScope}`}
-                        renderClone={(draggableProvided, snapshot, rubric) => (
-                            <MemberItem
-                                member={members[rubric.source.index]}
-                                onRemove={onRemove}
-                                onActivate={onActivate}
-                                isActive={members[rubric.source.index].item_id === activeItemId}
-                                group={group}
-                                now={now}
-                                isRemoving={false}
-                                showConfirmDelete={showConfirmDelete}
-                                layoutScope={layoutScope}
-                                dnd={{
-                                    innerRef: draggableProvided.innerRef,
-                                    draggableProps: draggableProvided.draggableProps,
-                                    dragHandleProps: draggableProvided.dragHandleProps,
-                                    isDragging: snapshot.isDragging,
-                                }}
-                            />
-                        )}
+                        renderClone={(draggableProvided, snapshot, rubric) => {
+                            const member = members[rubric.source.index];
+                            return (
+                                <MemberItem
+                                    member={member}
+                                    onRemove={onRemove}
+                                    onActivate={onActivate}
+                                    isActive={member.item_id === activeItemId}
+                                    group={group}
+                                    now={now}
+                                    testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
+                                    isRemoving={false}
+                                    showConfirmDelete={showConfirmDelete}
+                                    layoutScope={layoutScope}
+                                    dnd={{
+                                        innerRef: draggableProvided.innerRef,
+                                        draggableProps: draggableProvided.draggableProps,
+                                        dragHandleProps: draggableProvided.dragHandleProps,
+                                        isDragging: snapshot.isDragging,
+                                    }}
+                                />
+                            );
+                        }}
                     >
                         {(droppableProvided) => (
                             <div
@@ -364,6 +430,7 @@ export function MemberList({
                                                 isActive={member.item_id === activeItemId}
                                                 group={group}
                                                 now={now}
+                                                testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
                                                 isRemoving={removingIds.has(member.id)}
                                                 showConfirmDelete={showConfirmDelete}
                                                 layoutScope={layoutScope}

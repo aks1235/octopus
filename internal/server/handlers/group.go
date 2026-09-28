@@ -55,6 +55,14 @@ func init() {
 		AddRoute(
 			router.NewRoute("/channel-order/:id", http.MethodDelete).
 				Handle(resetGroupChannelOrder),
+		).
+		AddRoute(
+			router.NewRoute("/test/:id", http.MethodPost).
+				Handle(testGroupMembers),
+		).
+		AddRoute(
+			router.NewRoute("/cooldown-reset/:id", http.MethodPost).
+				Handle(resetGroupCooldown),
 		)
 }
 
@@ -329,4 +337,40 @@ func resetGroupChannelOrder(c *gin.Context) {
 	}
 	group, err := op.GroupChannelOrderReset(id, c.Request.Context())
 	respondGroupChannelOrder(c, group, err)
+}
+
+// testGroupMembers 对分组全部成员逐个发起最小真实请求, 返回逐成员连通性结果。
+// 空成员分组返回空数组。测试产生真实计费, 由前端在进行中禁用重复触发;
+// 请求上下文随客户端连接断开而取消, 剩余成员由此不再发往上游。
+func testGroupMembers(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	group, err := op.GroupGet(id)
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	results := relay.TestGroupMembers(c.Request.Context(), group)
+	resp.Success(c, results)
+}
+
+// resetGroupCooldown 清空分组的全部成员冷却与连续冷却计数。
+// 当前路由与亲和不受影响: 重置只恢复冷却成员的候选资格, 不强制切换流量。
+// 响应与 getGroup 同款, 前端拿到最新 runtime 即可对齐缓存。
+func resetGroupCooldown(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	group, err := op.GroupGet(id)
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	relay.ClearGroupCooldowns(id)
+	resp.Success(c, groupResponse{Group: group, Runtime: relay.RouteStateOf(group)})
 }

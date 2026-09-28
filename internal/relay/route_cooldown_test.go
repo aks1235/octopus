@@ -202,3 +202,67 @@ func TestRecordRouteFailure_manualUnchanged(t *testing.T) {
 		t.Fatalf("手动模式不应创建路由状态")
 	}
 }
+
+// TestClearGroupCooldowns_restoresCandidacyKeepsRouting 验证人工重置冷却的语义边界:
+// 冷却与连续计数整表清空、探测占用释放, 而当前路由与亲和窗口保留 ——
+// 重置只恢复冷却成员的候选资格, 不强制切换流量。
+func TestClearGroupCooldowns_restoresCandidacyKeepsRouting(t *testing.T) {
+	initCursorTestDB(t)
+	grants := seedCursorChannel(t, 1, 1, 2)
+	group := seedCursorGroup(t, 206, "clear-cooldown-g", model.GroupModeFailover, grants)
+	ResetRouteState(group.ID)
+
+	// 两个成员都在冷却, 第一个占用探测名额, 当前路由与亲和窗口指向第二个成员。
+	now := time.Now().UnixMilli()
+	affinityUntil := now + 60_000
+	routeMu.Lock()
+	routes[group.ID] = &RouteState{
+		GroupID:       group.ID,
+		CurrentItemID: group.Items[1].ID,
+		AffinityUntil: affinityUntil,
+		ProbeItemID:   group.Items[0].ID,
+		Cooldowns:     map[int]int64{group.Items[0].ID: now + 120_000, group.Items[1].ID: now + 240_000},
+		trips:         map[int]int{group.Items[0].ID: 2, group.Items[1].ID: 3},
+	}
+	routeMu.Unlock()
+
+	ClearGroupCooldowns(group.ID)
+
+	routeMu.Lock()
+	route := routes[group.ID]
+	cooldowns := len(route.Cooldowns)
+	trips := len(route.trips)
+	probe := route.ProbeItemID
+	current, affinity := route.CurrentItemID, route.AffinityUntil
+	routeMu.Unlock()
+	if cooldowns != 0 || trips != 0 || probe != 0 {
+		t.Fatalf("重置后 cooldowns=%d trips=%d probe=%d, want 0/0/0", cooldowns, trips, probe)
+	}
+	if current != group.Items[1].ID || affinity != affinityUntil {
+		t.Fatalf("当前路由/亲和被重置: current=%d affinity=%d, want %d/%d 保留",
+			current, affinity, group.Items[1].ID, affinityUntil)
+	}
+
+	// 重置不强制切换流量: 亲和窗口保留时下一轮选路仍从当前成员起步 ——
+	// 冷却闸门已开只意味着候选资格恢复, 何时轮到由亲和与扫描顺序决定。
+	if item := pickGroupItem(group, &routeWalk{}); item.ID != group.Items[1].ID {
+		t.Fatalf("重置后选路 = 成员 %d, want 亲和期内保留的当前成员 %d", item.ID, group.Items[1].ID)
+	}
+}
+
+// TestClearGroupCooldowns_noStateIsNoOp 验证无路由状态的分组(从未转发过)调用重置不创建状态、不 panic。
+func TestClearGroupCooldowns_noStateIsNoOp(t *testing.T) {
+	initCursorTestDB(t)
+	grants := seedCursorChannel(t, 1, 1, 2)
+	group := seedCursorGroup(t, 207, "clear-cooldown-empty-g", model.GroupModeFailover, grants)
+	ResetRouteState(group.ID)
+
+	ClearGroupCooldowns(group.ID)
+
+	routeMu.Lock()
+	_, exists := routes[group.ID]
+	routeMu.Unlock()
+	if exists {
+		t.Fatalf("重置不应为无状态分组创建路由状态")
+	}
+}

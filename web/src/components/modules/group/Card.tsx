@@ -1,7 +1,7 @@
 import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Trash2, X, Pencil } from 'lucide-react';
+import { Trash2, X, Pencil, FlaskConical, Loader2, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { type Group, type GroupUpdateRequest, useDeleteGroup, useGroupChannelOrder, useUpdateGroup } from '@/api/group';
+import { type Group, type GroupMemberTestResult, type GroupUpdateRequest, useDeleteGroup, useGroupChannelOrder, useResetGroupCooldown, useTestGroupMembers, useUpdateGroup } from '@/api/group';
 import { useTranslations } from 'use-intl';
 import { toast } from 'sonner';
 import { CopyIconButton } from '@/components/common/CopyButton';
@@ -57,9 +57,13 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
     const activateItem = useUpdateGroup(); // 与配置提交分开持有: 共用一个实例会让点选成员点亮编辑弹窗的提交态。
     const saveChannelOrder = useGroupChannelOrder(); // 正则分组的拖拽排序走独立顺序端点, 不经成员整体提交。
     const deleteGroup = useDeleteGroup();
+    const testMembers = useTestGroupMembers();
+    const resetCooldown = useResetGroupCooldown();
 
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [members, setMembers] = useState<SelectedMember[]>([]);
+    // 成员测试结果按 item_id 缓存到卡片生命周期内: 重新测试整体覆盖, 不持久化(一次性观测)。
+    const [testResults, setTestResults] = useState<Record<number, GroupMemberTestResult>>({});
     const isDragging = useRef(false);
 
     // 成员的名称, 所属渠道与可用性由后端随分组给出, 此处只做展示形状的转换。
@@ -91,6 +95,39 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
 
     const isRegexGroup = group.member_regex !== '';
     const submitOrderPending = updateGroup.isPending || saveChannelOrder.isPending;
+
+    // 重置冷却入口只在存在未到期冷却时渲染: 手动模式冷却本就不适用, 无冷却时按钮无意义(不渲染比禁用更干净)。
+    const hasActiveCooldown = group.mode !== 'manual' &&
+        Object.values(group.runtime.cooldowns ?? {}).some((until) => until > now);
+
+    // 整组连通性测试: 结果按 item_id 落到成员行, 汇总走 toast; 失败成员 > 0 时用 warning 提醒。
+    const handleTestMembers = useCallback(() => {
+        if (testMembers.isPending) return;
+        testMembers.mutate(group.id, {
+            onSuccess: (results) => {
+                const byItem: Record<number, GroupMemberTestResult> = {};
+                for (const result of results) byItem[result.item_id] = result;
+                setTestResults(byItem);
+                if (results.length === 0) return;
+                const failed = results.filter((r) => !r.success).length;
+                if (failed === 0) {
+                    toast.success(t('card.testToastAll', { count: results.length }));
+                } else if (failed === results.length) {
+                    toast.error(t('card.testToastNone', { count: results.length }));
+                } else {
+                    toast.warning(t('card.testToastPartial', { ok: results.length - failed, failed }));
+                }
+            },
+            onError: (error: Error) => toast.error(t('card.testFailed'), { description: error.message }),
+        });
+    }, [group.id, t, testMembers]);
+
+    const handleResetCooldown = useCallback(() => {
+        resetCooldown.mutate(group.id, {
+            onSuccess: () => toast.success(t('card.cooldownResetDone')),
+            onError: (error: Error) => toast.error(t('card.cooldownResetFailed'), { description: error.message }),
+        });
+    }, [group.id, resetCooldown, t]);
 
     // 正则分组的拖拽只提交渠道顺序: 成员集合由正则定稿(整体替换会被重算覆盖, 旧路径形同虚设),
     // 拖拽折算为去重渠道 ID(按首次出现序), 渠道内顺序由后端按 (模型, 凭据) 自然序保持;
@@ -203,6 +240,26 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                    {/* 整组成员连通性测试: 产生真实计费, 进行中禁用重复触发。 */}
+                    <IconButton
+                        onClick={handleTestMembers}
+                        disabled={testMembers.isPending}
+                        className="size-7"
+                        tip={testMembers.isPending ? t('card.testRunning') : t('card.test')}
+                    >
+                        {testMembers.isPending ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />}
+                    </IconButton>
+                    {/* 清空全部成员冷却: 只恢复候选资格, 当前承载成员与亲和不变; 徽标消失由 SSE runtime 增量驱动。 */}
+                    {hasActiveCooldown && (
+                        <IconButton
+                            onClick={handleResetCooldown}
+                            disabled={resetCooldown.isPending}
+                            className="size-7"
+                            tip={t('card.cooldownReset')}
+                        >
+                            <RotateCcw className={`size-4 ${resetCooldown.isPending ? 'animate-spin' : ''}`} />
+                        </IconButton>
+                    )}
                     <MorphingDialog>
                         {/* trigger 自身渲染 motion.div 承担弹窗形变, 故由它出元素, IconButton 只补样式。 */}
                         <IconButton asChild className="size-7">
@@ -268,6 +325,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                     activeItemId={group.runtime.current_item_id}
                     group={group}
                     now={now}
+                    testResults={testResults}
                     onDragStart={handleDragStart}
                     onDrop={submitMembers}
                     onDragFinish={handleDragFinish}

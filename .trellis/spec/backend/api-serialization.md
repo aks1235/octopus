@@ -26,3 +26,21 @@ custom_header: channel.custom_header ?? [],
 
 - 后端单测构造 nil 切片字段的响应,前端(tsc 层面无测试)靠冒烟:起容器后对**迁移库空值渠道**逐项过 UI(octopus-verify 人审清单里显式包含一条空值渠道)
 - 回归锚点:`web/src/components/modules/channel/state.ts` `fromChannel` 的 `custom_header ?? []`
+
+## 契约:RequireJSON 空 body 与前端 apiRequest 的 Content-Type 联动
+
+**What**:`middleware.RequireJSON` 对非 GET/DELETE/OPTIONS 请求只校验 `Content-Type` 头含 `application/json`,**不读请求体**——空 body POST 放行,handler 不做 `ShouldBindJSON` 即无 body 需求。但前端 `apiRequest` 只在 `body !== undefined` 时才设置 Content-Type 头。
+
+**约定**:无字段的 mutation 端点(如 `POST /api/v1/group/test/:id`、`POST /api/v1/group/cooldown-reset/:id`)后端无需任何适配;前端调用**必须显式 `body: {}`**,否则请求无 Content-Type,被 RequireJSON 以 415 拒绝。
+
+**Wrong vs Correct**:
+
+```typescript
+// Wrong: 不带 body → 无 Content-Type → 415
+apiRequest(`/api/v1/group/test/${id}`, { method: 'POST' });
+
+// Correct: 显式空对象触发 Content-Type 设置
+apiRequest(`/api/v1/group/test/${id}`, { method: 'POST', body: {} });
+```
+
+**测试锚点**:`internal/server/handlers/group_usability_test.go`(裸 POST 被 415 拒绝、空分组返回 `[]` 非 `null`)。

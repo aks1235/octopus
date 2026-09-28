@@ -124,6 +124,19 @@ type GroupItemInput struct {
 	ChannelGrantID int `json:"channel_grant_id" binding:"required"` // 待引用的渠道授权 ID。
 }
 
+// 分组成员连通性测试的单个成员结果。
+type GroupMemberTestResult struct {
+	ItemID          int      `json:"item_id"`          // 分组成员 ID。
+	ChannelName     string   `json:"channel_name"`     // 成员所属渠道名称。
+	ModelName       string   `json:"model_name"`       // 成员引用的上游模型名称。
+	KeyName         string   `json:"key_name"`         // 成员引用的凭据名称。
+	Success         bool     `json:"success"`          // 任一协议取得可解析 2xx 响应即为成功; 不可用成员为假。
+	Protocol        Protocol `json:"protocol"`         // 成功时使用的协议位; 失败或不可用时为 0。
+	Error           string   `json:"error"`            // 失败/不可用原因摘要, 已截断; 成功时为空。
+	UseTime         int64    `json:"use_time"`         // 该成员整体测试耗时(毫秒, 含多协议累计)。
+	CooldownCleared bool     `json:"cooldown_cleared"` // 成功且原本在冷却中时为真, 表示冷却已被本次测试清除。
+}
+
 // 正则分组的人工渠道顺序保存请求; 顺序走独立端点而不并入分组更新:
 // 分组成员集合对正则分组是只读的(由正则整体替换定稿), 把顺序混进同一请求会让人误以为集合也可编辑。
 // 提交的渠道顺序即终态(整体替换), 渠道内成员顺序由后端按 (模型, 凭据) 自然序保持, 不随本请求提交。

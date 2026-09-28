@@ -106,6 +106,50 @@ func ResetRouteState(groupID int) {
 	roundRobinCounters.Delete(groupID)
 }
 
+// ClearGroupCooldowns 清空分组的全部成员冷却与连续冷却计数并释放探测占用, 供人工重置入口使用。
+// 与 ResetRouteState 的差异: 只恢复候选资格, 当前路由/亲和/轮询计数全部保留 ——
+// 重置语义是"让冷却成员重新可选", 不是"路由从头再来"。
+func ClearGroupCooldowns(groupID int) {
+	routeMu.Lock()
+	defer routeMu.Unlock()
+
+	route := routes[groupID]
+	if route == nil {
+		return
+	}
+	if len(route.Cooldowns) == 0 && route.ProbeItemID == 0 {
+		return
+	}
+	route.Cooldowns = make(map[int]int64)
+	route.trips = make(map[int]int)
+	route.ProbeItemID = 0
+	publishRouteLocked(route)
+}
+
+// clearMemberCooldown 清除单个成员的冷却与连续计数并释放其探测占用, 供分组成员测试成功后调用,
+// 返回清之前该成员是否在冷却中。与 recordRouteSuccess 的探测分支相比刻意少了"立即切回":
+// 测试是旁路观测, 清掉冷却后扫描自然轮到该成员, 不因测试行为强制切换正在进行的流量。
+func clearMemberCooldown(groupID, itemID int) bool {
+	routeMu.Lock()
+	defer routeMu.Unlock()
+
+	route := routes[groupID]
+	if route == nil {
+		return false
+	}
+	_, cooling := route.Cooldowns[itemID]
+	probeHeld := route.ProbeItemID == itemID
+	delete(route.Cooldowns, itemID)
+	delete(route.trips, itemID)
+	if probeHeld {
+		route.ProbeItemID = 0
+	}
+	if cooling || probeHeld {
+		publishRouteLocked(route)
+	}
+	return cooling
+}
+
 // pickGroupItem 按分组模式选择本轮目标成员, 没有可用成员时返回零值; group.Items 已按 Priority 升序排列。
 // walk 是本请求的游标: 选中后调用方把成员 ID 写回 walk, 下一轮由此继续(粘住重试或向下切换)。
 // 选路前先剔除不可选成员: 渠道或凭据被禁用以及授权两侧缺失与冷却同级, 直接不进入选路,
