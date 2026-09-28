@@ -382,3 +382,26 @@ grill-with-docs拷问8题定案,8条ADR入库,dev-v2基于upstream v0.13.2(27aa4
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 分组成员级测试+冷却重置 与 健康检查模型对账
+
+**Date**: 2026-09-28
+**Task**: 分组成员级测试+冷却重置 与 健康检查模型对账
+**Branch**: `dev-v2`
+
+### Summary
+
+两任务落地:①分组页新增成员级连通性测试(共用 keyTestProtocols 顺序,成功即停并标注协议,测通即清该成员冷却)与冷却重置入口(清全组冷却/探测占用,保留当前路由),前端卡片头两按钮+成员行结果徽标,三语;②健康检查探测清单自动落库(FetchModelsDetailed 逐凭据两侧不短路,单凭据替换语义对账保主键统计,三层防误删护栏:失败凭据跳过/空列表跳过/轮超时不落),假上游实测增删/防误删全过。附带:RequireJSON 空 body 坑沉淀 api-serialization;分组卡片'一排2个'经无头Chromium实测为并排窗口宽度问题非回归;spec 新增 channel-health-reconcile.md、relay-routing 补冷却清理三入口语义。两任务已归档,marker 已写。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `daf38bf` | (see git log) |
+| `c2f2298` | (see git log) |
+| `4989670` | (see git log) |
+
+### Status
+
+[OK] **Completed**
