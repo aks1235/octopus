@@ -2,7 +2,7 @@
 # (发布流程见 .claude/skills/octopus-publish;推 dev-v2 + tag 后由 CI 出镜像)。
 services:
   octopus:
-    image: raynmy/octopus:v2.1.5
+    image: raynmy/octopus:v2.1.6
     build:
       context: .
       dockerfile: scripts/dockerfiles/Dockerfile.alpine
