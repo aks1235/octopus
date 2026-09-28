@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/relay-routing.md", "reason": "授权级联影响分组成员与选路,对账后的成员变化须与路由状态生命周期兼容"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "对账事务、缓存失效与 SQLite BUSY 退避的既有约定"}
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "对账触发的 GroupRegexSync/ManualAbsorb 重算语义"}
+{"file": ".trellis/spec/backend/group-manual-absorb.md", "reason": "手动分组吸纳入口与渠道增改事件触发路径"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "对账失败只记日志不中断的口径与错误截断风格"}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "dev-v2 构建验证命令口径(golang 1.26.4、前端产物注意项)"}

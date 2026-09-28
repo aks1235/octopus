@@ -44,41 +44,71 @@ func NewClient(config model.ChannelConfig) (*http.Client, func(), error) {
 	return httpClient, func() {}, nil
 }
 
+// KeyProbeResult 单个启用凭据两侧模型端点的探测结果。
+// 列表与错误按侧独立给出: 判活按"任一侧成功"聚合, 对账按"哪侧成功"合并协议位,
+// 两者对同一份结果的消费口径不同, 故不在此预先折算成单一结论。
+type KeyProbeResult struct {
+	KeyName      string   // 凭据名称, 供对账定位与日志标识。
+	OpenAI       []string // OpenAI 侧拉到的模型名列表; 该侧失败时为 nil。
+	Anthropic    []string // Anthropic 侧拉到的模型名列表; 该侧失败时为 nil。
+	OpenAIErr    error    // OpenAI 侧的探测错误; 该侧成功时为 nil。
+	AnthropicErr error    // Anthropic 侧的探测错误; 该侧成功时为 nil。
+}
+
 // FetchModels 按渠道配置与其凭据探测两侧模型端点, 任一启用凭据任一侧返回 2xx 即判定健康。
 // 宽容判定: 多凭据渠道剩一个可用凭据, 或单协议上游只有一侧讲得通, 都不算失败,
 // 健康检查由此不会误杀部分凭据失效或仅支持单侧协议的渠道; 检测部分凭据失效属 KEY 级健康管理, 不在此列。
 // 全部探测失败时返回聚合的失败原因, 已截断到 200 字符以内。
+// 只需要判活的调用方走本入口; 需要逐凭据模型清单做对账的调用方走 FetchModelsDetailed。
 func FetchModels(ctx context.Context, config model.ChannelConfig, keys []model.ChannelKeyConfig) (bool, error) {
+	healthy, _, err := FetchModelsDetailed(ctx, config, keys)
+	return healthy, err
+}
+
+// FetchModelsDetailed 逐启用凭据探测两侧模型端点, 返回逐凭据结果与整体判活。
+// 与 FetchModels 的差别在不短路: 每个启用凭据两侧都测完才收口, 因为对账需要全部凭据的完整清单,
+// 短路会让排在已成功凭据之后的凭据永远没有对账机会; 判活仍按"任一凭据任一侧成功"聚合, 语义不变。
+// 全部探测失败时返回聚合的失败原因(拼接格式与 FetchModels 一致), 已截断到 200 字符以内。
+func FetchModelsDetailed(ctx context.Context, config model.ChannelConfig, keys []model.ChannelKeyConfig) (bool, []KeyProbeResult, error) {
 	httpClient, closeClient, err := NewClient(config)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer closeClient()
 
-	// 凭据之间与两侧端点之间串行探测: 判定只看"任一探测是否成功", 无需渠道内部并发。
+	// 凭据之间与两侧端点之间串行探测: 探测是轻量的 GET /models, 无需渠道内部并发。
 	openaiURL := ModelsURL(config.BaseURL, config.OpenAIResponsePath)
 	anthropicURL := ModelsURL(config.BaseURL, config.AnthropicMessagePath)
+	results := make([]KeyProbeResult, 0, len(keys))
 	failures := make([]string, 0, len(keys)*2)
+	healthy := false
 	for _, key := range keys {
 		if !key.Enabled {
 			continue
 		}
-		if _, err := FetchOpenAIModels(httpClient, ctx, config, key.Key, openaiURL); err != nil {
-			failures = append(failures, fmt.Sprintf("key %q openai: %v", key.Name, err))
+		result := KeyProbeResult{KeyName: key.Name}
+		result.OpenAI, result.OpenAIErr = FetchOpenAIModels(httpClient, ctx, config, key.Key, openaiURL)
+		result.Anthropic, result.AnthropicErr = FetchAnthropicModels(httpClient, ctx, config, key.Key, anthropicURL)
+		if result.OpenAIErr != nil {
+			failures = append(failures, fmt.Sprintf("key %q openai: %v", key.Name, result.OpenAIErr))
 		} else {
-			return true, nil
+			healthy = true
 		}
-		if _, err := FetchAnthropicModels(httpClient, ctx, config, key.Key, anthropicURL); err != nil {
-			failures = append(failures, fmt.Sprintf("key %q anthropic: %v", key.Name, err))
+		if result.AnthropicErr != nil {
+			failures = append(failures, fmt.Sprintf("key %q anthropic: %v", key.Name, result.AnthropicErr))
 		} else {
-			return true, nil
+			healthy = true
 		}
+		results = append(results, result)
 	}
-	if len(failures) == 0 {
+	if len(results) == 0 {
 		// 一个启用凭据都没有的渠道无从转发, 判为不健康并给出可读原因。
-		return false, fmt.Errorf("no enabled keys")
+		return false, results, fmt.Errorf("no enabled keys")
 	}
-	return false, errors.New(truncateError(strings.Join(failures, "; ")))
+	if healthy {
+		return true, results, nil
+	}
+	return false, results, errors.New(truncateError(strings.Join(failures, "; ")))
 }
 
 // truncateError 把失败原因截断到上限以内。

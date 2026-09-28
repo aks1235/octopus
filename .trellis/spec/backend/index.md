@@ -8,7 +8,8 @@
 | [group-member-regex.md](./group-member-regex.md) | 分组成员正则方言契约:纯 pattern 禁 JS 斜杠定界符、忽略大小写用开头 (?i)、regexp2↔JS 引擎差异、前端必经 compileMemberRegex、斜杠残留静默 0 成员排障 |
 | [group-channel-order.md](./group-channel-order.md) | 正则分组渠道人工排序契约:group_channel_orders 表、顺序端点(悬空ID事务内过滤/手动分组400)、合成顺序=(人工序,channel,model,key)、渠道块拖拽、ResetRouteState 必在 handler 层(op↔relay 成环)、空迁移 nil Up 会炸 InitDB |
 | [group-manual-absorb.md](./group-manual-absorb.md) | 手动分组自动吸纳契约:模型名包含分组名(前后端同源口径)、append-only 尾部续排、触发点四挂(渠道增改/分组创建/改名/5min兜底)、删成员回归为预期、idx_group_grant 幂等硬保护 |
-| [api-serialization.md](./api-serialization.md) | API 序列化空值契约:Go nil 切片→JSON null,前端 API→state 边界必须 `?? []` 归一化(迁移库空值触发崩溃的防护) |
+| [api-serialization.md](./api-serialization.md) | API 序列化空值契约:Go nil 切片→JSON null,前端 API→state 边界必须 `?? []` 归一化(迁移库空值触发崩溃的防护);RequireJSON 空 body 放行但前端 mutation 须显式 `body: {}` |
+| [channel-health-reconcile.md](./channel-health-reconcile.md) | 健康检查模型对账契约:探测清单与判活分离、单凭据替换语义(保主键统计/级联预期)、三层防误删护栏、收尾与保存路径同款、SSE 事件已知边界 |
 | [database-guidelines.md](./database-guidelines.md) | 数据库层规范 |
 | [directory-structure.md](./directory-structure.md) | 目录结构规范 |
 | [error-handling.md](./error-handling.md) | 错误处理规范 |

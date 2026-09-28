@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "检查对账事务与缓存失效是否合规"}
+{"file": ".trellis/spec/backend/group-member-regex.md", "reason": "检查级联与重算触发是否符合正则分组语义"}
+{"file": ".trellis/spec/backend/group-manual-absorb.md", "reason": "检查吸纳触发路径"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "检查失败兜底与日志口径"}
+{"file": ".trellis/spec/build/dev-v2-build-deploy.md", "reason": "检查验证命令坑位(golang 1.26.4 / 勿删 static/out)"}

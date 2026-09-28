@@ -3,6 +3,7 @@ package handlers
 import (
 	"testing"
 
+	"github.com/bestruirui/octopus/internal/op"
 	regexp2 "github.com/dlclark/regexp2"
 )
 
@@ -81,7 +82,7 @@ func TestModelNameKept(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := modelNameKept(compileFilter(t, tt.channel), compileFilter(t, tt.global), tt.model)
+			got, err := op.ModelNameKept(compileFilter(t, tt.channel), compileFilter(t, tt.global), tt.model)
 			if err != nil {
 				t.Fatalf("modelNameKept(%q): %v", tt.model, err)
 			}

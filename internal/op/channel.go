@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 	"github.com/charmbracelet/log"
+	"github.com/dlclark/regexp2"
 	"gorm.io/gorm"
 )
 
@@ -387,6 +389,213 @@ func ChannelHealthSuccess(id int, checkedAt int64, reenable bool, ctx context.Co
 	}
 	channelCache.Set(id, channel)
 	return nil
+}
+
+// ChannelModelReconcile 按探测结果对单个凭据名下的模型与授权对账(替换语义)。
+// 供健康检查把每轮探测拉到的上游模型清单落库: 上游已下线的模型不再保留, 新模型带协议位加入,
+// 与编辑器手动探测(43d6cae)同一款语义 —— 本轮结果替换该凭据名下的授权, 其他凭据的授权原样保留;
+// 模型集合按授权表实际存在重导出, 无授权的孤立模型随之删除, 分组成员的级联消失属预期。
+// 事务内按「其他凭据现状 + 本凭据过滤后的探测结果」重建渠道的模型与授权, 复用保存路径的
+// syncChannelModels 与 syncChannelGrants, 由此保留行的主键与统计、级联清理路径与人工保存完全同口径。
+// 无实际变更时短路返回, 不触发缓存重载与分组重算, 避免每个健康检查周期空转。
+// 空清单由调用方按护栏拦截, 此处再兜一道防御直接拒绝。
+func ChannelModelReconcile(ctx context.Context, channelID int, keyName string, fetched []model.ChannelFetchModel) error {
+	if len(fetched) == 0 {
+		return fmt.Errorf("reconcile of channel %d key %q got empty model list", channelID, keyName)
+	}
+	keyName = strings.TrimSpace(keyName)
+	if keyName == "" {
+		return fmt.Errorf("reconcile of channel %d got empty key name", channelID)
+	}
+	channel, ok := channelCache.Get(channelID)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	kept, err := filterFetchedModels(channel.MatchRegex, fetched)
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// grantRef 是授权在渠道内的业务键: (模型名, 凭据名) 组合唯一, 对账的匹配与比对都按它寻址。
+		type grantRef struct {
+			modelName string
+			keyName   string
+		}
+		var channelKeys []model.ChannelKey
+		if err := tx.Where("channel_id = ?", channelID).Find(&channelKeys).Error; err != nil {
+			return fmt.Errorf("failed to load channel keys: %w", err)
+		}
+		keyNameByID := make(map[int]string, len(channelKeys))
+		keyID := 0
+		for _, channelKey := range channelKeys {
+			keyNameByID[channelKey.ID] = channelKey.Name
+			if channelKey.Name == keyName {
+				keyID = channelKey.ID
+			}
+		}
+		if keyID == 0 {
+			// 探测与落库之间凭据被并发删除: 不确定就不动, 留给下一轮按新状态重算。
+			return fmt.Errorf("channel key %q not found in channel %d", keyName, channelID)
+		}
+		var channelModels []model.ChannelModel
+		if err := tx.Where("channel_id = ?", channelID).Find(&channelModels).Error; err != nil {
+			return fmt.Errorf("failed to load channel models: %w", err)
+		}
+		modelNameByID := make(map[int]string, len(channelModels))
+		modelIDs := make([]int, 0, len(channelModels))
+		existingModelNames := make(map[string]struct{}, len(channelModels))
+		for _, channelModel := range channelModels {
+			modelNameByID[channelModel.ID] = channelModel.Name
+			modelIDs = append(modelIDs, channelModel.ID)
+			existingModelNames[channelModel.Name] = struct{}{}
+		}
+		var grants []model.ChannelGrant
+		if len(modelIDs) > 0 {
+			if err := tx.Where("channel_model_id IN ?", modelIDs).Find(&grants).Error; err != nil {
+				return fmt.Errorf("failed to load channel grants: %w", err)
+			}
+		}
+
+		// 现有授权按业务键索引; 引用的模型或凭据已不在本渠道(异常数据)时跳过,
+		// 让它落入"不在目标集合"而被本轮回收到与保存路径一致的干净状态。
+		existing := make(map[grantRef]model.Protocol, len(grants))
+		for _, grant := range grants {
+			grantModelName, modelOK := modelNameByID[grant.ChannelModelID]
+			grantKeyName, keyOK := keyNameByID[grant.ChannelKeyID]
+			if !modelOK || !keyOK {
+				continue
+			}
+			existing[grantRef{grantModelName, grantKeyName}] = grant.Protocols
+		}
+
+		// 目标集合 = 其他凭据现状 + 本凭据过滤后的探测结果; 探测清单内重名条目的协议位取并集,
+		// 免得同凭据同模型的重复项把唯一索引撞出事务失败。
+		desired := make(map[grantRef]model.Protocol, len(existing)+len(kept))
+		for ref, protocols := range existing {
+			if ref.keyName != keyName {
+				desired[ref] = protocols
+			}
+		}
+		for _, item := range kept {
+			desired[grantRef{item.Name, keyName}] |= item.Protocols
+		}
+		// 模型集合按目标授权表重导出: 无授权的孤立模型不再保留。
+		desiredModelNames := make(map[string]struct{}, len(desired))
+		for ref := range desired {
+			desiredModelNames[ref.modelName] = struct{}{}
+		}
+		if maps.Equal(existing, desired) && maps.Equal(existingModelNames, desiredModelNames) {
+			return nil
+		}
+		changed = true
+
+		// 请求集合按名称定序后交给保存路径的同步函数: 顺序稳定, 行为与人工提交完全一致。
+		requestedModels := make([]string, 0, len(desiredModelNames))
+		for name := range desiredModelNames {
+			requestedModels = append(requestedModels, name)
+		}
+		sort.Strings(requestedModels)
+		requestedGrants := make([]model.ChannelGrantConfig, 0, len(desired))
+		for ref, protocols := range desired {
+			requestedGrants = append(requestedGrants, model.ChannelGrantConfig{
+				ModelName: ref.modelName, KeyName: ref.keyName, Protocols: protocols})
+		}
+		sort.Slice(requestedGrants, func(i, j int) bool {
+			if requestedGrants[i].ModelName != requestedGrants[j].ModelName {
+				return requestedGrants[i].ModelName < requestedGrants[j].ModelName
+			}
+			return requestedGrants[i].KeyName < requestedGrants[j].KeyName
+		})
+		if err := syncChannelModels(tx, channelID, requestedModels); err != nil {
+			return err
+		}
+		return syncChannelGrants(tx, channelID, requestedGrants)
+	}); err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+
+	// 收尾与 ChannelUpdate 同款: 凭据, 模型与授权的增删改变可选路由集合, 重载缓存并刷新分组;
+	// 正则分组重算即时吸纳与移除, 手动分组按同口径吸纳新成员, 前端经既有分组读取路径看到变化。
+	if err := reloadChannelChildren(ctx, channelID); err != nil {
+		return err
+	}
+	if err := groupRefreshCache(ctx); err != nil {
+		return fmt.Errorf("failed to refresh groups: %w", err)
+	}
+	if err := GroupRegexSync(ctx); err != nil {
+		return fmt.Errorf("failed to sync regex groups: %w", err)
+	}
+	if err := GroupManualAbsorb(ctx, channelID); err != nil {
+		return fmt.Errorf("failed to absorb manual group members: %w", err)
+	}
+	return nil
+}
+
+// filterFetchedModels 按两层过滤正则收缩对账清单, 口径与手动探测的后端拉取完全一致:
+// 渠道级白名单命中保留, 全局黑名单命中排除。正则编译失败按错误返回, 调用方跳过本轮对账;
+// 全局过滤设置读取失败按不过滤处理, 与拉取路径的容错一致。
+func filterFetchedModels(channelRegex string, fetched []model.ChannelFetchModel) ([]model.ChannelFetchModel, error) {
+	var reChannel, reGlobal *regexp2.Regexp
+	var err error
+	if channelRegex = strings.TrimSpace(channelRegex); channelRegex != "" {
+		if reChannel, err = regexp2.Compile(channelRegex, regexp2.ECMAScript); err != nil {
+			return nil, fmt.Errorf("failed to compile channel match regex: %w", err)
+		}
+	}
+	// 全局过滤由设置页维护, 读取失败按不过滤处理: 启动初始化会补齐默认行, 缺行只可能出现在旧库尚未刷新的瞬间。
+	globalFilter, _ := SettingGetString(model.SettingKeyModelFilter)
+	if globalFilter = strings.TrimSpace(globalFilter); globalFilter != "" {
+		if reGlobal, err = regexp2.Compile(globalFilter, regexp2.ECMAScript); err != nil {
+			return nil, fmt.Errorf("failed to compile global model filter: %w", err)
+		}
+	}
+	if reChannel == nil && reGlobal == nil {
+		return fetched, nil
+	}
+	kept := make([]model.ChannelFetchModel, 0, len(fetched))
+	for _, item := range fetched {
+		keep, err := ModelNameKept(reChannel, reGlobal, item.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to match model name %q: %w", item.Name, err)
+		}
+		if keep {
+			kept = append(kept, item)
+		}
+	}
+	return kept, nil
+}
+
+// ModelNameKept 判定模型名在拉取列表里是否保留, 是两层过滤正则的唯一判定口径。
+// 两层命中语义有意相反, 勿顺手统一:
+//   - 渠道级 reChannel(re)是白名单: 配置后命中才保留, 常见用途"该渠道只要这几个模型";
+//   - 全局 reGlobal 是黑名单: 命中即排除, 常见用途拦 embedding/rerank/搜索类垃圾模型。
+//
+// 两侧都配置时取 AND: 模型须「通过渠道白名单 且 未被全局黑名单命中」; 任一侧为 nil 不生效。
+func ModelNameKept(reChannel, reGlobal *regexp2.Regexp, name string) (bool, error) {
+	if reChannel != nil {
+		matched, err := reChannel.MatchString(name)
+		if err != nil {
+			return false, err
+		}
+		if !matched {
+			return false, nil
+		}
+	}
+	if reGlobal != nil {
+		matched, err := reGlobal.MatchString(name)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // ChannelHealthCandidates 返回健康检查的候选渠道及其探测所需数据。
