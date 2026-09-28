@@ -36,20 +36,20 @@
 
 ## Step 4 质量检查(最后一轮全量)
 
-- [ ] `go test ./internal/...` 全绿。
-- [ ] 前端 lint + build 通过。
-- [ ] 自查清单:与 design 的偏差逐条说明原因;R1.1–R3.2 逐条对照。
+- [x] `go test ./internal/...` 全绿。
+- [x] 前端 lint + build 通过。
+- [x] 自查清单:与 design 的偏差逐条说明原因;R1.1–R3.2 逐条对照。(质检子代理复核 8 项全过,补 5 用例)
 
 ## Step 5 octopus-verify 全流程(本地闭环)
 
-- [ ] 走 `.claude/skills/octopus-verify`(容器内编译 → 后端测试 → 前端 lint+build → 起验证容器 → 健康检查 → 人看 UI)。
-- [ ] 人工验证 AC1–AC6(重点:AC1 复现场景——冷却成员测试通过后徽标消失、流量可回)。
-- [ ] 写 `.octopus-verified` marker。
+- [x] 走 `.claude/skills/octopus-verify`(容器内编译 → 后端测试 → 前端 lint+build → 起验证容器 → 健康检查 → 人看 UI)。
+- [x] 人工验证 AC1–AC6(重点:AC1 复现场景——冷却成员测试通过后徽标消失、流量可回)。(用户确认按钮/徽标可用;"卡片一排 2 个"经无头 Chromium 对 8080/8081 同视口实测逐像素一致,系并排窗口宽度不足 3 列断点,非代码回归;重置按钮维持"有未到期冷却才渲染",用户拍板"先这样")
+- [x] 写 `.octopus-verified` marker。
 
 ## Step 6 收尾
 
-- [ ] 更新 spec:`.trellis/spec/backend/relay-routing.md` 补 ClearGroupCooldowns/测试清冷却语义(如有新约定)。
-- [ ] 提交 dev-v2(单 commit,message 走 feat(...));**不推送、不打 tag**——发布由用户另行决定后走 octopus-publish。
+- [x] 更新 spec:`.trellis/spec/backend/relay-routing.md` 补 ClearGroupCooldowns/测试清冷却语义(如有新约定)。(另:api-serialization.md 补 RequireJSON 空 body 坑)
+- [x] 提交 dev-v2(单 commit,message 走 feat(...));**不推送、不打 tag**——发布由用户另行决定后走 octopus-publish。
 
 ## 风险与回退
 
