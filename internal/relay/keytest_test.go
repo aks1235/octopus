@@ -32,13 +32,27 @@ func chatCompletionBody() string {
 	return `{"id":"chatcmpl_test","object":"chat.completion","created":1,"model":"m-test","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`
 }
 
-// TestChannelKey_successViaAnthropic 验证可用渠道按 key x 模型发最小真实请求返回成功:
-// 成功走首个协议(Anthropic), 且上游实际收到渠道凭据与本轮模型名, 生成上限压到 1 token。
+func TestProtocolsOfMask_usesFullProbePriority(t *testing.T) {
+	protocols := protocolsOfMask(model.ProtocolOpenAIChatCompletion | model.ProtocolOpenAIResponse | model.ProtocolAnthropicMessage)
+	want := []model.Protocol{model.ProtocolOpenAIChatCompletion, model.ProtocolOpenAIResponse, model.ProtocolAnthropicMessage}
+	if len(protocols) != len(want) {
+		t.Fatalf("protocols = %v, want %v", protocols, want)
+	}
+	for index := range want {
+		if protocols[index] != want[index] {
+			t.Fatalf("protocols = %v, want %v", protocols, want)
+		}
+	}
+}
+
+// TestChannelKey_successViaAnthropic 验证 Chat 与 Responses 不可用时可由 Messages 请求成功,
+// 且上游实际收到渠道凭据与本轮模型名, 生成上限压到 1 token。
 func TestChannelKey_successViaAnthropic(t *testing.T) {
 	setupRelayLogTest(t)
 	const testKey = "sk-test-123"
 	var gotAuth, gotModel string
 	var gotMaxTokens json.Number
+	var gotContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" {
 			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
@@ -48,11 +62,17 @@ func TestChannelKey_successViaAnthropic(t *testing.T) {
 		var body struct {
 			Model     string      `json:"model"`
 			MaxTokens json.Number `json:"max_tokens"`
+			Messages  []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Errorf("decode anthropic request body: %v", err)
 		}
 		gotModel, gotMaxTokens = body.Model, body.MaxTokens
+		if len(body.Messages) > 0 {
+			gotContent = body.Messages[0].Content
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(anthropicMessageBody()))
 	}))
@@ -73,14 +93,16 @@ func TestChannelKey_successViaAnthropic(t *testing.T) {
 	if gotModel != "m-test" {
 		t.Fatalf("upstream got model %q, want m-test", gotModel)
 	}
-	if gotMaxTokens.String() != "1" {
-		t.Fatalf("upstream got max_tokens %s, want 1", gotMaxTokens.String())
+	if gotMaxTokens.String() != "8192" {
+		t.Fatalf("upstream got max_tokens %s, want 8192", gotMaxTokens.String())
+	}
+	if gotContent != "1+1等于几？" {
+		t.Fatalf("upstream got content %q, want 1+1等于几？", gotContent)
 	}
 }
 
-// TestChannelKey_fallsBackToChatProtocol 验证前序协议端点不通时按协议优先级降级重试:
-// Anthropic 与 Responses 均失败后由 Chat Completions 端点测通, 成功协议记为 Chat。
-func TestChannelKey_fallsBackToChatProtocol(t *testing.T) {
+// TestChannelKey_successViaChatProtocol 验证完整探测优先尝试 Chat Completions, 成功协议记为 Chat。
+func TestChannelKey_successViaChatProtocol(t *testing.T) {
 	setupRelayLogTest(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -228,9 +250,9 @@ func TestChannelKey_fallsBackToAllProtocolsWithoutGrant(t *testing.T) {
 			var paths []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				paths = append(paths, r.URL.Path)
-				if r.URL.Path == "/v1/chat/completions" {
+				if r.URL.Path == "/v1/messages" {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(chatCompletionBody()))
+					_, _ = w.Write([]byte(anthropicMessageBody()))
 					return
 				}
 				http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
@@ -242,12 +264,17 @@ func TestChannelKey_fallsBackToAllProtocolsWithoutGrant(t *testing.T) {
 			if len(results) != 1 || !results[0].Success {
 				t.Fatalf("results = %+v, want fallback success via chat", results)
 			}
-			if results[0].Protocol != model.ProtocolOpenAIChatCompletion {
-				t.Fatalf("protocol = %d, want chat completion bit %d", results[0].Protocol, model.ProtocolOpenAIChatCompletion)
+			if results[0].Protocol != model.ProtocolAnthropicMessage {
+				t.Fatalf("protocol = %d, want Anthropic message bit %d", results[0].Protocol, model.ProtocolAnthropicMessage)
 			}
-			// 全协议位回退应把三个端点都试过: Anthropic 与 Responses 先失败, Chat 收尾成功。
-			if len(paths) != 3 || paths[len(paths)-1] != "/v1/chat/completions" {
-				t.Fatalf("upstream paths = %v, want all three endpoints tried with chat last", paths)
+			wantPaths := []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"}
+			if len(paths) != len(wantPaths) {
+				t.Fatalf("upstream paths = %v, want %v", paths, wantPaths)
+			}
+			for index := range wantPaths {
+				if paths[index] != wantPaths[index] {
+					t.Fatalf("upstream paths = %v, want %v", paths, wantPaths)
+				}
 			}
 		})
 	}
@@ -268,6 +295,10 @@ func TestChannelKey_writesRelayLogPerModel(t *testing.T) {
 		}
 		if body.Model == "m-bad" {
 			http.Error(w, `{"error":{"message":"invalid api key"}}`, http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path != "/v1/messages" {
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -304,11 +335,17 @@ func TestChannelKey_writesRelayLogPerModel(t *testing.T) {
 	if okLog.ActualModelName != "m-ok" || okLog.Error != "" {
 		t.Errorf("actual model/error = %q/%q, want m-ok/empty", okLog.ActualModelName, okLog.Error)
 	}
-	if okLog.TotalAttempts != 1 || len(okLog.Attempts) != 1 || okLog.Attempts[0].Status != model.AttemptSuccess {
-		t.Errorf("attempts = %+v, want single success", okLog.Attempts)
+	if !strings.Contains(okLog.RequestContent, "1+1等于几？") || !strings.Contains(okLog.RequestContent, `"max_tokens":8192`) || !strings.Contains(okLog.RequestContent, "anthropic message") {
+		t.Errorf("request content = %q, want actual test body including prompt, token limit, and protocol", okLog.RequestContent)
 	}
-	if okLog.Attempts[0].ChannelKeyRemark != "anthropic message" {
-		t.Errorf("attempt remark = %q, want anthropic message", okLog.Attempts[0].ChannelKeyRemark)
+	if !strings.Contains(okLog.ResponseContent, "anthropic message") || !strings.Contains(okLog.ResponseContent, "msg_test") {
+		t.Errorf("response content = %q, want actual upstream response and protocol", okLog.ResponseContent)
+	}
+	if okLog.TotalAttempts != 3 || len(okLog.Attempts) != 3 || okLog.Attempts[2].Status != model.AttemptSuccess {
+		t.Errorf("attempts = %+v, want Chat and Responses failures followed by Messages success", okLog.Attempts)
+	}
+	if okLog.Attempts[2].ChannelKeyRemark != "anthropic message" {
+		t.Errorf("attempt remark = %q, want anthropic message", okLog.Attempts[2].ChannelKeyRemark)
 	}
 	if okLog.InputTokens != 0 || okLog.OutputTokens != 0 || okLog.Cost != 0 {
 		t.Errorf("tokens/cost = %d/%d/%v, want zeros", okLog.InputTokens, okLog.OutputTokens, okLog.Cost)

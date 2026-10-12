@@ -491,6 +491,12 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                             <span className="font-semibold text-card-foreground truncate">
                                 {log.model || t('unknownModel')}
                             </span>
+                            <Badge
+                                variant={log.streaming ? 'secondary' : 'outline'}
+                                className={cn('shrink-0 text-xs px-1.5 py-0', log.streaming ? 'text-sky-600 dark:text-sky-400' : 'text-muted-foreground')}
+                            >
+                                {log.streaming ? t('streaming') : t('nonStreaming')}
+                            </Badge>
                             <ReasoningEffortBadge effort={log.reasoning_effort} />
                             {requestRunning
                                 ? <Loader2 className={cn('size-3.5 shrink-0 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />

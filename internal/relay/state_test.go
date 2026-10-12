@@ -19,14 +19,20 @@ func TestNewRequestState_apiKeyNameSnapshot(t *testing.T) {
 		t.Fatalf("create api key: %v", err)
 	}
 
-	request := newRequestState(ctx, "grp-x", 1, model.ProtocolAnthropicMessage, "{}", created.ID, "ua", "")
+	request := newRequestState(ctx, "grp-x", 1, model.ProtocolAnthropicMessage, true, "{}", created.ID, "ua", "")
 	if request.APIKeyName != "prod-key" {
 		t.Errorf("APIKeyName = %q, want prod-key", request.APIKeyName)
 	}
+	if !request.Streaming {
+		t.Error("Streaming = false, want true")
+	}
 
-	missing := newRequestState(ctx, "grp-x", 1, model.ProtocolAnthropicMessage, "{}", created.ID+1000, "ua", "")
+	missing := newRequestState(ctx, "grp-x", 1, model.ProtocolAnthropicMessage, false, "{}", created.ID+1000, "ua", "")
 	if missing.APIKeyName != "" {
 		t.Errorf("APIKeyName = %q, want empty when api key is missing", missing.APIKeyName)
+	}
+	if missing.Streaming {
+		t.Error("Streaming = true, want false")
 	}
 }
 

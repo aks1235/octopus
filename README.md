@@ -254,6 +254,10 @@ Groups aggregate multiple channels into a unified external model name.
 
 > 💡 **Example**: Create a group named `gpt-4o`, add multiple providers' GPT-4o channels to it, then access all channels via a unified `model: gpt-4o`.
 
+The lightning button on each group card runs a quick check with up to eight concurrent members and two per channel. Each protocol has a three-second timeout and each member an eight-second budget, excluding queue time. The flask button runs a full test with up to four concurrent members and a thirty-second timeout per protocol. Both send minimal real generation requests and show results as they arrive. A successful request using any authorized protocol confirms availability; timed-out members remain unconfirmed and can be checked with a full test.
+
+The latest run's results, mode, and time are stored in the current browser and survive a refresh. Interrupted runs are marked incomplete; each new run starts a fresh count. Changing members or their authorized protocols invalidates old results. The availability percentage reflects the members confirmed during that run.
+
 ---
 
 ### 💰 Price Management

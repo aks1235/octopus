@@ -114,8 +114,7 @@ export function FormGrants({ state, setState }: {
     };
 
     // 自定义模型直接授权给当前选中的凭据, 协议位沿用该凭据在其他模型上已有的并集。
-    // 并集来自此前刷新探测出的结果, 即该凭据确实讲得通的协议; 该凭据尚无任何授权时退回 Responses,
-    // 与探测的默认一致: Chat Completions 已被官方标记弃用, 需要它的渠道由用户手动勾选 Chat 列。
+    // 并集来自此前刷新拉取出的模型协议选项; 该凭据尚无任何授权时退回 Responses。
     const addModel = () => {
         const name = adding.trim();
         if (!name || state.models.includes(name)) return;

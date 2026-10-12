@@ -37,6 +37,7 @@ type RequestState struct {
 	Duration   time.Duration  `json:"duration"`     // 请求总耗时, 未结束时为零。
 	Model      string         `json:"model"`        // 客户端请求的模型名称, 即分组名称。
 	Protocol   model.Protocol `json:"protocol"`     // 客户端请求使用的协议, 由入站格式定出, 单个协议位而非掩码组合。
+	Streaming  bool           `json:"streaming"`    // 客户端是否请求流式响应, 直接取自请求体 stream 字段。
 	GroupID    int            `json:"group_id"`     // 承载本请求的分组 ID, 供界面按主键直接定位分组而不必按名称回查。
 	APIKeyName string         `json:"api_key_name"` // 发起请求的 API Key 名称, 登记时快照, 查询失败留空。
 	Usage      llm.Usage      `json:"usage"`        // 请求结束时写入的展示用量。
@@ -82,7 +83,7 @@ var (
 )
 
 // newRequestState 分配请求 ID 并登记初始运行状态; 返回的记录是本请求后续全部状态写入的入口。
-func newRequestState(ctx context.Context, modelName string, groupID int, protocol model.Protocol, body string, apiKeyID int, userAgent, reasoningEffort string) *RequestState {
+func newRequestState(ctx context.Context, modelName string, groupID int, protocol model.Protocol, streaming bool, body string, apiKeyID int, userAgent, reasoningEffort string) *RequestState {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -92,6 +93,7 @@ func newRequestState(ctx context.Context, modelName string, groupID int, protoco
 		StartedAt:       time.Now(),
 		Model:           modelName,
 		Protocol:        protocol,
+		Streaming:       streaming,
 		GroupID:         groupID,
 		ClientName:      detectClient(userAgent),
 		ReasoningEffort: reasoningEffort,

@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,14 +17,16 @@ import (
 	"github.com/looplj/axonhub/llm/transformer"
 )
 
-// keyTestTimeout 单次测试请求的上游等待上限: 测的是连通性, 30 秒拿不到可解析响应即按失败计。
-const keyTestTimeout = 30 * time.Second
+// keyTestTimeout 单次测试请求的上游等待上限: 15 秒拿不到可解析响应即按超时计。
+const keyTestTimeout = 15 * time.Second
 
-// keyTestMaxTokens 单次测试请求的生成上限, 控制真实请求的计费消耗在最小量级。
-const keyTestMaxTokens int64 = 1
+// keyTestMaxTokens 单次测试请求的生成上限, 给上游足够空间完整回答简单问题。
+const keyTestMaxTokens int64 = 8192
 
 // keyTestMaxErrorLength 失败原因的截断上限, 与 probe 包同值: 部分上游报错是整页 HTML, 全文带进结果无用。
 const keyTestMaxErrorLength = 200
+
+const keyTestMaxLogBodyLength = 16 * 1024
 
 // keyTestClientName / keyTestUserAgent 测试请求在转发日志里的固定标识:
 // 与 claude-code 等客户端标识同字段同位置, 日志页由此一眼区分人工测试与真实转发。
@@ -41,12 +44,12 @@ const groupTestUserAgent = "octopus-group-test"
 // (实测单成员测试可达十几秒), 上限 4 兼顾上游压力与整组耗时。
 const groupTestConcurrency = 4
 
-// keyTestProtocols 按序尝试的出站协议位, 顺序与 buildOutbound 非透传时的选择一致(Anthropic 优先)。
+// keyTestProtocols 是完整探测按序尝试的出站协议位: 优先 Chat, 再 Responses, 最后 Anthropic Messages。
 // 渠道各协议端点是否真实可用只有发请求才知道, 任一协议成功即判连通, 全部失败才汇总报错。
 var keyTestProtocols = []model.Protocol{
-	model.ProtocolAnthropicMessage,
-	model.ProtocolOpenAIResponse,
 	model.ProtocolOpenAIChatCompletion,
+	model.ProtocolOpenAIResponse,
+	model.ProtocolAnthropicMessage,
 }
 
 // TestChannelKey 按渠道配置与凭据对每个模型发起最小真实请求, 返回逐模型的连通性结果并逐模型落一条测试日志。
@@ -63,14 +66,14 @@ func TestChannelKey(ctx context.Context, channel model.Channel, key, keyName str
 			// 客户端已断开, 剩余模型不再发往上游, 按取消摘要逐个记失败, 日志与结果行一一对应。
 			result := model.ChannelKeyTestResult{ModelName: modelName, Error: ctx.Err().Error()}
 			results = append(results, result)
-			keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, nil, 0)
+			keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, nil, "", "", 0)
 			continue
 		}
 		protocols := keyTestModelProtocols(grants, modelName, keyName)
 		startedAt := time.Now()
-		result, attempts := testChannelKeyModel(ctx, channel, channelKey, modelName, protocols)
+		result, attempts, requestContent, responseContent := testChannelKeyModel(ctx, channel, channelKey, modelName, protocols)
 		results = append(results, result)
-		keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, attempts, time.Since(startedAt).Milliseconds())
+		keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, attempts, requestContent, responseContent, time.Since(startedAt).Milliseconds())
 	}
 	return results
 }
@@ -106,11 +109,24 @@ func protocolsOfMask(mask model.Protocol) []model.Protocol {
 // testChannelKeyModel 对单个模型按给定协议逐个试测: 任一协议成功即成功并记录该协议,
 // 全部失败时聚合各协议的错误摘要并截断, 界面上由此可直接看到每侧的原因。
 // 每次真实发往上游的请求记一条 ChannelAttempt, 供测试日志回放"试了哪些协议端点"。
-func testChannelKeyModel(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol) (model.ChannelKeyTestResult, []model.ChannelAttempt) {
+func testChannelKeyModel(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol) (model.ChannelKeyTestResult, []model.ChannelAttempt, string, string) {
+	result, attempts, _, requestContent, responseContent := testChannelKeyModelWithTimeout(ctx, channel, channelKey, modelName, protocols, keyTestTimeout)
+	return result, attempts, requestContent, responseContent
+}
+
+func testChannelKeyModelWithTimeout(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol, attemptTimeout time.Duration) (model.ChannelKeyTestResult, []model.ChannelAttempt, bool, string, string) {
 	result := model.ChannelKeyTestResult{ModelName: modelName}
 	failures := make([]string, 0, len(protocols))
 	attempts := make([]model.ChannelAttempt, 0, len(protocols))
+	requestBodies := make([]loggedTestRequest, 0, len(protocols))
+	responseBodies := make([]loggedTestResponse, 0, len(protocols))
+	timedOut := false
 	for _, protocol := range protocols {
+		if ctx.Err() != nil {
+			failures = append(failures, ctx.Err().Error())
+			timedOut = timedOut || errors.Is(ctx.Err(), context.DeadlineExceeded)
+			break
+		}
 		// 单协议位的临时授权使 buildOutbound 恒命中透传分支, 返回的即本协议的出站转换器。
 		grant := model.ChannelGrant{Protocols: protocol}
 		outbound, _, _, err := buildOutbound(channel, grant, channelKey, protocol)
@@ -119,7 +135,17 @@ func testChannelKeyModel(ctx context.Context, channel model.Channel, channelKey 
 			continue
 		}
 		attemptStartedAt := time.Now()
-		err = sendKeyTestRequest(ctx, channel, outbound, modelName)
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		requestBody, responseBody, sendErr := sendKeyTestRequest(attemptCtx, channel, outbound, modelName)
+		err = sendErr
+		if len(requestBody) > 0 {
+			requestBodies = append(requestBodies, loggedTestRequest{Protocol: keyTestProtocolName(protocol), Body: requestBody})
+		}
+		if len(responseBody) > 0 {
+			responseBodies = append(responseBodies, loggedTestResponse{Protocol: keyTestProtocolName(protocol), Body: string(responseBody)})
+		}
+		attemptTimedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		cancel()
 		attempt := model.ChannelAttempt{
 			ChannelID:        channel.ID,
 			ChannelName:      channel.Name,
@@ -129,20 +155,59 @@ func testChannelKeyModel(ctx context.Context, channel model.Channel, channelKey 
 			Duration:         int(time.Since(attemptStartedAt).Milliseconds()),
 		}
 		if err != nil {
+			timedOut = timedOut || attemptTimedOut || errors.Is(err, context.DeadlineExceeded)
 			attempt.Status = model.AttemptFailed
 			attempt.Msg = truncateKeyTestError(err.Error())
 			attempts = append(attempts, attempt)
 			failures = append(failures, err.Error())
+			if attemptTimedOut || errors.Is(err, context.DeadlineExceeded) {
+				break
+			}
 			continue
 		}
 		attempt.Status = model.AttemptSuccess
 		attempts = append(attempts, attempt)
 		result.Success = true
 		result.Protocol = protocol
-		return result, attempts
+		return result, attempts, false, marshalLoggedTestRequests(requestBodies), marshalLoggedTestResponses(responseBodies)
 	}
 	result.Error = truncateKeyTestError(strings.Join(failures, "; "))
-	return result, attempts
+	return result, attempts, timedOut, marshalLoggedTestRequests(requestBodies), marshalLoggedTestResponses(responseBodies)
+}
+
+type loggedTestRequest struct {
+	Protocol string          `json:"protocol"`
+	Body     json.RawMessage `json:"body"`
+}
+
+type loggedTestResponse struct {
+	Protocol string `json:"protocol"`
+	Body     string `json:"body"`
+}
+
+func marshalLoggedTestRequests(requests []loggedTestRequest) string {
+	if len(requests) == 0 {
+		return ""
+	}
+	if len(requests) == 1 {
+		return string(requests[0].Body)
+	}
+	content, err := json.Marshal(requests)
+	if err != nil {
+		return ""
+	}
+	return string(content)
+}
+
+func marshalLoggedTestResponses(responses []loggedTestResponse) string {
+	if len(responses) == 0 {
+		return ""
+	}
+	content, err := json.Marshal(responses)
+	if err != nil {
+		return ""
+	}
+	return string(content)
 }
 
 // keyTestProtocolName 协议位在尝试备注里的可读名称, 供日志页区分同一模型试过的各个协议端点。
@@ -164,7 +229,7 @@ func keyTestProtocolName(protocol model.Protocol) string {
 // 最小请求的用量不参与渠道统计对账, 日志只用于回放"何时测的、测了哪些协议、通没通"。
 // clientName/userAgent 参数化测试来源: 渠道面板测试与分组成员测试由此在日志页区分。
 // 渠道可能是尚未保存的表单渠道: 此时渠道主键取 0, 名称用表单名, 日志照写。
-func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, modelName, errSummary, clientName, userAgent string, attempts []model.ChannelAttempt, useTime int64) {
+func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, modelName, errSummary, clientName, userAgent string, attempts []model.ChannelAttempt, requestContent, responseContent string, useTime int64) {
 	relayLog := model.RelayLog{
 		Time:              time.Now().Unix(),
 		RequestModelName:  modelName,
@@ -176,6 +241,8 @@ func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, mode
 		Error:             errSummary,
 		UserAgent:         userAgent,
 		ClientName:        clientName,
+		RequestContent:    requestContent,
+		ResponseContent:   responseContent,
 		Attempts:          attempts,
 		TotalAttempts:     len(attempts),
 	}
@@ -207,16 +274,62 @@ func TestGroupMembers(ctx context.Context, group model.Group) []model.GroupMembe
 	return results
 }
 
+func TestGroupMembersStream(ctx context.Context, group model.Group, quick bool, onResult func(model.GroupMemberTestResult)) {
+	semaphore := make(chan struct{}, groupTestConcurrency)
+	channelSlots := make(map[int]chan struct{})
+	for _, item := range group.Items {
+		if channelSlots[item.ChannelID] == nil {
+			channelSlots[item.ChannelID] = make(chan struct{}, 2)
+		}
+	}
+	completed := make(chan model.GroupMemberTestResult, groupTestConcurrency)
+	var waitGroup sync.WaitGroup
+	for _, item := range group.Items {
+		waitGroup.Add(1)
+		go func(item model.GroupItem) {
+			defer waitGroup.Done()
+			select {
+			case channelSlots[item.ChannelID] <- struct{}{}:
+			case <-ctx.Done():
+				completed <- testGroupMember(ctx, group, item)
+				return
+			}
+			defer func() { <-channelSlots[item.ChannelID] }()
+			select {
+			case semaphore <- struct{}{}:
+			case <-ctx.Done():
+				completed <- testGroupMember(ctx, group, item)
+				return
+			}
+			defer func() { <-semaphore }()
+			result := testGroupMemberWithTimeout(ctx, group, item, keyTestTimeout)
+			completed <- result
+		}(item)
+	}
+	go func() {
+		waitGroup.Wait()
+		close(completed)
+	}()
+	for result := range completed {
+		onResult(result)
+	}
+}
+
 // testGroupMember 测试单个分组成员: 授权解析复用转发链路(ChannelGrantGet → ChannelGet),
 // 解析失败的不可用成员不发请求, 以原因摘要记失败。测通的成员立即清除冷却;
 // 每次真实发往上游的请求照写一条测试日志, 客户端标识用分组测试的固定值。
 func testGroupMember(ctx context.Context, group model.Group, item model.GroupItem) model.GroupMemberTestResult {
+	return testGroupMemberWithTimeout(ctx, group, item, keyTestTimeout)
+}
+
+func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item model.GroupItem, attemptTimeout time.Duration) model.GroupMemberTestResult {
 	// 成员读取时补齐的展示字段先垫底: 授权解析失败时渠道三件套无从回查, 界面仍能对上行列。
 	result := model.GroupMemberTestResult{
 		ItemID:      item.ID,
 		ChannelName: item.ChannelName,
 		ModelName:   item.ModelName,
 		KeyName:     item.KeyName,
+		Status:      "unavailable",
 	}
 	grant, err := op.ChannelGrantGet(item.ChannelGrantID)
 	if err != nil {
@@ -237,29 +350,41 @@ func testGroupMember(ctx context.Context, group model.Group, item model.GroupIte
 	if ctx.Err() != nil {
 		// 客户端已断开, 该成员不再发往上游, 按取消摘要记失败, 日志与结果行一一对应。
 		result.Error = ctx.Err().Error()
-		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, groupTestClientName, groupTestUserAgent, nil, 0)
+		result.Status = "canceled"
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			result.Status = "timeout"
+		}
+		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, groupTestClientName, groupTestUserAgent, nil, "", "", 0)
 		return result
 	}
 
 	startedAt := time.Now()
 	// 协议位取该授权自身的位掩码: 授权位就是"模型 x 凭据"的实际协议位, 无需再按 grants 数组匹配。
-	keyResult, attempts := testChannelKeyModel(ctx, channel, channelKey, channelModel.Name, protocolsOfMask(grant.Protocols))
+	keyResult, attempts, timedOut, requestContent, responseContent := testChannelKeyModelWithTimeout(ctx, channel, channelKey, channelModel.Name, protocolsOfMask(grant.Protocols), attemptTimeout)
 	result.Success = keyResult.Success
 	result.Protocol = keyResult.Protocol
 	result.Error = keyResult.Error
 	result.UseTime = time.Since(startedAt).Milliseconds()
+	result.Status = "failed"
+	if timedOut {
+		result.Status = "timeout"
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		result.Status = "canceled"
+	}
 	if result.Success {
+		result.Status = "passed"
 		result.CooldownCleared = clearMemberCooldown(group.ID, item.ID)
 	}
-	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, groupTestClientName, groupTestUserAgent, attempts, result.UseTime)
+	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, groupTestClientName, groupTestUserAgent, attempts, requestContent, responseContent, result.UseTime)
 	return result
 }
 
 // sendKeyTestRequest 按指定协议构最小非流式请求并发往上游, 2xx 且响应可按该协议解析才算连通。
 // 请求体经出站转换器生成(与转发链路同构), 渠道的参数覆盖与自定义 Header 同样生效;
 // 代理选择与转发同源, 由此测到的路径才是真实转发会走的路径。
-func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound transformer.Outbound, modelName string) error {
-	probeText := "probe"
+func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound transformer.Outbound, modelName string) ([]byte, []byte, error) {
+	probeText := "1+1等于几？"
 	maxTokens := keyTestMaxTokens
 	request, err := outbound.TransformRequest(ctx, &llm.Request{
 		Model:     modelName,
@@ -267,18 +392,19 @@ func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound tra
 		MaxTokens: &maxTokens,
 	})
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := applyChannelConfig(channel, request); err != nil {
-		return err
+		return nil, nil, err
 	}
+	requestBody := append([]byte(nil), request.Body...)
 
 	ctx, cancel := context.WithTimeout(ctx, keyTestTimeout)
 	defer cancel()
 
 	httpClient, closeIdle, err := resolveUpstreamClient(channel)
 	if err != nil {
-		return err
+		return requestBody, nil, err
 	}
 	if closeIdle != nil {
 		defer closeIdle()
@@ -289,15 +415,24 @@ func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound tra
 		var failure *httpclient.Error
 		if errors.As(err, &failure) {
 			// 上游错误原文最有诊断价值, 状态行带正文一并返回, 汇总层统一截断。
-			return fmt.Errorf("upstream %s: %s", failure.Status, strings.TrimSpace(string(failure.Body)))
+			return requestBody, truncateLogBody(failure.Body), fmt.Errorf("upstream %s: %s", failure.Status, strings.TrimSpace(string(failure.Body)))
 		}
-		return err
+		return requestBody, nil, err
 	}
+	responseBody := truncateLogBody(response.Body)
 	// 2xx 之后仍解析一次: 确认响应是所选协议讲得通的形状, 空壳 200 不算连通。
 	if _, err := outbound.TransformResponse(ctx, response); err != nil {
-		return fmt.Errorf("unparsable response: %v: %s", err, strings.TrimSpace(string(response.Body)))
+		return requestBody, responseBody, fmt.Errorf("unparsable response: %v: %s", err, strings.TrimSpace(string(response.Body)))
 	}
-	return nil
+	return requestBody, responseBody, nil
+}
+
+func truncateLogBody(body []byte) []byte {
+	if len(body) <= keyTestMaxLogBodyLength {
+		return append([]byte(nil), body...)
+	}
+	truncated := append([]byte(nil), body[:keyTestMaxLogBodyLength]...)
+	return append(truncated, []byte("\n...[truncated]")...)
 }
 
 // truncateKeyTestError 把失败原因截断到上限以内, 与 probe 包的截断风格一致。

@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { apiRequest } from './client';
-import { queryClient } from './client';
+import { apiRequest, apiStreamRequest, queryClient } from './client';
 import { groupListQueryOptions } from './queries';
 
 // GroupMode 表示分组的路由模式: 手动固定成员, 故障转移按顺序失败切换, 轮询按请求轮流起步。
@@ -225,17 +224,54 @@ export interface GroupMemberTestResult {
     error: string; // 失败/不可用原因摘要；成功时为空。
     use_time: number; // 该成员整体测试耗时（毫秒）。
     cooldown_cleared: boolean; // 成功且原本在冷却中时为真，表示冷却已被本次测试清除。
+    status: 'passed' | 'failed' | 'timeout' | 'unavailable' | 'canceled';
 }
 
-// useTestGroupMembers 对分组全部成员发起最小真实请求，返回逐成员连通性结果。
-// 测试产生真实计费，进行中不要重复触发（按钮以 isPending 禁用）。
-// body 必须给 {}: apiRequest 只在有 body 时带 Content-Type, 而路由组的 RequireJSON 对 POST 强制要求 JSON 类型。
-export function useTestGroupMembers() {
-    return useMutation({
-        mutationFn: (id: number) =>
-            apiRequest<GroupMemberTestResult[]>(`/api/v1/group/test/${id}`, { method: 'POST', body: {} }),
-    });
+export async function streamGroupMemberTests(id: number, mode: GroupTestMode, onEvent: (event: GroupTestEvent) => void, signal?: AbortSignal) {
+    const response = await apiStreamRequest(`/api/v1/group/test/${id}/stream?mode=${mode}`, {}, signal);
+    if (!response.body) throw new Error('Missing test response stream');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let total: number | null = null;
+    let finished = false;
+    const itemIDs = new Set<number>();
+    const parseLine = (line: string) => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line) as GroupTestEvent;
+        if (finished) throw new Error('Unexpected event after test completed');
+        if (event.type === 'start' && total === null && Number.isInteger(event.total) && event.total >= 0) {
+            total = event.total;
+        } else if (event.type === 'result' && total !== null && !itemIDs.has(event.result.item_id)) {
+            itemIDs.add(event.result.item_id);
+        } else if (event.type === 'done' && total !== null && itemIDs.size === total) {
+            finished = true;
+        } else {
+            throw new Error('Invalid or incomplete test response');
+        }
+        onEvent(event);
+    };
+    try {
+        for (;;) {
+            const { value, done } = await reader.read();
+            buffer += decoder.decode(value, { stream: !done });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) parseLine(line);
+            if (done) {
+                parseLine(buffer);
+                break;
+            }
+        }
+        if (!finished) throw new Error('Test response interrupted before completion');
+    } finally {
+        if (!finished) await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+    }
 }
+
+export type GroupTestMode = 'full';
+export type GroupTestEvent = { type: 'start'; total: number } | { type: 'result'; result: GroupMemberTestResult } | { type: 'done' };
 
 // useResetGroupCooldown 清空分组的全部成员冷却，响应即最新分组（含 runtime），写回两处缓存。
 // 当前承载成员与亲和不受影响：重置只恢复冷却成员的候选资格。

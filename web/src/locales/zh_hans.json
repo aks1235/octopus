@@ -360,6 +360,8 @@
             "test": "测试全部成员",
             "testRunning": "测试中...",
             "testFailed": "成员测试失败",
+            "testTimeout": "时限内未确认可用，可用完整测试复核",
+            "testDuration": "{ms} 毫秒",
             "testToastAll": "{count} 个成员全部可用",
             "testToastNone": "{count} 个成员全部不可用",
             "testToastPartial": "{ok} 个可用，{failed} 个不可用",
@@ -369,7 +371,17 @@
             "testOk": "可用（{protocol}）",
             "testRecovered": "可用（{protocol}），冷却已清除",
             "testUnavailableReason": "不可用：{reason}",
-            "testUnavailable": "不可用"
+            "testUnavailable": "不可用",
+            "quickTest": "快速体检",
+            "fullTest": "完整测试全部成员",
+            "quickProgress": "检测中 {completed}/{total} · {success} 个已确认可用 · {timeout} 个超时",
+            "quickTestTip": "快速体检：真实生成请求，每协议最多 3 秒、每成员最多 8 秒；超时可完整复测",
+            "testIncomplete": "测试未完成：{completed}/{total}，最后更新 {time}",
+            "testTimeoutCount": "{count} 个超时待确认",
+            "testCanceled": "已取消",
+            "testSummary": "{success}/{total} 可用，{failed} 个失败，{timeout} 个超时",
+            "quickDone": "快速体检完成：共 {total} 个成员",
+            "lastResults": "上次检测：{success}/{total} 已确认可用（{rate}%），时间 {time}"
         },
         "detail": {
             "actions": {
@@ -483,6 +495,8 @@
             "waitingChannelSelection": "正在等待选择渠道",
             "waitingResponse": "正在等待上游响应",
             "responseStreaming": "上游已响应，流式传输正在进行",
+            "streaming": "流式",
+            "nonStreaming": "非流式",
             "phaseThinking": "思考中…",
             "phaseAnswering": "输出中…",
             "attempts": "{count} 次尝试",

@@ -360,6 +360,8 @@
             "test": "測試全部成員",
             "testRunning": "測試中...",
             "testFailed": "成員測試失敗",
+            "testTimeout": "時限內未確認可用，可用完整測試複核",
+            "testDuration": "{ms} 毫秒",
             "testToastAll": "{count} 個成員全部可用",
             "testToastNone": "{count} 個成員全部不可用",
             "testToastPartial": "{ok} 個可用，{failed} 個不可用",
@@ -369,7 +371,17 @@
             "testOk": "可用（{protocol}）",
             "testRecovered": "可用（{protocol}），冷卻已清除",
             "testUnavailableReason": "不可用：{reason}",
-            "testUnavailable": "不可用"
+            "testUnavailable": "不可用",
+            "quickTest": "快速體檢",
+            "fullTest": "完整測試全部成員",
+            "quickProgress": "檢測中 {completed}/{total} · {success} 個已確認可用 · {timeout} 個逾時",
+            "quickTestTip": "快速體檢：真實生成請求，每協議最多 3 秒、每成員最多 8 秒；逾時可完整複測",
+            "testIncomplete": "測試未完成：{completed}/{total}，最後更新 {time}",
+            "testTimeoutCount": "{count} 個逾時待確認",
+            "testCanceled": "已取消",
+            "testSummary": "{success}/{total} 可用，{failed} 個失敗，{timeout} 個逾時",
+            "quickDone": "快速體檢完成：共 {total} 個成員",
+            "lastResults": "上次檢測：{success}/{total} 已確認可用（{rate}%），時間 {time}"
         },
         "detail": {
             "actions": {
@@ -483,6 +495,8 @@
             "waitingChannelSelection": "正在等待選擇供應源",
             "waitingResponse": "正在等待上游回應",
             "responseStreaming": "上游已回應，串流傳輸正在進行",
+            "streaming": "串流",
+            "nonStreaming": "非串流",
             "phaseThinking": "思考中…",
             "phaseAnswering": "輸出中…",
             "attempts": "{count} 次嘗試",

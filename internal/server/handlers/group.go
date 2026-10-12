@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -61,6 +63,14 @@ func init() {
 				Handle(testGroupMembers),
 		).
 		AddRoute(
+			router.NewRoute("/test/:id/quick", http.MethodPost).
+				Handle(testGroupMembersQuick),
+		).
+		AddRoute(
+			router.NewRoute("/test/:id/stream", http.MethodPost).
+				Handle(testGroupMembersStream),
+		).
+		AddRoute(
 			router.NewRoute("/cooldown-reset/:id", http.MethodPost).
 				Handle(resetGroupCooldown),
 		)
@@ -91,6 +101,7 @@ const groupEventBuffer = 16 // 单个分组事件流连接的非阻塞消息缓�
 var (
 	groupEventMu      sync.Mutex                           // groupEventMu 保护全部分组事件流连接。
 	groupEventStreams = make(map[chan groupEvent]struct{}) // 全部分组事件流 SSE 连接。
+	groupTests        sync.Map
 )
 
 // publishGroupEvent 非阻塞发布一条分组变更事件, 连接拥塞时关闭它并交给客户端重连后重新拉取对齐。
@@ -353,8 +364,66 @@ func testGroupMembers(c *gin.Context) {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
+	if _, running := groupTests.LoadOrStore(id, struct{}{}); running {
+		resp.Error(c, http.StatusConflict, "group test already running")
+		return
+	}
+	defer groupTests.Delete(id)
 	results := relay.TestGroupMembers(c.Request.Context(), group)
 	resp.Success(c, results)
+}
+
+func testGroupMembersQuick(c *gin.Context) {
+	testGroupMembersStream(c)
+}
+
+func testGroupMembersStream(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	group, err := op.GroupGet(id)
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	mode := c.DefaultQuery("mode", "full")
+	if mode != "full" {
+		resp.Error(c, http.StatusBadRequest, "unknown test mode")
+		return
+	}
+	if _, running := groupTests.LoadOrStore(id, struct{}{}); running {
+		resp.Error(c, http.StatusConflict, "group test already running")
+		return
+	}
+	defer groupTests.Delete(id)
+	streamGroupMemberTests(c, group)
+}
+
+func streamGroupMemberTests(c *gin.Context, group model.Group) {
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	c.Header("Content-Type", "application/x-ndjson; charset=utf-8")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	encoder := json.NewEncoder(c.Writer)
+	write := func(event any) {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := encoder.Encode(event); err != nil {
+			cancel()
+			return
+		}
+		c.Writer.Flush()
+	}
+	write(gin.H{"type": "start", "total": len(group.Items)})
+	relay.TestGroupMembersStream(ctx, group, false, func(result model.GroupMemberTestResult) {
+		write(gin.H{"type": "result", "result": result})
+	})
+	write(gin.H{"type": "done"})
 }
 
 // resetGroupCooldown 清空分组的全部成员冷却与连续冷却计数。

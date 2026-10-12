@@ -55,3 +55,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
     return data?.data as T;
 }
+
+export async function apiStreamRequest(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    const headers = new Headers({ 'Content-Type': 'application/json' });
+    if (apiKey) headers.set('Authorization', `Bearer ${apiKey}`);
+    const response = await fetch(path, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        credentials: 'include',
+        signal,
+    });
+    if (!response.ok) {
+        const data = await response.json().catch(() => null) as { message?: string } | null;
+        if (response.status === 401) window.dispatchEvent(new Event(apiUnauthorizedEvent));
+        throw new ApiError(response.status, data?.message || `Request failed: ${response.status}`);
+    }
+    return response;
+}

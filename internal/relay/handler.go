@@ -81,9 +81,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		userAgent := c.Request.UserAgent()
 		reasoningEffort := extractReasoningEffort(format, raw.Body)
 		ctx := c.Request.Context()
-		request := newRequestState(ctx, metadata.Model, group.ID, requestProtocol, string(raw.Body), apiKeyID, userAgent, reasoningEffort)
-		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
-		failures := 0     // 该成员包含首次请求的连续失败次数。
+		request := newRequestState(ctx, metadata.Model, group.ID, requestProtocol, metadata.Streaming, string(raw.Body), apiKeyID, userAgent, reasoningEffort)
+		failedItemID := 0    // 当前累计连续失败次数的成员 ID。
+		failures := 0        // 该成员包含首次请求的连续失败次数。
 		walk := &routeWalk{} // 本请求的选路游标: 失败后从当前成员向下继续并绕圈, 不回队头重扫。
 
 		// 转发日志的采集与落库: attempts 记录每轮实际发起的上游尝试(等待型轮次不记),

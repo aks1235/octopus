@@ -145,8 +145,8 @@ type FetchModelRequest = {
     key: string;
 };
 
-// FetchModel 是探测到的单个上游模型及其支持的协议集合。
-// OpenAI 侧记为 Responses 而非 Chat：Chat Completions 已被官方标记弃用，需要 Chat 的渠道由用户手动勾选。
+// FetchModel 是探测到的单个上游模型及其可选协议集合。
+// OpenAI 模型同时提供 Chat Completions 与 Responses 选项；Anthropic 模型标记 Messages。
 export type FetchModel = {
     name: string;
     protocols: number; // Protocol 位掩码。

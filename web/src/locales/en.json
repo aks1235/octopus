@@ -360,6 +360,8 @@
             "test": "Test all members",
             "testRunning": "Testing...",
             "testFailed": "Member test failed",
+            "testTimeout": "Not confirmed within the time limit; try a full test",
+            "testDuration": "{ms} ms",
             "testToastAll": "All {count} members available",
             "testToastNone": "All {count} members unavailable",
             "testToastPartial": "{ok} available, {failed} unavailable",
@@ -369,7 +371,17 @@
             "testOk": "Available ({protocol})",
             "testRecovered": "Available ({protocol}), cooldown cleared",
             "testUnavailableReason": "Unavailable: {reason}",
-            "testUnavailable": "Unavailable"
+            "testUnavailable": "Unavailable",
+            "quickTest": "Quick check",
+            "fullTest": "Test all members",
+            "quickProgress": "Checking {completed}/{total} · {success} confirmed available · {timeout} timed out",
+            "quickTestTip": "Quick check: real generation requests, up to 3 seconds per protocol and 8 seconds per member; retry timeouts with a full test",
+            "testIncomplete": "Test incomplete: {completed}/{total}, last update {time}",
+            "testTimeoutCount": "{count} timed out; unconfirmed",
+            "testCanceled": "Canceled",
+            "testSummary": "{success}/{total} available, {failed} failed, {timeout} timed out",
+            "quickDone": "Quick check finished: {total} members",
+            "lastResults": "Last check: {success}/{total} confirmed available ({rate}%) at {time}"
         },
         "detail": {
             "actions": {
@@ -483,6 +495,8 @@
             "waitingChannelSelection": "Waiting for channel selection",
             "waitingResponse": "Waiting for upstream response",
             "responseStreaming": "Upstream responded; streaming is in progress",
+            "streaming": "Streaming",
+            "nonStreaming": "Non-streaming",
             "phaseThinking": "Thinking…",
             "phaseAnswering": "Writing…",
             "attempts": "{count} attempts",

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2, CircleCheck, CircleX, Ban } from 'lucide-react';
+import { Layers, GripVertical, X, Trash2, CircleCheck, CircleX, Ban, Clock3 } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -51,7 +51,6 @@ function protocolLabel(bit: number) {
 
 // MemberTestBadge 成员行的连通性测试结果徽标: 成功绿(带成功协议)、失败红(带错误摘要)、不可用灰。
 // 不可用按成员行自身的 available 口径判定(渠道/凭据被禁用, 未发上游请求), 与列表的置灰展示同源。
-// 仅在有该成员的结果时渲染, 重新测试由父级整体覆盖, 不持久化。
 function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResult; unavailable: boolean }) {
     const t = useTranslations('group.card');
     const iconClass = 'size-3.5 shrink-0';
@@ -66,11 +65,11 @@ function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResul
                         <CircleCheck className={iconClass} />
                     </span>
                 </TooltipTrigger>
-                <TooltipContent>{tip}</TooltipContent>
+                <TooltipContent>{tip} · {t('testDuration', { ms: result.use_time })}</TooltipContent>
             </Tooltip>
         );
     }
-    if (unavailable) {
+    if (unavailable || result.status === 'unavailable') {
         return (
             <Tooltip>
                 <TooltipTrigger asChild>
@@ -83,6 +82,24 @@ function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResul
                 </TooltipContent>
             </Tooltip>
         );
+    }
+    if (result.status === 'timeout') {
+        return (
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="inline-flex shrink-0 text-amber-500"><Clock3 className={iconClass} /></span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72 whitespace-normal break-all">
+                    {t('testTimeout')}{result.error && `: ${result.error}`}
+                </TooltipContent>
+            </Tooltip>
+        );
+    }
+    if (result.status === 'canceled') {
+        return <Tooltip>
+            <TooltipTrigger asChild><span className="inline-flex shrink-0 text-muted-foreground"><Ban className={iconClass} /></span></TooltipTrigger>
+            <TooltipContent>{t('testCanceled')}</TooltipContent>
+        </Tooltip>;
     }
     return (
         <Tooltip>
