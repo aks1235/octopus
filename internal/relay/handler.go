@@ -425,6 +425,10 @@ func relayLogFinalize(request *RequestState, requestModel string, attempts []mod
 		UserAgent:        userAgent,
 		ClientName:       detectClient(userAgent),
 		ReasoningEffort:  reasoningEffort,
+		Protocol:         request.Protocol,
+		TargetProtocol:   request.TargetProtocol,
+		Streaming:        &request.Streaming,
+		Status:           string(request.Status),
 		RequestContent:   request.body,
 		ResponseContent:  request.responseBody,
 	}

@@ -497,6 +497,7 @@
             "responseStreaming": "Upstream responded; streaming is in progress",
             "streaming": "Streaming",
             "nonStreaming": "Non-streaming",
+            "streamingUnknown": "Unknown stream mode",
             "phaseThinking": "Thinking…",
             "phaseAnswering": "Writing…",
             "attempts": "{count} attempts",

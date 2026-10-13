@@ -275,6 +275,13 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 	if err != nil {
 		return nil, err
 	}
+	// 历史页应立即看到刚完成的请求。正常流量下日志会先进入小批量缓冲,
+	// 如果只等定时任务落库, 实时页与历史页会短暂出现数量差异。
+	if enabled {
+		if err := relayLogFlushToDB(ctx); err != nil {
+			return nil, err
+		}
+	}
 	hasTimeFilter := startTime != nil && endTime != nil
 
 	// 获取缓存中符合条件的日志（排除大字段）

@@ -61,7 +61,7 @@ func init() {
 // listLog 分页查询历史转发日志, 支持时间区间、错误过滤与 API Key/模型名多选筛选。
 func listLog(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
 	hasError := c.Query("has_error") == "true"
@@ -80,7 +80,7 @@ func listLog(c *gin.Context) {
 		page = 1
 	}
 	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+		pageSize = 50
 	}
 
 	var startTime, endTime *int

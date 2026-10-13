@@ -1,86 +1,100 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'use-intl';
-import { Loader2, ScrollText, AlertCircle, Clock, Coins, Gauge, Zap, KeyRound, RotateCw } from 'lucide-react';
+import { Loader2, ScrollText, AlertCircle, ArrowRight, RotateCw } from 'lucide-react';
 import { useLogHistory, useClearLogHistory, type RelayLog } from '@/api/log-history';
 import { apiKeyListQueryOptions, groupListQueryOptions } from '@/api/queries';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 import { MultiSelect } from '@/components/common/MultiSelect';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn, formatRate, outputSpeed } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { RequestDetailDialog } from './RequestDetailDialog';
 import { ClientIconBadge, ReasoningEffortBadge } from './ClientIcon';
+import { LogMetrics, type LogMetricsInput } from './LogMetrics';
+import { ProtocolLabel, StreamingBadge } from './LogBadges';
+import { getModelIcon } from '@/lib/model-icons';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
-function formatTime(timestamp: number): string {
-    const d = new Date(timestamp * 1000);
-    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-}
-
-/**
- * 历史日志卡片:与实时流卡片不同构(落库行,unix 秒 + attempts 定稿),
- * 点击整卡弹出请求详情(按需加载内容字段)。
- */
 function HistoryCard({ log, onClick }: { log: RelayLog; onClick: () => void }) {
     const t = useTranslations('log.card');
-    const failed = !!log.error && log.error.trim() !== '';
-    // 输出速度由落库字段推导, 无输出 token 或分母无效时不展示, 避免出现 0 tok/s 噪音。
-    const speed = outputSpeed(log.output_tokens, log.use_time, log.ftut);
-    const speedText = speed !== null ? formatRate(speed).formatted : null;
+    const failed = log.status === 'failed' || log.status === 'canceled' || (!!log.error && log.error.trim() !== '');
+    const startedAt = new Date(log.time * 1000).toISOString();
+    const { Icon: ModelIcon, className: modelIconClassName, color: brandColor } = getModelIcon(log.actual_model_name || log.request_model_name);
+    const metricLog: LogMetricsInput = {
+        started_at: startedAt,
+        status: log.status || (failed ? 'failed' : 'success'),
+        duration: log.use_time * 1_000_000,
+        api_key_name: log.request_api_key_name ?? '',
+        usage: {
+            prompt_tokens: log.input_tokens,
+            completion_tokens: log.output_tokens,
+            prompt_tokens_details: { cached_tokens: log.cached_tokens, write_cached_tokens: log.cache_creation_tokens },
+        },
+        cost: log.cost,
+        phase: undefined,
+        phase_speed: undefined,
+        first_token_ms: log.ftut,
+    };
 
     return (
         <button
             type="button"
             onClick={onClick}
-            className="w-full text-left rounded-2xl border border-border bg-card p-4 transition-colors hover:bg-muted/40 cursor-pointer"
-        >
-            <div className="flex flex-wrap items-center gap-2">
-                <ClientIconBadge clientName={log.client_name} className="size-4" />
-                <span className="text-sm font-medium">{log.request_model_name}</span>
-                <ReasoningEffortBadge effort={log.reasoning_effort} />
-                {log.actual_model_name && log.actual_model_name !== log.request_model_name && (
-                    <span className="text-xs text-muted-foreground">→ {log.actual_model_name}</span>
-                )}
-                {failed && (
-                    <Badge variant="destructive" className="gap-1">
-                        <AlertCircle className="size-3" /> {t('errorInfo')}
-                    </Badge>
-                )}
-                {(log.total_attempts ?? 0) > 1 && (
-                    <Badge variant="outline" className="gap-1 text-amber-600 dark:text-amber-400 border-amber-300/50 dark:border-amber-600/40">
-                        <RotateCw className="size-3" /> {t('attempts', { count: log.total_attempts ?? 0 })}
-                    </Badge>
-                )}
-                <span className="ml-auto text-xs text-muted-foreground font-mono">{formatTime(log.time)}</span>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1"><Zap className="size-3" />{log.channel_name || '-'}</span>
-                {log.request_api_key_name && (
-                    <span title={t('tipApiKey')} className="inline-flex items-center gap-1"><KeyRound className="size-3" />{log.request_api_key_name}</span>
-                )}
-                <span title={`${t('tipPrompt')} / ${t('tipCompletion')}`}>{log.input_tokens.toLocaleString()} → {log.output_tokens.toLocaleString()} {t('tokens')}</span>
-                {speedText && (
-                    <span title={t('tipSpeed')} className="inline-flex items-center gap-1">
-                        <Gauge className="size-3" />{speedText.value} {speedText.unit}
-                    </span>
-                )}
-                {log.cached_tokens > 0 && <span title={t('tipCached')}>{t('cached', { count: log.cached_tokens.toLocaleString() })}</span>}
-                <span title={t('tipDuration')} className="inline-flex items-center gap-1"><Clock className="size-3" />{formatDuration(log.use_time)}</span>
-                {log.ftut > 0 && <span title={t('tipFirstToken')}>{t('ftut')}: {formatDuration(log.ftut)}</span>}
-                <span title={t('tipCost')} className="inline-flex items-center gap-1"><Coins className="size-3" />${log.cost.toFixed(4)}</span>
-            </div>
-            {failed && (
-                <div className="mt-2 rounded-lg bg-destructive/10 px-2 py-1 text-xs text-destructive/90 font-mono truncate">
-                    {log.error}
-                </div>
+            className={cn(
+                'w-full text-left rounded-3xl border bg-card transition-colors hover:bg-muted/40 cursor-pointer',
+                failed ? 'border-destructive/40' : 'border-border',
             )}
+        >
+            <div className={cn('p-4 grid grid-cols-[auto_1fr] gap-4', failed ? 'items-start' : 'items-center')}>
+                <span className="relative inline-flex shrink-0">
+                    <ModelIcon aria-hidden="true" className={modelIconClassName} width={40} height={40} />
+                    <ClientIconBadge clientName={log.client_name} className="absolute -bottom-1 -right-1.5 size-4 rounded-full bg-card" />
+                </span>
+                <div className="min-w-0 flex flex-col gap-3">
+                    <div className="flex items-center gap-2 min-w-0 text-sm">
+                        <ProtocolLabel protocol={log.protocol} />
+                        <span className="font-semibold text-card-foreground truncate">{log.request_model_name}</span>
+                        <StreamingBadge streaming={log.streaming} />
+                        <ReasoningEffortBadge effort={log.reasoning_effort} />
+                        {log.actual_model_name && (
+                            <>
+                                <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />
+                                <ProtocolLabel protocol={log.target_protocol} />
+                                <Badge
+                                    variant="secondary"
+                                    className="shrink-0 text-xs px-1.5 py-0"
+                                    style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
+                                >
+                                    {log.channel_name || '-'}
+                                </Badge>
+                                <span className="text-muted-foreground truncate">{log.actual_model_name}</span>
+                            </>
+                        )}
+                        {failed && (
+                            <Badge variant="destructive" className="gap-1">
+                                <AlertCircle className="size-3" /> {t('errorInfo')}
+                            </Badge>
+                        )}
+                        {(log.total_attempts ?? 0) > 1 && (
+                            <Badge variant="outline" className="gap-1 text-amber-600 dark:text-amber-400 border-amber-300/50 dark:border-amber-600/40">
+                                <RotateCw className="size-3" /> {t('attempts', { count: log.total_attempts ?? 0 })}
+                            </Badge>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-5">
+                        <LogMetrics log={metricLog} now={0} brandColor={brandColor} variant="card" showDate />
+                    </div>
+                    {failed && (
+                        <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 overflow-hidden">
+                            <p className="text-xs text-destructive line-clamp-2 whitespace-pre-line">
+                            {log.error}
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
         </button>
     );
 }

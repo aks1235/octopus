@@ -51,20 +51,23 @@ func TestRelayLogFinalize_assemblesFromTerminalState(t *testing.T) {
 		{ChannelID: 2, ChannelName: "ch-b", ModelName: "m-b", AttemptNum: 2, Status: model.AttemptSuccess},
 	}
 	request := &RequestState{
-		ID:        1,
-		Status:    StatusSuccess,
-		StartedAt: time.Now().Add(-2 * time.Second),
-		Duration:  2 * time.Second,
-		Model:     "grp-x",
+		ID:             1,
+		Status:         StatusSuccess,
+		StartedAt:      time.Now().Add(-2 * time.Second),
+		Duration:       2 * time.Second,
+		Model:          "grp-x",
+		Protocol:       model.ProtocolOpenAIChatCompletion,
+		TargetProtocol: model.ProtocolAnthropicMessage,
+		Streaming:      true,
 		Usage: llm.Usage{
 			PromptTokens:     100,
 			CompletionTokens: 50,
 			PromptTokensDetails: &llm.PromptTokensDetails{
-				CachedTokens:     20,
+				CachedTokens:      20,
 				WriteCachedTokens: 10,
 			},
 		},
-		Cost: 0.125,
+		Cost:         0.125,
 		body:         "RAW-REQUEST",
 		responseBody: "RESP-BODY",
 	}
@@ -79,6 +82,9 @@ func TestRelayLogFinalize_assemblesFromTerminalState(t *testing.T) {
 		t.Fatalf("expected 1 persisted log, got %d", len(logs))
 	}
 	got := logs[0]
+	if got.Protocol != model.ProtocolOpenAIChatCompletion || got.TargetProtocol != model.ProtocolAnthropicMessage || got.Streaming == nil || !*got.Streaming || got.Status != string(StatusSuccess) {
+		t.Errorf("request metadata = %d/%d/%v/%q, want Chat/Message/true/success", got.Protocol, got.TargetProtocol, got.Streaming, got.Status)
+	}
 
 	if got.RequestModelName != "grp-x" {
 		t.Errorf("request model = %q, want grp-x", got.RequestModelName)

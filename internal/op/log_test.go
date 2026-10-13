@@ -245,6 +245,52 @@ func TestRelayLogList_pagination(t *testing.T) {
 	}
 }
 
+func TestRelayLogList_requestMetadataSurvivesPersistence(t *testing.T) {
+	setupLogTestDB(t)
+	streaming, nonStreaming := true, false
+	rows := []model.RelayLog{
+		{ID: 1, Time: time.Now().Unix(), RequestModelName: "legacy"},
+		{ID: 2, Time: time.Now().Unix(), RequestModelName: "stream", Streaming: &streaming, Protocol: model.ProtocolOpenAIChatCompletion, TargetProtocol: model.ProtocolAnthropicMessage, Status: "success"},
+		{ID: 3, Time: time.Now().Unix(), RequestModelName: "non-stream", Streaming: &nonStreaming, Protocol: model.ProtocolOpenAIResponse, TargetProtocol: model.ProtocolOpenAIResponse, Status: "canceled", Error: "context canceled"},
+	}
+	seedFlushedLogs(t, rows)
+	logs, err := RelayLogList(context.Background(), nil, nil, 1, 20, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != len(rows) {
+		t.Fatalf("persisted logs = %d, want %d", len(logs), len(rows))
+	}
+	for _, stored := range logs {
+		want := rows[stored.ID-1]
+		if !reflect.DeepEqual(stored.Streaming, want.Streaming) || stored.Protocol != want.Protocol || stored.TargetProtocol != want.TargetProtocol || stored.Status != want.Status {
+			t.Errorf("metadata for %q = %v/%d/%d/%q, want %v/%d/%d/%q", stored.RequestModelName, stored.Streaming, stored.Protocol, stored.TargetProtocol, stored.Status, want.Streaming, want.Protocol, want.TargetProtocol, want.Status)
+		}
+	}
+}
+
+func TestRelayLogMetadataMigration_preservesUnknownStreamMode(t *testing.T) {
+	setupLogTestDB(t)
+	for _, column := range []string{"streaming", "protocol", "target_protocol", "status"} {
+		if err := db.GetDB().Exec("ALTER TABLE relay_logs DROP COLUMN " + column).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.GetDB().Exec("INSERT INTO relay_logs (id, time, request_model_name) VALUES (?, ?, ?)", 1, time.Now().Unix(), "legacy").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.GetDB().AutoMigrate(&model.RelayLog{}); err != nil {
+		t.Fatal(err)
+	}
+	var stored model.RelayLog
+	if err := db.GetDB().First(&stored, 1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.RequestModelName != "legacy" || stored.Streaming != nil || stored.Protocol != 0 || stored.TargetProtocol != 0 || stored.Status != "" {
+		t.Fatalf("migration should preserve legacy row and unknown metadata: %+v", stored)
+	}
+}
+
 func idsOf(logs []model.RelayLog) []int64 {
 	ids := make([]int64, len(logs))
 	for i, l := range logs {

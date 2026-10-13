@@ -1,16 +1,17 @@
-import { memo, useEffect, useState, type CSSProperties } from 'react';
-import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, Timer } from 'lucide-react';
+import { memo, useEffect, useState } from 'react';
+import { AlertCircle, ArrowRight, Loader2, Square } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { type RelayLogOverview, useLogRequestBody, useLogResponseBody, useStopRound } from '@/api/log';
 import { useGroup, useUpdateGroup } from '@/api/group';
-import { Protocol } from '@/api/channel';
 import { getModelIcon } from '@/lib/model-icons';
 import { ClientIconBadge, ReasoningEffortBadge } from '@/components/modules/log/ClientIcon';
 import { FullContentBody, SimpleContentBody } from '@/components/modules/log/ContentBody';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn, formatRate, outputSpeed } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { LogMetrics } from './LogMetrics';
+import { ProtocolLabel, StreamingBadge } from './LogBadges';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { toast } from 'sonner';
 import { MemberStatus } from '@/components/modules/group/MemberStatus';
@@ -25,25 +26,6 @@ import {
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
 
-// formatTime 将后端 RFC3339 时间转换为本地时分秒。
-function formatTime(value: string) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime()) || date.getUTCFullYear() === 1) return '--';
-    return date.toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    });
-}
-
-// formatMilliseconds 将毫秒转换为紧凑耗时文本。
-function formatMilliseconds(value: number) {
-    const milliseconds = Math.max(0, value);
-    if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
-    return `${(milliseconds / 1000).toFixed(2)}s`;
-}
-
 // formatRoundStartedAt 将服务端轮次开始时间格式化为本地时分秒.毫秒, 各部分固定补零。
 function formatRoundStartedAt(value: string) {
     const date = new Date(value);
@@ -54,67 +36,6 @@ function formatRoundStartedAt(value: string) {
         second: '2-digit',
         hour12: false,
     })}.${String(date.getMilliseconds()).padStart(3, '0')}`;
-}
-
-// PROTOCOL_LABELS 是协议位值对应的界面标识, 与渠道页和分组页的授权标签同一套词。
-// 键是单个协议位而非掩码组合: 日志记录的是本次请求与本轮上游各自实际使用的那一个协议。
-const PROTOCOL_LABELS: Record<number, string> = {
-    [Protocol.OpenAIChatCompletion]: 'Chat',
-    [Protocol.OpenAIResponse]: 'Response',
-    [Protocol.AnthropicMessage]: 'Message',
-};
-
-// LogMetrics 渲染时间, 来源 Key, 耗时, 费用, 首字与 Token 指标; card 变体用于卡片栅格, footer 变体用于弹窗底部。
-function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; now: number; brandColor: string; variant: 'card' | 'footer' }) {
-    const t = useTranslations('log.card');
-    const cachedTokens = log.usage.prompt_tokens_details?.cached_tokens ?? 0;
-    // 缓存率取缓存输入 token 占全部输入 token 的比例; 输入为 0 时不算比例, 只显示缓存量 (R1)。
-    const cacheRate = log.usage.prompt_tokens > 0 ? Math.round((cachedTokens / log.usage.prompt_tokens) * 100) : null;
-    const requestActive = log.status === 'running' || log.status === 'committed';
-    // 进行中的请求按共享时钟推算耗时, 结束后改用后端记录的最终耗时。
-    const duration = requestActive
-        ? formatMilliseconds(now - new Date(log.started_at).getTime())
-        : formatMilliseconds(log.duration / 1_000_000);
-    // 速度: 进行中按后端下发的当前相位字符速度分阶段显示 (R1)——思考期「思考 N c/s」、正文期「输出 N c/s」,
-    // 相位切换时后端已重新计时, 故数字反映当前阶段自身速度; 相位未定或尚无快照时显示 -。
-    // 结束后用与历史面板同一口径推导精确 tok/s (R5): 生成窗口 = 总耗时 − 首字耗时,
-    // 故同一请求在实时卡片与历史面板/请求详情得到相同数值。
-    const liveSpeed = log.phase_speed ?? 0;
-    const liveSpeedText = log.phase === 'thinking'
-        ? (liveSpeed > 0 ? t('speedThinking', { value: liveSpeed.toLocaleString() }) : '-')
-        : log.phase === 'answering'
-            ? (liveSpeed > 0 ? t('speedAnswering', { value: liveSpeed.toLocaleString() }) : '-')
-            : '-';
-    const finalSpeed = outputSpeed(log.usage.completion_tokens, log.duration / 1_000_000, log.first_token_ms ?? 0);
-    const speedText = requestActive
-        ? liveSpeedText
-        : (finalSpeed !== null ? `${formatRate(finalSpeed).formatted.value} ${formatRate(finalSpeed).formatted.unit}` : '-');
-    // 首字耗时 (R2): 首个有效响应到达即由后端写下毫秒数, 进行中尚未取得时为空, 此刻显示 -。
-    const firstTokenText = (log.first_token_ms ?? 0) > 0 ? formatMilliseconds(log.first_token_ms ?? 0) : '-';
-    // 每一项都带 title (R3): 指标格含义一句话说清, 文案走 i18n; API Key 格另附完整名称, 便于截断时辨认。
-    const metrics = [
-        { key: 'time', Icon: Clock, iconClassName: 'size-3.5 shrink-0', iconStyle: { color: brandColor } as CSSProperties, value: formatTime(log.started_at), valueClassName: 'tabular-nums', cellClassName: 'whitespace-nowrap', title: t('tipTime') },
-        { key: 'apiKey', Icon: KeyRound, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: log.api_key_name || '-', valueClassName: 'truncate', title: log.api_key_name ? `${t('tipApiKey')}: ${log.api_key_name}` : t('tipApiKey') },
-        { key: 'duration', Icon: Cpu, iconClassName: 'size-3.5 shrink-0 text-blue-500', value: duration, title: t('tipDuration') },
-        { key: 'cost', Icon: DollarSign, iconClassName: 'size-3.5 shrink-0 text-emerald-500', value: log.cost.toFixed(6), valueClassName: 'font-medium text-emerald-600 dark:text-emerald-400', title: t('tipCost') },
-        { key: 'prompt', Icon: ArrowDownToLine, iconClassName: 'size-3.5 shrink-0 text-green-500', value: (log.usage.prompt_tokens - cachedTokens).toLocaleString(), title: t('tipPrompt') },
-        { key: 'cached', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-cyan-500', value: cacheRate === null ? cachedTokens.toLocaleString() : `${cachedTokens.toLocaleString()} (${cacheRate}%)`, title: t('tipCached') },
-        { key: 'completion', Icon: ArrowUpFromLine, iconClassName: 'size-3.5 shrink-0 text-purple-500', value: log.usage.completion_tokens.toLocaleString(), title: t('tipCompletion') },
-        { key: 'cacheWrite', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: (log.usage.prompt_tokens_details?.write_cached_tokens ?? 0).toLocaleString(), title: t('tipCacheWrite') },
-        { key: 'speed', Icon: Gauge, iconClassName: 'size-3.5 shrink-0 text-sky-500', value: speedText, title: t('tipSpeed') },
-        { key: 'firstToken', Icon: Timer, iconClassName: 'size-3.5 shrink-0 text-amber-500', value: firstTokenText, valueClassName: 'tabular-nums', cellClassName: 'whitespace-nowrap', title: t('tipFirstToken') },
-    ];
-
-    return metrics.map((metric) => (
-        <div
-            key={metric.key}
-            title={metric.title}
-            className={cn('flex min-w-0 items-center gap-1.5', variant === 'card' && metric.cellClassName)}
-        >
-            <metric.Icon className={metric.iconClassName} style={metric.iconStyle} />
-            <span className={metric.valueClassName}>{metric.value}</span>
-        </div>
-    ));
 }
 
 // ObservedRound 保存弹窗打开期间观察到的一轮上游请求状态。
@@ -185,13 +106,13 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                     <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
                     <ClientIconBadge clientName={log.client_name} className="absolute -bottom-1 -right-1.5 size-3.5 rounded-full bg-card" />
                 </span>
-                <span className="text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
+                <ProtocolLabel protocol={log.protocol} />
                 <span className="font-semibold text-card-foreground">{log.model || t('unknownModel')}</span>
                 <ReasoningEffortBadge effort={log.reasoning_effort} />
                 {log.status === 'running' || responseCommitted
                     ? <Loader2 className={cn('size-3.5 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
                     : <ArrowRight className="size-3.5 text-muted-foreground/50" />}
-                <span className="text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.target_protocol] ?? '-'}</span>
+                <ProtocolLabel protocol={log.target_protocol} />
                 <Badge
                     variant="secondary"
                     className="text-xs px-1.5 py-0"
@@ -487,21 +408,16 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                     </span>
                     <div className="min-w-0 flex flex-col gap-3">
                         <div className="flex items-center gap-2 min-w-0 text-sm">
-                            <span className="shrink-0 text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
+                            <ProtocolLabel protocol={log.protocol} />
                             <span className="font-semibold text-card-foreground truncate">
                                 {log.model || t('unknownModel')}
                             </span>
-                            <Badge
-                                variant={log.streaming ? 'secondary' : 'outline'}
-                                className={cn('shrink-0 text-xs px-1.5 py-0', log.streaming ? 'text-sky-600 dark:text-sky-400' : 'text-muted-foreground')}
-                            >
-                                {log.streaming ? t('streaming') : t('nonStreaming')}
-                            </Badge>
+                            <StreamingBadge streaming={log.streaming} />
                             <ReasoningEffortBadge effort={log.reasoning_effort} />
                             {requestRunning
                                 ? <Loader2 className={cn('size-3.5 shrink-0 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
                                 : <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />}
-                            <span className="shrink-0 text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.target_protocol] ?? '-'}</span>
+                            <ProtocolLabel protocol={log.target_protocol} />
                             <Badge
                                 variant="secondary"
                                 className="shrink-0 text-xs px-1.5 py-0"

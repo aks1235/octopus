@@ -497,6 +497,7 @@
             "responseStreaming": "上游已回應，串流傳輸正在進行",
             "streaming": "串流",
             "nonStreaming": "非串流",
+            "streamingUnknown": "串流狀態未知",
             "phaseThinking": "思考中…",
             "phaseAnswering": "輸出中…",
             "attempts": "{count} 次嘗試",

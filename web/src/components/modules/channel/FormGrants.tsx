@@ -97,8 +97,13 @@ export function FormGrants({ state, setState }: {
     const [selectedKey, setSelectedKey] = useState('');
 
     const keyNames = state.keys.map((k) => k.name);
-    const activeKey = selectedKey || keyNames[0] || '';
-    const allExpanded = state.models.length > 0 && state.models.every((m) => expanded.has(m));
+    // 选择凭据后，模型区展示该凭据实际拥有授权的模型，避免多个凭据的模型集合混在一起。
+    // selectedKey 可能因凭据改名或删除而暂时失效，此时自动回退到第一个凭据。
+    const activeKey = keyNames.includes(selectedKey) ? selectedKey : keyNames[0] || '';
+    const visibleModels = state.models.filter(
+        (modelName) => (state.grants.get(grantKey(modelName, activeKey)) ?? 0) !== 0,
+    );
+    const allExpanded = visibleModels.length > 0 && visibleModels.every((m) => expanded.has(m));
 
     // removeGrant 移除该模型在指定凭据上的授权, 模型与凭据本身保留。
     const removeGrant = (modelName: string, keyName: string) => {
@@ -176,8 +181,8 @@ export function FormGrants({ state, setState }: {
                 <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-muted/30 shrink-0">
                     {/* 全部展开与全部折叠共用一个按钮: 已全展开时折叠, 否则展开全部。 */}
                     <IconButton
-                        onClick={() => setExpanded(allExpanded ? new Set() : new Set(state.models))}
-                        disabled={state.models.length === 0}
+                        onClick={() => setExpanded(allExpanded ? new Set() : new Set(visibleModels))}
+                        disabled={visibleModels.length === 0}
                         className="size-5"
                         tip={allExpanded ? t('grantCollapseAll') : t('grantExpandAll')}
                     >
@@ -189,7 +194,7 @@ export function FormGrants({ state, setState }: {
                     {/* 表头覆盖全部模型全部凭据, 故勾选即批量, 删除即清空全部模型及其授权。 */}
                     <GrantCells
                         state={state} setState={setState}
-                        models={state.models} keyNames={keyNames}
+                        models={visibleModels} keyNames={keyNames}
                         remove={() => setState({ ...state, models: [], grants: new Map() })}
                         icon={Eraser}
                         tip={t('grantClearAll')}
@@ -197,9 +202,9 @@ export function FormGrants({ state, setState }: {
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
-                    {state.models.length === 0 ? (
+                    {visibleModels.length === 0 ? (
                         <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('modelNoSelected')}</p>
-                    ) : state.models.map((modelName) => {
+                    ) : visibleModels.map((modelName) => {
                         const isOpen = expanded.has(modelName);
                         const granted = keyNames.filter(
                             (keyName) => (state.grants.get(grantKey(modelName, keyName)) ?? 0) !== 0

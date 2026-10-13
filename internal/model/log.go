@@ -91,19 +91,23 @@ type RelayLog struct {
 	ChannelName         string           `json:"channel_name"`                             // 渠道名称
 	ActualModelName     string           `json:"actual_model_name"`                        // 实际使用模型名称
 	ReasoningEffort     string           `json:"reasoning_effort"`                         // 实际发送的思考等级: low/medium/high/max, 空字符串表示非推理请求
-	InputTokens         int              `json:"input_tokens"`                             // 输入Token
-	OutputTokens        int              `json:"output_tokens"`                            // 输出 Token
-	CachedTokens        int              `json:"cached_tokens" gorm:"default:0"`           // 缓存命中Token
-	CacheCreationTokens int              `json:"cache_creation_tokens" gorm:"default:0"`   // 缓存写入Token
-	Ftut                int              `json:"ftut"`                                     // 首字时间(毫秒)
-	UseTime             int              `json:"use_time"`                                 // 总用时(毫秒)
-	Cost                float64          `json:"cost"`                                     // 消耗费用
-	RequestContent      string           `json:"request_content"`                          // 请求内容
-	ResponseContent     string           `json:"response_content"`                         // 响应内容
-	DebugContent        string           `json:"debug_content" gorm:"type:longtext"`       // 调试信息（差异、错误、转换失败时记录）
-	Error               string           `json:"error"`                                    // 错误信息
-	Attempts            []ChannelAttempt `json:"attempts" gorm:"serializer:json"`          // 所有尝试记录
-	TotalAttempts       int              `json:"total_attempts"`                           // 总尝试次数
-	UserAgent           string           `json:"user_agent"`                               // 原始 User-Agent 头
-	ClientName          string           `json:"client_name"`                              // 解析后的客户端标识（如 claude-code, cline 等）
+	Protocol            Protocol         `json:"protocol" gorm:"default:0"`
+	TargetProtocol      Protocol         `json:"target_protocol" gorm:"default:0"`
+	Streaming           *bool            `json:"streaming"`
+	Status              string           `json:"status" gorm:"default:''"`
+	InputTokens         int              `json:"input_tokens"`                           // 输入Token
+	OutputTokens        int              `json:"output_tokens"`                          // 输出 Token
+	CachedTokens        int              `json:"cached_tokens" gorm:"default:0"`         // 缓存命中Token
+	CacheCreationTokens int              `json:"cache_creation_tokens" gorm:"default:0"` // 缓存写入Token
+	Ftut                int              `json:"ftut"`                                   // 首字时间(毫秒)
+	UseTime             int              `json:"use_time"`                               // 总用时(毫秒)
+	Cost                float64          `json:"cost"`                                   // 消耗费用
+	RequestContent      string           `json:"request_content"`                        // 请求内容
+	ResponseContent     string           `json:"response_content"`                       // 响应内容
+	DebugContent        string           `json:"debug_content" gorm:"type:longtext"`     // 调试信息（差异、错误、转换失败时记录）
+	Error               string           `json:"error"`                                  // 错误信息
+	Attempts            []ChannelAttempt `json:"attempts" gorm:"serializer:json"`        // 所有尝试记录
+	TotalAttempts       int              `json:"total_attempts"`                         // 总尝试次数
+	UserAgent           string           `json:"user_agent"`                             // 原始 User-Agent 头
+	ClientName          string           `json:"client_name"`                            // 解析后的客户端标识（如 claude-code, cline 等）
 }

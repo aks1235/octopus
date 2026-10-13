@@ -230,6 +230,20 @@ func keyTestProtocolName(protocol model.Protocol) string {
 // clientName/userAgent 参数化测试来源: 渠道面板测试与分组成员测试由此在日志页区分。
 // 渠道可能是尚未保存的表单渠道: 此时渠道主键取 0, 名称用表单名, 日志照写。
 func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, modelName, errSummary, clientName, userAgent string, attempts []model.ChannelAttempt, requestContent, responseContent string, useTime int64) {
+	streaming := false
+	status := StatusSuccess
+	if errSummary != "" {
+		status = StatusFailed
+	}
+	var protocol model.Protocol
+	if len(attempts) > 0 {
+		for _, candidate := range keyTestProtocols {
+			if keyTestProtocolName(candidate) == attempts[len(attempts)-1].ChannelKeyRemark {
+				protocol = candidate
+				break
+			}
+		}
+	}
 	relayLog := model.RelayLog{
 		Time:              time.Now().Unix(),
 		RequestModelName:  modelName,
@@ -245,6 +259,9 @@ func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, mode
 		ResponseContent:   responseContent,
 		Attempts:          attempts,
 		TotalAttempts:     len(attempts),
+		TargetProtocol:    protocol,
+		Streaming:         &streaming,
+		Status:            string(status),
 	}
 	if err := op.RelayLogAdd(context.Background(), relayLog); err != nil {
 		log.Warnf("failed to save key test log: %v", err)

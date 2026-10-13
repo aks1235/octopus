@@ -344,6 +344,9 @@ func TestChannelKey_writesRelayLogPerModel(t *testing.T) {
 	if okLog.TotalAttempts != 3 || len(okLog.Attempts) != 3 || okLog.Attempts[2].Status != model.AttemptSuccess {
 		t.Errorf("attempts = %+v, want Chat and Responses failures followed by Messages success", okLog.Attempts)
 	}
+	if okLog.Streaming == nil || *okLog.Streaming || okLog.TargetProtocol != model.ProtocolAnthropicMessage || okLog.Status != string(StatusSuccess) {
+		t.Errorf("test metadata = %v/%d/%q, want false/Message/success", okLog.Streaming, okLog.TargetProtocol, okLog.Status)
+	}
 	if okLog.Attempts[2].ChannelKeyRemark != "anthropic message" {
 		t.Errorf("attempt remark = %q, want anthropic message", okLog.Attempts[2].ChannelKeyRemark)
 	}

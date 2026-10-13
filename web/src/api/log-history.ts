@@ -63,6 +63,10 @@ export interface RelayLog {
     channel_name: string;
     actual_model_name: string;
     reasoning_effort?: string;
+    protocol?: number;
+    target_protocol?: number;
+    streaming?: boolean | null;
+    status?: 'success' | 'failed' | 'canceled' | '';
     input_tokens: number;
     output_tokens: number;
     cached_tokens: number;

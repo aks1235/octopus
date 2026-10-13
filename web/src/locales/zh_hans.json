@@ -497,6 +497,7 @@
             "responseStreaming": "上游已响应，流式传输正在进行",
             "streaming": "流式",
             "nonStreaming": "非流式",
+            "streamingUnknown": "流式状态未知",
             "phaseThinking": "思考中…",
             "phaseAnswering": "输出中…",
             "attempts": "{count} 次尝试",
