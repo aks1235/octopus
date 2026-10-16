@@ -98,8 +98,8 @@ func reconcileChannelModels(candidate model.ChannelHealthCandidate, results []pr
 	}
 }
 
-// keyFetchModels 把单个凭据的探测结果折成对账清单: 两侧模型名按名称合并, 协议位取并集,
-// OpenAI 侧记为 Responses: /models 不能验证 Chat Completions 与 Responses 的生成端点实际可用性。
+// keyFetchModels 把单个凭据的探测结果折成对账清单: 协议位的推导口径在 op.ChannelFetchModels
+// (与手动拉取共用同一份), 本函数只负责判定本轮该不该对账。
 // ok 为假表示本轮不该对账: 两侧都失败, 或任一侧 2xx 却返回空列表。
 func keyFetchModels(result probe.KeyProbeResult) ([]model.ChannelFetchModel, bool) {
 	if result.OpenAIErr == nil && len(result.OpenAI) == 0 {
@@ -111,24 +111,5 @@ func keyFetchModels(result probe.KeyProbeResult) ([]model.ChannelFetchModel, boo
 	if result.OpenAIErr != nil && result.AnthropicErr != nil {
 		return nil, false
 	}
-	// 先并入 OpenAI 再并入 Anthropic, 顺序与手动拉取的合并一致, 保持清单顺序稳定。
-	protocolsByName := make(map[string]model.Protocol, len(result.OpenAI)+len(result.Anthropic))
-	order := make([]string, 0, len(result.OpenAI)+len(result.Anthropic))
-	for _, name := range result.OpenAI {
-		if _, ok := protocolsByName[name]; !ok {
-			order = append(order, name)
-		}
-		protocolsByName[name] |= model.ProtocolOpenAIResponse
-	}
-	for _, name := range result.Anthropic {
-		if _, ok := protocolsByName[name]; !ok {
-			order = append(order, name)
-		}
-		protocolsByName[name] |= model.ProtocolAnthropicMessage
-	}
-	fetched := make([]model.ChannelFetchModel, 0, len(order))
-	for _, name := range order {
-		fetched = append(fetched, model.ChannelFetchModel{Name: name, Protocols: protocolsByName[name]})
-	}
-	return fetched, true
+	return op.ChannelFetchModels(result.OpenAI, result.Anthropic), true
 }

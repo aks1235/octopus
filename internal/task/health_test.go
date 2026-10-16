@@ -131,14 +131,14 @@ func TestCheckChannelHealth_reconcilesModelsAcrossRounds(t *testing.T) {
 	if row := loadHealthRow(t); row.HealthFailCount != 0 || row.LastHealthAt == 0 {
 		t.Fatalf("health row = %+v, want success recorded", row)
 	}
-	// 探测成功两侧 → 协议位取并集(Response 标记 OpenAI 侧, Anthropic 同名并入)。
+	// 探测成功两侧 → 协议位取并集(OpenAI 侧同时标记 Chat 与 Response, Anthropic 同名并入)。
 	detail, err := op.ChannelDetailGet(1)
 	if err != nil {
 		t.Fatalf("ChannelDetailGet(1) error = %v", err)
 	}
 	for _, grant := range detail.Grants {
-		if grant.Protocols != model.ProtocolOpenAIResponse|model.ProtocolAnthropicMessage {
-			t.Fatalf("grant %+v protocols = %d, want both sides unioned", grant, grant.Protocols)
+		if grant.Protocols != model.ProtocolOpenAIChatCompletion|model.ProtocolOpenAIResponse|model.ProtocolAnthropicMessage {
+			t.Fatalf("grant %+v protocols = %d, want Chat+Response on OpenAI side and Message on Anthropic side", grant, grant.Protocols)
 		}
 	}
 

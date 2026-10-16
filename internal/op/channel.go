@@ -536,6 +536,37 @@ func ChannelModelReconcile(ctx context.Context, channelID int, keyName string, f
 	return nil
 }
 
+// ChannelFetchModels 把一次探测的两侧模型名折成渠道模型清单, 是协议位推导的唯一判定口径。
+// 协议位只由"上游哪一侧端点列出了这个模型"决定: OpenAI 侧标记 Chat Completions 与 Responses,
+// Anthropic 侧标记 Messages; 同名模型两侧都出现时按位或取并集。/models 无法证明任一侧生成端点
+// 的实际可用性, 故 OpenAI 侧两个位都标, 由用户在界面上按需取消——勿"顺手"只标其中一个。
+// 顺序保持首次出现(先 OpenAI 再 Anthropic), 界面上的模型排列才与上游返回一致, 且不随 map 遍历变化。
+//
+// 手动拉取(handlers.fetchModel)与自动对账(task.keyFetchModels)共用本函数。两处口径一旦分叉,
+// 后果不对称: 对账是整体替换语义(ChannelModelReconcile), 自动轮次会把手动拉取勾出的协议位冲掉
+// ——2026-10-16 实际踩过此坑(自动侧漏标 Chat, 生产 860 条授权只剩 Response+Message)。
+// 协议位推导只改这里, 勿在调用方各写一份。
+func ChannelFetchModels(openaiNames, anthropicNames []string) []model.ChannelFetchModel {
+	protocolsByName := make(map[string]model.Protocol, len(openaiNames)+len(anthropicNames))
+	order := make([]string, 0, len(openaiNames)+len(anthropicNames))
+	fold := func(names []string, bits model.Protocol) {
+		for _, name := range names {
+			if _, ok := protocolsByName[name]; !ok {
+				order = append(order, name)
+			}
+			protocolsByName[name] |= bits
+		}
+	}
+	fold(openaiNames, model.ProtocolOpenAIChatCompletion|model.ProtocolOpenAIResponse)
+	fold(anthropicNames, model.ProtocolAnthropicMessage)
+
+	models := make([]model.ChannelFetchModel, 0, len(order))
+	for _, name := range order {
+		models = append(models, model.ChannelFetchModel{Name: name, Protocols: protocolsByName[name]})
+	}
+	return models
+}
+
 // filterFetchedModels 按两层过滤正则收缩对账清单, 口径与手动探测的后端拉取完全一致:
 // 渠道级白名单命中保留, 全局黑名单命中排除。正则编译失败按错误返回, 调用方跳过本轮对账;
 // 全局过滤设置读取失败按不过滤处理, 与拉取路径的容错一致。

@@ -282,43 +282,19 @@ func fetchModel(c *gin.Context) {
 		return op.ModelNameKept(re, reGlobal, name)
 	}
 
-	// 两侧结果按名称合并成一份有序集合: 同名模型在两侧都出现时, 协议位取并集。
-	// 保持首次出现的顺序, 界面上模型的排列才与上游返回的一致;
-	// 先并入 OpenAI 再并入 Anthropic, 顺序写死而不用 map 遍历, 否则界面上的模型排列会随每次刷新变化。
-	protocolsByModel := make(map[string]model.Protocol, len(openaiModels)+len(anthropicModels))
-	order := make([]string, 0, len(openaiModels)+len(anthropicModels))
-	for _, name := range openaiModels {
-		matched, err := matches(name)
+	// 两侧结果按名称合并成一份有序集合, 协议位的推导口径统一走 op.ChannelFetchModels
+	// (与自动对账共用同一份, 勿在此另写一份: 口径分叉会把手动勾出的协议位在自动轮次冲掉)。
+	// 过滤仍按提交的渠道配置与全局设置收缩, 判定走 op.ModelNameKept, 匹配错误交由调用方按请求错误返回。
+	models := make([]model.ChannelFetchModel, 0)
+	for _, item := range op.ChannelFetchModels(openaiModels, anthropicModels) {
+		matched, err := matches(item.Name)
 		if err != nil {
 			resp.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
-		if !matched {
-			continue
+		if matched {
+			models = append(models, item)
 		}
-		if _, ok := protocolsByModel[name]; !ok {
-			order = append(order, name)
-		}
-		protocolsByModel[name] |= model.ProtocolOpenAIChatCompletion | model.ProtocolOpenAIResponse
-	}
-	for _, name := range anthropicModels {
-		matched, err := matches(name)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		if !matched {
-			continue
-		}
-		if _, ok := protocolsByModel[name]; !ok {
-			order = append(order, name)
-		}
-		protocolsByModel[name] |= model.ProtocolAnthropicMessage
-	}
-
-	models := make([]model.ChannelFetchModel, 0, len(order))
-	for _, name := range order {
-		models = append(models, model.ChannelFetchModel{Name: name, Protocols: protocolsByModel[name]})
 	}
 	resp.Success(c, models)
 }
