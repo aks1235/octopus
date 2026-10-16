@@ -48,11 +48,19 @@ export function formatRate(num: number | undefined): { raw: number, formatted: {
   return { raw: value, formatted: { value: toRateText(value), unit: "tok/s" } };
 }
 
+// MIN_GENERATE_RATIO 是"生成窗口"占总耗时比例的可信下限, 低于它就不认首字、回退总耗时做分母。
+// 为何需要: ftut 与 use_time 取自两个独立时刻, 差值过小说明它代表的不是生成阶段 ——
+// 实测既有只差 0/1ms 的取时抖动, 也有上游缓冲式交付(首帧到达时正文已全到)只差几十毫秒;
+// 直接拿它做分母会把速率虚高上千倍(生产曾出现 2926 万 tok/s, 差值占比 <1% 的 286 条都在此列)。
+// 阈值 10% 由 988 条实盘日志标定: 差值占比 ≥10% 的 614 条最高 160 tok/s(合理),
+// 放宽到 5% 最高仍有 608 tok/s(不合理), 收紧到 20% 只再丢 61 条而最高速率不变。
+const MIN_GENERATE_RATIO = 0.1;
+
 // outputSpeed 由落库字段推导输出速度(tok/s): 生成窗口 = 总耗时扣除首字等待;
-// ftut 无效(<=0 或 >= use_time)时回退总耗时做分母; 无输出 token 或分母非正时返回 null(调用方不展示)。
+// 首字不可信(<=0 / 差值占比过小)时回退总耗时做分母; 无输出 token 或分母非正时返回 null(调用方不展示)。
 export function outputSpeed(outputTokens: number, useTimeMs: number, ftutMs: number): number | null {
   if (outputTokens <= 0 || useTimeMs <= 0) return null;
-  const generateMs = ftutMs > 0 && ftutMs < useTimeMs ? useTimeMs - ftutMs : useTimeMs;
+  const generateMs = useTimeMs - ftutMs >= useTimeMs * MIN_GENERATE_RATIO ? useTimeMs - ftutMs : useTimeMs;
   if (generateMs <= 0) return null;
   return outputTokens / (generateMs / 1000);
 }

@@ -29,7 +29,9 @@
 - **迁移条件携带**:`scripts/migrate_v1_to_v2.py` 的 `CONDITIONAL_TABLES = (relay_logs, usage_cards, o_auth_sessions)` ——目标模板库有该表才走「转换」(列取交集、保留主键),否则跳过。**任务6 落地 usage_cards/o_auth_sessions 后须重跑真实副本演练验证带入**(任务4 即此流程:1285 条全量「转换」零丢列)。设置交集已含 `relay_log_keep_enabled/period`。
 - **attempts 语义**:v2 转发链只产生 `success`/`failed`;`circuit_break`/`skipped` 枚举仅为 fork 迁移数据保留展示(上游冷却跳过在 pickGroupItem 内部,handler 无事件源)。渠道详情页四态渲染保留。
 - **前端**:`api/log-history.ts` 全部 queryKey 用 `['log-history']` 前缀(含详情 `['log-history','detail',id]`),与实时流 `['logs']`、上游清内存 clear 的 invalidate 互不误伤;历史区模型筛选项来源 = **分组名列表**(`request_model_name` 语义即分组名,非渠道模型名);`RequestDetailDialog` 自含 JsonView 渲染绕开 morph(上游 Item.tsx 保持零改动)。
-- **ftut 为近似值**(首次取得可提交响应时刻 − StartedAt);`debug_content` 恒空(上游 pipeline 无差异记录钩子)——均已注释,勿当 bug 修。
+- **ftut 仅流式请求写**:值 =「首次取得可提交响应时刻 − StartedAt」(近似值)。**非流式不写, 恒为 0** —— 非流式在记录处响应已完整到手, 那一刻不是"首个 token 到达", 写下来会正好等于总耗时, 使界面「生成窗口 = 总耗时 − 首字」塌成 1ms 量级并把速率虚高上千倍(生产实测最高 2926 万 tok/s)。判据在 `handler.go` 记录处(`metadata.Streaming`)与 `relayLogFinalize` 落库处(`request.Streaming`)各挡一次, 后者可单测(`TestRelayLogFinalize_nonStreamingOmitsFtut`)。
+- **输出速度口径**(前端 `web/src/lib/utils.ts` `outputSpeed`):分母为「生成窗口 = 总耗时 − 首字等待」, 用于剔除首字前的预填充等待, 刻意不用总耗时;但差值须 ≥ 总耗时的 **10%**(`MIN_GENERATE_RATIO`)才认, 否则回退总耗时。阈值由 988 条实盘日志标定:差值占比 <1% 的 286 条最高达 2926 万 tok/s, 占比 ≥10% 的 614 条最高 160 tok/s(合理)。实时卡片、历史面板、请求详情三处共用此函数, 数值一致。
+- `debug_content` 恒空(上游 pipeline 无差异记录钩子), 勿当 bug 修。
 
 ### 4. Validation & Error Matrix
 

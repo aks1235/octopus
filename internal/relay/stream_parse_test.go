@@ -365,6 +365,7 @@ func TestFirstTokenMsMatchesLogFtut(t *testing.T) {
 	request := &RequestState{
 		ID:        7,
 		Status:    StatusSuccess,
+		Streaming: true,
 		Model:     "grp-x",
 		StartedAt: startedAt,
 		Duration:  3 * time.Second,
@@ -430,5 +431,39 @@ func TestRequestState_finishClearsLiveSpeed(t *testing.T) {
 	}
 	if request.Duration <= 0 {
 		t.Errorf("Duration = %v, want positive", request.Duration)
+	}
+}
+
+// TestRelayLogFinalize_nonStreamingOmitsFtut 验证非流式请求不写 ftut。
+// 非流式在取得响应时整个正文已经到手, 那一刻并非"首个 token 到达", 记为 ftut 会正好等于总耗时,
+// 使界面「生成窗口 = 总耗时 − 首字」塌成 1ms 量级, 把速率虚高上千倍
+// (生产实测最高 2926 万 tok/s, 差值占比 <1% 的 286 条都在此列)。
+// ftut 留 0 后界面按"无首字"回退总耗时做分母, 得到正确的整体吞吐。
+func TestRelayLogFinalize_nonStreamingOmitsFtut(t *testing.T) {
+	setupRelayLogTest(t)
+
+	startedAt := time.Now().Add(-3 * time.Second)
+	// 非流式: 记录首字的时刻就是响应完整到手的时刻, 因此 ≈ 总耗时。
+	firstValidAt := startedAt.Add(3 * time.Second)
+	request := &RequestState{
+		ID:        8,
+		Status:    StatusSuccess,
+		Model:     "grp-x",
+		StartedAt: startedAt,
+		Duration:  3 * time.Second,
+		Streaming: false,
+		Usage:     llm.Usage{PromptTokens: 100, CompletionTokens: 50},
+	}
+
+	relayLogFinalize(request, "grp-x", nil, 0, "codex/0.9", "", firstValidAt)
+	logs := flushAndLoad(t)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 persisted log, got %d", len(logs))
+	}
+	if logs[0].Ftut != 0 {
+		t.Errorf("non-streaming ftut = %d, want 0 (界面据此回退总耗时做分母)", logs[0].Ftut)
+	}
+	if logs[0].Streaming == nil || *logs[0].Streaming {
+		t.Errorf("streaming = %v, want false", logs[0].Streaming)
 	}
 }

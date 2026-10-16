@@ -264,7 +264,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			// 记录本轮已经取得可提交的上游响应。
 			request.finishRound("")
 			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式响应只统计等待首帧的时间。
-			if firstValidAt.IsZero() {
+			// 首字只对流式请求有意义: 非流式走到这里时整个正文已经到手, 此刻并非"首个 token 到达",
+			// 记为 ftut 会正好等于总耗时, 让界面「生成窗口 = 总耗时 − 首字」塌成 0 而把速率虚高上千倍。
+			if metadata.Streaming && firstValidAt.IsZero() {
 				firstValidAt = time.Now()
 				// 首个有效响应到达即记录首字耗时, 供界面与转发日志的 ftut 用同一数值推导输出速度。
 				request.markFirstToken(firstValidAt)
@@ -472,7 +474,9 @@ func relayLogFinalize(request *RequestState, requestModel string, attempts []mod
 
 	// 首字时间为首次取得可提交响应的时刻, 多轮重试时含前面轮次的耗时, 与 fork 语义一致。
 	// 与实时状态的首字字段共用同一算法, 保证历史面板与实时卡片的速度数值一致。
-	if !firstValidAt.IsZero() {
+	// 仅流式请求写 ftut: 非流式没有"首字"可言(记录处已跳过, 此处再挡一次并覆盖直接调用本函数的路径),
+	// ftut 恒为 0 时界面按"无首字"处理, 回退总耗时做速度分母。
+	if !firstValidAt.IsZero() && request.Streaming {
 		relayLog.Ftut = firstTokenElapsedMs(request.StartedAt, firstValidAt)
 	}
 
