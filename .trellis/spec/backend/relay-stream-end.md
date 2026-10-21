@@ -76,6 +76,53 @@ if len(chunk.Choices) == 0 || chunk.Choices[0].Delta == nil {
 
 ---
 
+## 契约:空正文(reasoning-only stop)按失败处理
+
+**What**: `emptyAnswerReason`(`internal/relay/protocol.go`)按客户端协议判断一份完整响应是否
+"既没有正文也没有工具调用"; 返回空串表示不算空回答。
+
+- **非流式**: 判定注入在 `handler.go` 的 `if err != nil` 之前, 复用既有失败路径换下一个成员重试。
+  空正文按"成员给出了完整但不可用的回答"处理, **立即冷却该成员**(传 `MemberMaxAttempts`), 不再消耗
+  剩余尝试次数 —— 否则会为同一段不可用响应重复付出整段生成耗时。
+- **流式**: 正文已经空着流给了客户端, `committed` 之后无法换成员; 只在聚合完成后判本轮失败并把成员
+  打入冷却, 让后续请求自然避开。**正文保持空, 绝不把 `reasoning_content` 提升为 `content`。**
+
+**Why**: 部分推理模型在上游以 `finish_reason=stop` 正常结束, 但只输出 `reasoning_content`、`content`
+为空(社区称 reasoning-only stop; 直连 DeepSeek 官方接口同样会出现, 高推理档位下更常见)。此前这类响应
+被判成功并原样交给客户端, 客户端拿到空白回复后**不会重试**。
+
+反过来"把思考内容冒充正文"更糟: 客户端会以为已经答完, 连重试的机会都没有 —— 这是本条契约最关键的取舍,
+**任何情况下都不得把 `reasoning_content` 提升为 `content`**。
+
+**不算空回答的四类情形(勿误伤)**:
+
+| 情形 | 判据 |
+|---|---|
+| 有工具调用 | chat `message.tool_calls` / anthropic `tool_use` 块 / responses 里非 `message` 且非 `reasoning` 的 `output` 项 |
+| 命中长度上限 | chat `finish_reason=length` / anthropic `stop_reason=max_tokens` / responses `status=incomplete` |
+| 内容被过滤 | chat `finish_reason=content_filter` |
+| 拒答 | chat `message.refusal` 非空 / anthropic `stop_reason=refusal` |
+
+多候选时只要有一个带正文即视为可用(`chat` 的 `content` 为分片数组时逐片取 `text`); 空响应体与错误响应
+另行归类 —— `emptyAnswerReason` 对这两类返回空串, 不介入既有错误判定。
+
+**已知边界**: 该判定只解决"空回复被静默当成功", 不改变上游为什么只思考不产出正文。流式一旦提交就无法
+重试, 这是 `committed` 语义的直接后果; 若要让流式也能重试, 必须改成"延迟提交到首个正文事件", 代价是
+思考内容不再实时显示 —— 属另一条独立取舍, 未采纳。
+
+**Tests Required**:
+
+| 测试 | 层级 | 断言点 |
+|---|---|---|
+| `TestEmptyAnswerReason` | 单元(表驱动) | 三协议的空正文/有正文/工具调用/长度上限/内容过滤/拒答各一档, 另含分片数组与空响应体 |
+| `TestForward_nonStreamingEmptyAnswerRetriesNextMember` | handler 级 | 成员 1 返回空正文 → 记失败并立即冷却, 换成员 2 成功; 响应体来自成员 2 |
+| `TestForward_streamingEmptyAnswerRecordedAsFailure` | handler 级 | 流式空正文 → `status=failed`、`error` 含 reasoning-only stop、`RequestFailed=1`、该轮尝试记失败 |
+
+**mutation 验证**: 把 `emptyAnswerReason` 里三处 `return emptyAnswerMessage` 改成 `return ""`
+→ 5 个单元用例与 2 个 handler 用例同时变红(实测已验)。
+
+---
+
 ## Tests Required
 
 落在 `internal/relay/stream_end_test.go`(独立新文件, 勿并入 `stream_parse_test.go`, 以降低冲突面):

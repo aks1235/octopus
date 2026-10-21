@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -16,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/anthropic"
 	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
+	"github.com/tidwall/gjson"
 )
 
 // buildPassthroughRequest 构造同协议透传的上游请求: 目标地址, 认证和请求体由渠道决定, 客户端的其余请求头和查询参数
@@ -254,6 +256,121 @@ func inspectStreamEvent(format llm.APIFormat, event *httpclient.StreamEvent) (bo
 // —— 合并前的相位分类会因整体解码失败而丢相位, 现在只看 choices/delta 反而能正常分类。
 func streamEventPhase(format llm.APIFormat, event *httpclient.StreamEvent) string {
 	return parseStreamEvent(format, event).phase
+}
+
+// emptyAnswerMessage 是"上游只返回思考、没有正文"的统一失败原因, 尝试明细与请求终态共用,
+// 便于在日志里按这个串检索这类失败。
+const emptyAnswerMessage = "upstream returned empty answer (reasoning-only stop)"
+
+// emptyAnswerReason 判断一份完整响应是否为"只有思考、没有正文"的空回答; 返回空串表示不算空回答。
+// 背景: 部分推理模型在上游以 finish_reason=stop 正常结束时, 只输出 reasoning_content 而没有 content
+// (社区称 reasoning-only stop)。若当成功提交, 客户端会拿到空白回复且不会重试, 因此按本轮失败处理,
+// 由既有失败路径换成员重试。绝不把思考内容冒充正文: 那会让客户端以为已经答完, 连重试机会都没有。
+// 以下四种情况不算空回答:
+//   - 任一候选带非空正文 (多候选时只要一个可用即视为可用);
+//   - 出现工具调用 (正文本就为空, 内容在 tool_calls / tool_use / function_call 里);
+//   - 命中长度或过滤器上限 (客户端 max_tokens 太小、或内容被上游过滤, 属客户端配置与内容策略问题);
+//   - 拒答 (refusal 非空, 是合法回答)。
+//
+// 结构无法识别、或本身是错误响应时返回空串: 本函数只负责识别空回答, 不改动既有的错误判定口径。
+func emptyAnswerReason(format llm.APIFormat, body []byte) string {
+	if len(body) == 0 {
+		return "upstream returned empty response body"
+	}
+	// 错误响应由既有错误判定处理, 不在这里重复归类。
+	if gjson.GetBytes(body, "error").Exists() {
+		return ""
+	}
+
+	switch format {
+	case llm.APIFormatAnthropicMessage:
+		root := gjson.GetBytes(body, "content")
+		if !root.Exists() {
+			return ""
+		}
+		hasText, hasTool := false, false
+		for _, block := range root.Array() {
+			switch block.Get("type").String() {
+			case "text":
+				if strings.TrimSpace(block.Get("text").String()) != "" {
+					hasText = true
+				}
+			case "tool_use", "server_tool_use":
+				hasTool = true
+			}
+		}
+		switch gjson.GetBytes(body, "stop_reason").String() {
+		case "max_tokens", "refusal":
+			return ""
+		}
+		if hasText || hasTool {
+			return ""
+		}
+		return emptyAnswerMessage
+
+	case llm.APIFormatOpenAIResponse:
+		root := gjson.GetBytes(body, "output")
+		if !root.Exists() {
+			return ""
+		}
+		hasText, hasTool := false, false
+		for _, item := range root.Array() {
+			itemType := item.Get("type").String()
+			if itemType == "message" {
+				for _, part := range item.Get("content").Array() {
+					partType := part.Get("type").String()
+					if (partType == "output_text" || partType == "text") && strings.TrimSpace(part.Get("text").String()) != "" {
+						hasText = true
+					}
+				}
+				continue
+			}
+			// reasoning 是思考项而非工具调用; 其余非 message 项 (function_call / web_search_call 等) 都算工具调用。
+			if itemType != "" && itemType != "reasoning" {
+				hasTool = true
+			}
+		}
+		// incomplete 涵盖命中输出上限与内容过滤两类终态。
+		if hasText || hasTool || gjson.GetBytes(body, "status").String() == "incomplete" {
+			return ""
+		}
+		return emptyAnswerMessage
+
+	default:
+		choices := gjson.GetBytes(body, "choices").Array()
+		if len(choices) == 0 {
+			return ""
+		}
+		hasText, hasTool, hasRefusal, limited := false, false, false, false
+		for _, choice := range choices {
+			message := choice.Get("message")
+			// content 通常是字符串, 少数上游以分片数组下发, 数组形态要逐片取 text, 否则会被误判为空正文。
+			switch content := message.Get("content"); {
+			case content.IsArray():
+				for _, part := range content.Array() {
+					if strings.TrimSpace(part.Get("text").String()) != "" {
+						hasText = true
+					}
+				}
+			case strings.TrimSpace(content.String()) != "":
+				hasText = true
+			}
+			if calls := message.Get("tool_calls"); calls.Exists() && len(calls.Array()) > 0 {
+				hasTool = true
+			}
+			if message.Get("refusal").String() != "" {
+				hasRefusal = true
+			}
+			switch choice.Get("finish_reason").String() {
+			case "length", "max_tokens", "content_filter":
+				limited = true
+			}
+		}
+		if hasText || hasTool || hasRefusal || limited {
+			return ""
+		}
+		return emptyAnswerMessage
+	}
 }
 
 // validateResponse 检查统一响应中需要在提交前判定为失败的终止原因; 仅 Responses 协议会以正常响应下发这类终态。

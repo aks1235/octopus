@@ -212,6 +212,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 			}
 
+			// reasoning-only stop 兜底: 完整响应里既没有正文也没有工具调用时, 按本轮失败走既有失败路径,
+			// 换下一个成员重试。绝不把思考内容冒充正文 —— 那会让客户端以为已经答完, 连重试都没有。
+			emptyAnswer := false
+			if err == nil && !metadata.Streaming && result != nil {
+				if reason := emptyAnswerReason(format, result.body); reason != "" {
+					err = errors.New(reason)
+					emptyAnswer = true
+				}
+			}
+
 			if err != nil {
 				// 记录本轮上游调用已经结束及其失败原因。
 				request.finishRound(err.Error())
@@ -253,7 +263,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					failures = 1
 				}
 				// 达到总尝试次数时成员进入冷却并立即重新选路, 否则等待后重试。
-				if recordRouteFailure(group, item.ID, failures) {
+				// 空正文是"成员给出了完整但不可用的回答", 与传输类故障不同: 立即冷却, 不再消耗剩余尝试次数,
+				// 避免为同一段不可用响应重复付出整段生成耗时。
+				coolFailures := failures
+				if emptyAnswer {
+					coolFailures = group.RelayConfig.MemberMaxAttempts
+				}
+				if recordRouteFailure(group, item.ID, coolFailures) {
 					continue
 				}
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
@@ -386,6 +402,20 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			responseBody, meta, aggregateErr := inbound.AggregateStreamChunks(context.WithoutCancel(ctx), chunks)
 			if aggregateErr == nil {
 				result.usage = meta.Usage
+			}
+			// reasoning-only stop 兜底: 上游以正常终态结束、流也已完整收下, 但聚合出的正文为空且没有工具调用。
+			// 此时正文已经空着流给了客户端, 无法再换成员重试; 按本轮失败落账并把成员打入冷却,
+			// 让后续请求自然避开它, 而不是把空回复当成功留在日志里。同样不伪造正文。
+			if err == nil && ctx.Err() == nil && aggregateErr == nil {
+				if reason := emptyAnswerReason(format, responseBody); reason != "" {
+					err = errors.New(reason)
+					if len(attempts) > 0 {
+						last := &attempts[len(attempts)-1]
+						last.Status = model.AttemptFailed
+						last.Msg = reason
+					}
+					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts)
+				}
 			}
 			// 流式响应结束并聚合出用量后, 按最终结果完成本轮渠道和成员统计。
 			// 客户端中途断开不属于渠道故障: 不计成功也不计失败, 只保留等待耗时。
