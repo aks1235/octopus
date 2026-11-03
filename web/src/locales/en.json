@@ -198,7 +198,20 @@
                 "noFile": "Please select a JSON file first",
                 "success": "Import successful",
                 "failed": "Import failed",
-                "result": "Import result"
+                "result": "Import result",
+                "conflict": {
+                    "label": "When an object already exists",
+                    "skip": "Skip (keep local)",
+                    "overwrite": "Overwrite (use backup)",
+                    "rename": "Rename and keep both",
+                    "hint": {
+                        "skip": "Keep the channels and groups already in this instance; only import objects that do not exist yet.",
+                        "overwrite": "Replace existing objects with the backup, including keys, models, protocol bits and stats.",
+                        "rename": "Import the backup's duplicates under new names (suffixed -2, -3) and keep both sides."
+                    }
+                },
+                "written": "Written",
+                "skipped": "Skipped"
             }
         },
         "apiKey": {

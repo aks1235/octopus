@@ -10,6 +10,7 @@
 | [group-manual-absorb.md](./group-manual-absorb.md) | 手动分组自动吸纳契约:模型名包含分组名(前后端同源口径)、append-only 尾部续排、触发点四挂(渠道增改/分组创建/改名/5min兜底)、删成员回归为预期、idx_group_grant 幂等硬保护 |
 | [api-serialization.md](./api-serialization.md) | API 序列化空值契约:Go nil 切片→JSON null,前端 API→state 边界必须 `?? []` 归一化(迁移库空值触发崩溃的防护);RequireJSON 空 body 放行但前端 mutation 须显式 `body: {}` |
 | [channel-health-reconcile.md](./channel-health-reconcile.md) | 健康检查模型对账契约:探测清单与判活分离、单凭据替换语义(保主键统计/级联预期)、三层防误删护栏、收尾与保存路径同款、SSE 事件已知边界 |
+| [backup-import.md](./backup-import.md) | 备份导入契约:身份用天然键而非主键、三策略(skip/overwrite/rename)、子表主键与 active_item_id/stats_api_key 必须重映射、按主键合并的三类事故与测试锚点 |
 | [database-guidelines.md](./database-guidelines.md) | 数据库层规范 |
 | [directory-structure.md](./directory-structure.md) | 目录结构规范 |
 | [error-handling.md](./error-handling.md) | 错误处理规范 |

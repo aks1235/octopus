@@ -65,8 +65,16 @@ export function useSetSetting() {
 /**
  * 数据库导入/导出
  */
+
+/** 导入时遇到的同名对象处理策略: 跳过保留目标 / 覆盖为目标 / 另起名称并存。 */
+export type DBImportConflict = 'skip' | 'overwrite' | 'rename';
+
 interface DBImportResult {
     rows_affected: Record<string, number>;
+    /** 因冲突策略被跳过、未写入的行数, 按表分组。 */
+    skipped?: Record<string, number>;
+    /** 本次导入实际采用的策略, 便于界面回显。 */
+    conflict?: DBImportConflict;
 }
 
 function parseFilename(contentDisposition: string | null): string | null {
@@ -123,12 +131,16 @@ export function useExportDB() {
 
 /**
  * 导入数据库（上传 JSON 文件）
+ *
+ * 冲突策略随请求传给后端: 后端按「天然键」(渠道名 / 渠道+凭据名 / 分组名) 判断同名对象,
+ * 而不是按主键 —— 两个实例的主键空间各自独立, 按主键合并会把配置写到不相关的对象上。
  */
 export function useImportDB() {
     return useMutation({
-        mutationFn: async (file: File) => {
+        mutationFn: async (input: { file: File; conflict: DBImportConflict }) => {
             const form = new FormData();
-            form.append('file', file);
+            form.append('file', input.file);
+            form.append('conflict', input.conflict);
 
             const res = await fetch('/api/v1/setting/import', {
                 method: 'POST',

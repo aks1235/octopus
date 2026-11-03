@@ -155,7 +155,17 @@ func importDB(c *gin.Context) {
 		}
 	}
 
-	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
+	policyRaw := c.Query("conflict")
+	if policyRaw == "" {
+		policyRaw = c.PostForm("conflict")
+	}
+	policy, err := op.ParseImportConflictPolicy(policyRaw)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, err := op.DBImportIncremental(c.Request.Context(), &dump, policy)
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return

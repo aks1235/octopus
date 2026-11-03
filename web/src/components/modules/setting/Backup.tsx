@@ -1,10 +1,13 @@
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
 import { Database, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { useExportDB, useImportDB } from '@/api/setting';
+import { useExportDB, useImportDB, type DBImportConflict } from '@/api/setting';
+
+const CONFLICT_OPTIONS: DBImportConflict[] = ['skip', 'overwrite', 'rename'];
 
 export function SettingBackup() {
     const t = useTranslations('setting');
@@ -13,15 +16,22 @@ export function SettingBackup() {
     const importDB = useImportDB();
 
     const [file, setFile] = useState<File | null>(null);
+    const [conflict, setConflict] = useState<DBImportConflict>('skip');
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
     const rowsAffected = importDB.data?.rows_affected ?? null;
-    const rowsAffectedList = useMemo(() => {
-        if (!rowsAffected) return [];
-        return Object.entries(rowsAffected)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([k, v]) => ({ table: k, count: v }));
-    }, [rowsAffected]);
+    const skipped = importDB.data?.skipped ?? null;
+    const resultRows = useMemo(() => {
+        if (!rowsAffected && !skipped) return [];
+        const tables = new Set([...Object.keys(rowsAffected ?? {}), ...Object.keys(skipped ?? {})]);
+        return [...tables]
+            .sort((a, b) => a.localeCompare(b))
+            .map((table) => ({
+                table,
+                written: rowsAffected?.[table] ?? 0,
+                skipped: skipped?.[table] ?? 0,
+            }));
+    }, [rowsAffected, skipped]);
 
     const onPickFile = (f: File | null) => {
         setFile(f);
@@ -33,7 +43,7 @@ export function SettingBackup() {
             return;
         }
         try {
-            await importDB.mutateAsync(file);
+            await importDB.mutateAsync({ file, conflict });
             toast.success(t('backup.import.success'));
             if (fileInputRef.current) fileInputRef.current.value = '';
             setFile(null);
@@ -78,6 +88,26 @@ export function SettingBackup() {
             <div className="space-y-3">
                 <div className="text-sm font-semibold text-card-foreground">{t('backup.import.title')}</div>
 
+                {/* 同名对象处理策略: 目标是另一个已配置的实例时, 按主键合并会串配置, 故按名称判定并让用户选语义 */}
+                <div className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground">{t('backup.import.conflict.label')}</div>
+                    <Select value={conflict} onValueChange={(v) => setConflict(v as DBImportConflict)}>
+                        <SelectTrigger className="w-full rounded-xl">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                            {CONFLICT_OPTIONS.map((option) => (
+                                <SelectItem key={option} value={option} className="rounded-xl">
+                                    {t(`backup.import.conflict.${option}`)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <div className="text-xs text-muted-foreground">
+                        {t(`backup.import.conflict.hint.${conflict}`)}
+                    </div>
+                </div>
+
                 <Input
                     ref={fileInputRef}
                     type="file"
@@ -97,15 +127,19 @@ export function SettingBackup() {
                     {importDB.isPending ? t('backup.import.importing') : t('backup.import.button')}
                 </Button>
 
-                {rowsAffectedList.length > 0 && (
+                {resultRows.length > 0 && (
                     <div className="mt-2 space-y-1">
                         <div className="text-xs font-semibold text-card-foreground">{t('backup.import.result')}</div>
-                        <div className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
-                            {rowsAffectedList.map((it) => (
-                                <div key={it.table} className="flex justify-between gap-2">
+                        <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <span />
+                            <span className="text-right">{t('backup.import.written')}</span>
+                            <span className="text-right">{t('backup.import.skipped')}</span>
+                            {resultRows.map((it) => (
+                                <Fragment key={it.table}>
                                     <span className="truncate">{it.table}</span>
-                                    <span className="tabular-nums">{it.count}</span>
-                                </div>
+                                    <span className="text-right tabular-nums">{it.written}</span>
+                                    <span className="text-right tabular-nums">{it.skipped}</span>
+                                </Fragment>
                             ))}
                         </div>
                     </div>

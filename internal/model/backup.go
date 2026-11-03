@@ -17,9 +17,9 @@ type DBDump struct {
 	// 正则分组的人工渠道顺序。旧备份(v5 早期)无此字段, 导入后为空即回到自然序,
 	// 等价于「从未设过人工顺序」, 故 dump 版本不因本字段递增。
 	GroupChannelOrders []GroupChannelOrder `json:"group_channel_orders,omitempty"`
-	LLMInfos           []LLMInfo          `json:"llm_infos,omitempty"` // 模型价格数据。
-	APIKeys            []APIKey           `json:"api_keys,omitempty"`  // API Key 数据。
-	Settings           []Setting          `json:"settings,omitempty"`  // 系统设置数据。
+	LLMInfos           []LLMInfo           `json:"llm_infos,omitempty"` // 模型价格数据。
+	APIKeys            []APIKey            `json:"api_keys,omitempty"`  // API Key 数据。
+	Settings           []Setting           `json:"settings,omitempty"`  // 系统设置数据。
 
 	StatsTotal  []StatsTotal  `json:"stats_total,omitempty"`
 	StatsDaily  []StatsDaily  `json:"stats_daily,omitempty"`
@@ -30,4 +30,8 @@ type DBDump struct {
 type DBImportResult struct {
 	// RowsAffected contains the rows affected for each table operation (insert/upsert depending on table).
 	RowsAffected map[string]int64 `json:"rows_affected"`
+	// Skipped 记录因冲突策略而保留目标对象、未写入的行数, 按表分组。
+	Skipped map[string]int64 `json:"skipped,omitempty"`
+	// Conflict 是本次导入采用的冲突策略(skip|overwrite|rename), 便于界面回显。
+	Conflict string `json:"conflict,omitempty"`
 }
