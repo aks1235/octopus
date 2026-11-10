@@ -139,14 +139,81 @@ func GrantProbeDead(grant model.ChannelGrant, now int64) bool {
 	return now-grant.ProbeAt <= ProbeDeadTTLSeconds
 }
 
-// GroupProbeApply 把一次分组探测的结果落到各成员引用的授权上, 并逐条写一条历史记录。
+// grantProbeApplyResult 把单条探测结果落到一个授权上, 返回更新后的授权与待写的历史行。
+// 结论推导只此一处: 整组应用与逐条应用必须完全等价, 否则"点测试"与"定时探测"会得出两种结论。
+//
+// 不作为探测结论的情形(返回 nil, 保持原状态, 也不留历史):
+//   - 成员不可用(渠道或凭据被禁用): 根本没发上游请求, 结果里的失败只是本地解析结论;
+//   - 请求被取消: 客户端断开或本轮中断, 不代表上游状态。
+func grantProbeApplyResult(grantID int, result model.GroupMemberTestResult, source string, now int64) (*model.ChannelGrant, *model.GrantProbeRecord, error) {
+	if grantID == 0 || result.Status == "unavailable" || result.Status == "canceled" {
+		return nil, nil, nil
+	}
+	grant, ok := channelGrantCache.Get(grantID)
+	if !ok {
+		return nil, nil, nil
+	}
+
+	probeStatus, probeReason, failCount := grant.ProbeStatus, grant.ProbeReason, grant.ProbeFailCount
+	switch {
+	case result.Success:
+		probeStatus, probeReason, failCount = ProbeStatusOK, "", 0
+	case probeFailureIsFatal(result.Error):
+		// 确定性死亡: 一次即可定性, 计数一并推高以免下次抖动把它"降级"回未定型。
+		probeStatus, probeReason = ProbeStatusDead, probeReasonTruncate(result.Error)
+		failCount++
+	default:
+		probeReason, failCount = probeReasonTruncate(result.Error), failCount+1
+		if failCount >= ProbeDeadAfterFailures {
+			probeStatus = ProbeStatusDead
+		} else {
+			// 抖动但未定型: 回到"未探测", 界面上既不标绿也不标死, 由下一轮再判。
+			probeStatus = ProbeStatusUnknown
+		}
+	}
+
+	if err := db.GetDB().Model(&model.ChannelGrant{}).Where("id = ?", grantID).Updates(map[string]any{
+		"probe_status":     probeStatus,
+		"probe_reason":     probeReason,
+		"probe_at":         now,
+		"probe_fail_count": failCount,
+	}).Error; err != nil {
+		return nil, nil, err
+	}
+
+	grant.ProbeStatus, grant.ProbeReason, grant.ProbeAt, grant.ProbeFailCount = probeStatus, probeReason, now, failCount
+	channelGrantCache.Set(grant.ID, grant)
+	return &grant, &model.GrantProbeRecord{
+		GrantID:  grantID,
+		At:       now,
+		Success:  result.Success,
+		Reason:   probeReason,
+		UseTime:  result.UseTime,
+		Protocol: int(result.Protocol),
+		Source:   source,
+	}, nil
+}
+
+// GrantProbeApplyResult 应用单条探测结果并立即写一条历史, 供流式测试逐条落库:
+// 成员一测完, 界面拿到的就是新结论, 不必等整组跑完那一跳。
+func GrantProbeApplyResult(grantID int, result model.GroupMemberTestResult, source string) (*model.ChannelGrant, error) {
+	grant, record, err := grantProbeApplyResult(grantID, result, source, time.Now().Unix())
+	if err != nil || record == nil {
+		return grant, err
+	}
+	// 历史写失败只告警: 丢了这一条不该让"判死/恢复"这个更要紧的结论一起失效。
+	if err := db.GetDB().Create(record).Error; err != nil {
+		log.Warnf("grant %d probe history write failed: %v", grantID, err)
+	}
+	return grant, nil
+}
+
+// GroupProbeApply 把一次分组探测的结果落到各成员引用的授权上, 并写历史记录。
 //
 // 结论只写授权的 probe_* 四列, 不改渠道与凭据的启停、不改分组成员、不触发授权对账:
 // 探测是旁路观测, 唯一的下游影响是选路时跳过已判死的成员(见 relay 层), 24 小时未再探测即自动失效。
 //
-// 不作为探测结论的情形(直接跳过, 保持原状态, 也不留历史):
-//   - 成员不可用(渠道或凭据被禁用): 根本没发上游请求, 结果里的失败只是本地解析结论;
-//   - 请求被取消: 客户端断开或本轮中断, 不代表上游状态。
+// 历史与结论分开落库: 结论是选路要用的强一致数据, 历史是审计数据。
 func GroupProbeApply(groupID int, results []model.GroupMemberTestResult, source string) error {
 	if len(results) == 0 {
 		return nil
@@ -164,60 +231,16 @@ func GroupProbeApply(groupID int, results []model.GroupMemberTestResult, source 
 	applied := 0
 	records := make([]model.GrantProbeRecord, 0, len(results))
 	for _, result := range results {
-		if result.Status == "unavailable" || result.Status == "canceled" {
-			continue
-		}
-		grantID, ok := grantOfItem[result.ItemID]
-		if !ok || grantID == 0 {
-			continue
-		}
-		grant, ok := channelGrantCache.Get(grantID)
-		if !ok {
-			continue
-		}
-
-		probeStatus, probeReason, failCount := grant.ProbeStatus, grant.ProbeReason, grant.ProbeFailCount
-		switch {
-		case result.Success:
-			probeStatus, probeReason, failCount = ProbeStatusOK, "", 0
-		case probeFailureIsFatal(result.Error):
-			// 确定性死亡: 一次即可定性, 计数一并推高以免下次抖动把它"降级"回未定型。
-			probeStatus, probeReason = ProbeStatusDead, probeReasonTruncate(result.Error)
-			failCount++
-		default:
-			probeReason, failCount = probeReasonTruncate(result.Error), failCount+1
-			if failCount >= ProbeDeadAfterFailures {
-				probeStatus = ProbeStatusDead
-			} else {
-				// 抖动但未定型: 回到"未探测", 界面上既不标绿也不标死, 由下一轮再判。
-				probeStatus = ProbeStatusUnknown
-			}
-		}
-
-		if err := db.GetDB().Model(&model.ChannelGrant{}).Where("id = ?", grantID).Updates(map[string]any{
-			"probe_status":     probeStatus,
-			"probe_reason":     probeReason,
-			"probe_at":         now,
-			"probe_fail_count": failCount,
-		}).Error; err != nil {
+		_, record, err := grantProbeApplyResult(grantOfItem[result.ItemID], result, source, now)
+		if err != nil {
 			return err
 		}
-
-		grant.ProbeStatus, grant.ProbeReason, grant.ProbeAt, grant.ProbeFailCount = probeStatus, probeReason, now, failCount
-		channelGrantCache.Set(grant.ID, grant)
-		records = append(records, model.GrantProbeRecord{
-			GrantID:  grantID,
-			At:       now,
-			Success:  result.Success,
-			Reason:   probeReason,
-			UseTime:  result.UseTime,
-			Protocol: int(result.Protocol),
-			Source:   source,
-		})
+		if record == nil {
+			continue
+		}
+		records = append(records, *record)
 		applied++
 	}
-	// 历史与结论分开落库: 结论是选路要用的强一致数据, 历史是审计数据。
-	// 历史写失败只告警不回滚——丢了这一条不该让"成员判死/恢复"这个更要紧的结论一起失效。
 	if len(records) > 0 {
 		if err := db.GetDB().CreateInBatches(records, 100).Error; err != nil {
 			log.Warnf("group %d probe history write failed: %v", groupID, err)

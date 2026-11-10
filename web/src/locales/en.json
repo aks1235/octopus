@@ -187,7 +187,7 @@
         "groupProbe": {
             "label": "Scheduled member probe",
             "hint": "One round every 6-12 hours",
-            "tip": "Sends a real \"1+1=?\" request to every member of every group; results drive member badges and routing skips. Consumes real upstream quota — run one round manually first. Disabling it makes dead verdicts expire within a day.",
+            "tip": "Sends one real \"1+1=?\" request to every member of every group; the verdict marks members and can be skipped during routing. This costs real upstream quota, so run one round manually first. Turning this off only stops the scheduled rounds — a manual \"test all members\" still writes verdicts and can skip members.",
             "runNow": "Run a round now",
             "running": "Submitted...",
             "started": "Probe started, refresh later to see results",
@@ -198,7 +198,6 @@
             "label": "Probe history retention (days)",
             "placeholder": "0 keeps forever"
         },
-
         "backup": {
             "title": "Backup / Restore",
             "export": {
@@ -388,18 +387,12 @@
             "test": "Test all members",
             "testRunning": "Testing...",
             "testFailed": "Member test failed",
-            "testTimeout": "Not confirmed within the time limit; try a full test",
-            "testDuration": "{ms} ms",
             "testToastAll": "All {count} members available",
             "testToastNone": "All {count} members unavailable",
             "testToastPartial": "{ok} available, {failed} unavailable",
             "cooldownReset": "Reset all cooldowns",
             "cooldownResetDone": "Cooldowns reset",
             "cooldownResetFailed": "Failed to reset cooldowns",
-            "testOk": "Available ({protocol})",
-            "testRecovered": "Available ({protocol}), cooldown cleared",
-            "testUnavailableReason": "Unavailable: {reason}",
-            "testUnavailable": "Unavailable",
             "probeDead": "Probe failed",
             "probeOk": "Probe passed",
             "probeExpired": "verdict expired, no longer skipped",
@@ -409,14 +402,9 @@
             "collapseDisabled": "Collapse disabled members",
             "quickTest": "Quick check",
             "fullTest": "Test all members",
-            "quickProgress": "Checking {completed}/{total} · {success} confirmed available · {timeout} timed out",
             "quickTestTip": "Quick check: real generation requests, up to 3 seconds per protocol and 8 seconds per member; retry timeouts with a full test",
-            "testIncomplete": "Test incomplete: {completed}/{total}, last update {time}",
-            "testTimeoutCount": "{count} timed out; unconfirmed",
-            "testCanceled": "Canceled",
             "testSummary": "{success}/{total} available, {failed} failed, {timeout} timed out",
-            "quickDone": "Quick check finished: {total} members",
-            "lastResults": "Last check: {success}/{total} confirmed available ({rate}%) at {time}"
+            "quickDone": "Quick check finished: {total} members"
         },
         "detail": {
             "actions": {
@@ -438,7 +426,9 @@
             "sourceManual": "manual test",
             "sourceScheduled": "scheduled probe",
             "summaryHint": "Most failures first; click a row for details",
-            "summaryEmpty": "No probe records yet — run a test or enable the scheduler"
+            "summaryEmpty": "No probe records yet — run a test or enable the scheduler",
+            "running": "Probing {completed}/{total}",
+            "lastRun": "Last probe {time}"
         },
         "form": {
             "name": "Group Name",

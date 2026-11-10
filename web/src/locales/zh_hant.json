@@ -187,7 +187,7 @@
         "groupProbe": {
             "label": "分成員定時探測",
             "hint": "每 6-12 小時隨機一輪",
-            "tip": "對每個分組的全部成員發一次「1+1等於幾？」的真實請求，結論用於成員標註與選路跳過。會產生真實上游請求與配額消耗，建議先手動跑一輪觀察。關閉後已判死的成員最多一天自動失效。",
+            "tip": "對每個分組的全部成員發一次「1+1等於幾？」的真實請求，結論用於成員標註與選路跳過。會產生真實上游請求與配額消耗，建議先手動跑一輪觀察。關閉只停定時輪次；手動「測試全部成員」仍會更新結論並可能觸發跳過。",
             "runNow": "立即探測一輪",
             "running": "已提交...",
             "started": "探測已開始，稍後重新整理查看結果",
@@ -198,7 +198,6 @@
             "label": "探測歷史保留（天）",
             "placeholder": "0 表示不清理"
         },
-
         "backup": {
             "title": "備份 / 復原",
             "export": {
@@ -388,18 +387,12 @@
             "test": "測試全部成員",
             "testRunning": "測試中...",
             "testFailed": "成員測試失敗",
-            "testTimeout": "時限內未確認可用，可用完整測試複核",
-            "testDuration": "{ms} 毫秒",
             "testToastAll": "{count} 個成員全部可用",
             "testToastNone": "{count} 個成員全部不可用",
             "testToastPartial": "{ok} 個可用，{failed} 個不可用",
             "cooldownReset": "重置全部冷卻",
             "cooldownResetDone": "冷卻已重置",
             "cooldownResetFailed": "重置冷卻失敗",
-            "testOk": "可用（{protocol}）",
-            "testRecovered": "可用（{protocol}），冷卻已清除",
-            "testUnavailableReason": "不可用：{reason}",
-            "testUnavailable": "不可用",
             "probeDead": "探測失敗",
             "probeOk": "探測通過",
             "probeExpired": "結論已過期，選路不再跳過",
@@ -409,14 +402,9 @@
             "collapseDisabled": "收起已禁用成員",
             "quickTest": "快速體檢",
             "fullTest": "完整測試全部成員",
-            "quickProgress": "檢測中 {completed}/{total} · {success} 個已確認可用 · {timeout} 個逾時",
             "quickTestTip": "快速體檢：真實生成請求，每協議最多 3 秒、每成員最多 8 秒；逾時可完整複測",
-            "testIncomplete": "測試未完成：{completed}/{total}，最後更新 {time}",
-            "testTimeoutCount": "{count} 個逾時待確認",
-            "testCanceled": "已取消",
             "testSummary": "{success}/{total} 可用，{failed} 個失敗，{timeout} 個逾時",
-            "quickDone": "快速體檢完成：共 {total} 個成員",
-            "lastResults": "上次檢測：{success}/{total} 已確認可用（{rate}%），時間 {time}"
+            "quickDone": "快速體檢完成：共 {total} 個成員"
         },
         "detail": {
             "actions": {
@@ -438,7 +426,9 @@
             "sourceManual": "人工測試",
             "sourceScheduled": "定時探測",
             "summaryHint": "失敗次數多的排前面，點一行看明細",
-            "summaryEmpty": "還沒有探測記錄，先跑一輪測試或開啟定時探測"
+            "summaryEmpty": "還沒有探測記錄，先跑一輪測試或開啟定時探測",
+            "running": "探測中 {completed}/{total}",
+            "lastRun": "上次探測 {time}"
         },
         "form": {
             "name": "分組名稱",

@@ -36,6 +36,15 @@ export interface GroupItem {
     probe_blocking: boolean; // 为真表示该成员当前真的会被选路跳过（已判死且结论未过期）；界面据此把它排到列表末尾，不要自行比较 24 小时窗口。
 }
 
+// GroupItemProbe 是后端为单条探测算好的结论快照, 随流式测试事件逐条回报。
+// 判死阈值与 24 小时窗口都在服务端, 前端只把这份结论搬进缓存, 不自己推导。
+export interface GroupItemProbe {
+    probe_status: string;
+    probe_reason: string;
+    probe_at: number;
+    probe_blocking: boolean;
+}
+
 // GroupRuntime 是分组的实时路由状态。
 // current_item_id 两种模式共用：手动模式下即人工指定的成员，故障转移模式下由 Relay 的路由决定。
 export interface GroupRuntime {
@@ -95,6 +104,21 @@ function writeGroupCache(group: Group) {
         return next;
     });
     queryClient.setQueryData(['groups', 'detail', group.id], group);
+}
+
+// applyGroupItemProbe 把流式测试回报的单条结论写回列表与详情缓存。
+// 一次测试里每个成员都走这条路径更新, 因此不需要整组重拉, 也没有"测完了界面还是旧的"窗口。
+export function applyGroupItemProbe(groupID: number, itemID: number, probe: GroupItemProbe) {
+    const patch = (group: Group): Group => ({
+        ...group,
+        items: group.items.map((item) => (item.id === itemID ? { ...item, ...probe } : item)),
+    });
+    queryClient.setQueryData(groupListQueryOptions.queryKey, (current: Group[] | undefined) =>
+        current?.map((group) => (group.id === groupID ? patch(group) : group))
+    );
+    queryClient.setQueryData(['groups', 'detail', groupID], (current: Group | undefined) =>
+        current ? patch(current) : current
+    );
 }
 
 // removeGroupCache 从列表与详情两处缓存移除一个分组。
@@ -275,7 +299,7 @@ export async function streamGroupMemberTests(id: number, mode: GroupTestMode, on
 }
 
 export type GroupTestMode = 'full';
-export type GroupTestEvent = { type: 'start'; total: number } | { type: 'result'; result: GroupMemberTestResult } | { type: 'done' };
+export type GroupTestEvent = { type: 'start'; total: number } | { type: 'result'; result: GroupMemberTestResult; probe?: GroupItemProbe } | { type: 'done' };
 
 // useResetGroupCooldown 清空分组的全部成员冷却，响应即最新分组（含 runtime），写回两处缓存。
 // 当前承载成员与亲和不受影响：重置只恢复冷却成员的候选资格。

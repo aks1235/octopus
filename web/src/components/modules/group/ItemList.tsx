@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2, CircleCheck, CircleX, Ban, Clock3, History } from 'lucide-react';
+import { Layers, GripVertical, X, Trash2, CircleCheck, Ban, History } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -12,8 +12,7 @@ import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslations } from 'use-intl';
-import type { Group, GroupMemberTestResult } from '@/api/group';
-import { Protocol } from '@/api/channel';
+import type { Group } from '@/api/group';
 import { MemberStatus } from './MemberStatus';
 
 export interface SelectedMember {
@@ -73,84 +72,11 @@ const staticDnd: MemberItemDnd = {
     isDragging: false,
 };
 
-// protocolLabel 把成功的协议位显示成路径里讲的端点名, 与渠道 key 测试结果面板同款口径。
-function protocolLabel(bit: number) {
-    if (bit & Protocol.AnthropicMessage) return 'message';
-    if (bit & Protocol.OpenAIResponse) return 'response';
-    return 'chat';
-}
-
-// MemberTestBadge 成员行的连通性测试结果徽标: 成功绿(带成功协议)、失败红(带错误摘要)、不可用灰。
-// 不可用按成员行自身的 available 口径判定(渠道/凭据被禁用, 未发上游请求), 与列表的置灰展示同源。
-function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResult; unavailable: boolean }) {
-    const t = useTranslations('group.card');
-    const iconClass = 'size-3.5 shrink-0';
-    if (result.success) {
-        const tip = result.cooldown_cleared
-            ? t('testRecovered', { protocol: protocolLabel(result.protocol) })
-            : t('testOk', { protocol: protocolLabel(result.protocol) });
-        return (
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className="inline-flex shrink-0 text-accent">
-                        <CircleCheck className={iconClass} />
-                    </span>
-                </TooltipTrigger>
-                <TooltipContent>{tip} · {t('testDuration', { ms: result.use_time })}</TooltipContent>
-            </Tooltip>
-        );
-    }
-    if (unavailable || result.status === 'unavailable') {
-        return (
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className="inline-flex shrink-0 text-muted-foreground">
-                        <Ban className={iconClass} />
-                    </span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-72 whitespace-normal break-all">
-                    {result.error ? t('testUnavailableReason', { reason: result.error }) : t('testUnavailable')}
-                </TooltipContent>
-            </Tooltip>
-        );
-    }
-    if (result.status === 'timeout') {
-        return (
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className="inline-flex shrink-0 text-amber-500"><Clock3 className={iconClass} /></span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-72 whitespace-normal break-all">
-                    {t('testTimeout')}{result.error && `: ${result.error}`}
-                </TooltipContent>
-            </Tooltip>
-        );
-    }
-    if (result.status === 'canceled') {
-        return <Tooltip>
-            <TooltipTrigger asChild><span className="inline-flex shrink-0 text-muted-foreground"><Ban className={iconClass} /></span></TooltipTrigger>
-            <TooltipContent>{t('testCanceled')}</TooltipContent>
-        </Tooltip>;
-    }
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <span className="inline-flex shrink-0 text-destructive">
-                    <CircleX className={iconClass} />
-                </span>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-72 whitespace-normal break-all">
-                {result.error || t('testFailed')}
-            </TooltipContent>
-        </Tooltip>
-    );
-}
-
-// ProbeBadge 是持久探测结论的标签, 与"本次测试结果"徽标(MemberTestBadge)是两回事:
-// 前者来自库里的 probe_*, 关掉页面再进仍在; 后者只是本次测试的即时结果。
+// ProbeBadge 是成员唯一的探测结论徽标, 数据来自库里的 probe_*, 关掉页面再进仍在。
+// 手动"测试全部成员"与定时探测写的是同一份结论(流式测试逐条落库并随事件回报), 因此不再有第二套
+// "本次测试结果"徽标——同一个事实画两个图标, 只会让人以为它们说的不是一回事。
 // 三种状态都要可分辨: ok 绿勾、dead 红禁止、未探测不显示——"没探测"绝不能长得像"已验证可用"。
-// 只出图标不出文字: 满屏"探测通过/探测失败"文字标签是大面积噪音(用户反馈"看着难受"),
-// 文字、原因、时间全部收进 tooltip, 与 MemberTestBadge 的图标口径一致。
+// 只出图标不出文字: 满屏"探测通过/探测失败"文字标签是大面积噪音, 文字/原因/时间全部收进 tooltip。
 function ProbeBadge({ member }: { member: SelectedMember }) {
     const t = useTranslations('group.card');
     if (member.probe_status !== 'dead' && member.probe_status !== 'ok') return null;
@@ -196,7 +122,6 @@ function MemberItem({
     isActive,
     group,
     now,
-    testResult,
     isRemoving,
     showConfirmDelete = true,
     layoutScope,
@@ -209,7 +134,6 @@ function MemberItem({
     isActive?: boolean;
     group?: Group; // group 提供成员当前的冷却和亲和时间。
     now: number; // now 是成员列表共享的当前 Unix 毫秒时间。
-    testResult?: GroupMemberTestResult; // 最近一次整组测试中该成员的结果, 无则不渲染徽标。
     isRemoving?: boolean;
     showConfirmDelete?: boolean;
     layoutScope?: string;
@@ -303,7 +227,6 @@ function MemberItem({
                     </span>
                 </div>
 
-                {testResult && <MemberTestBadge result={testResult} unavailable={isDisabled} />}
                 {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
 
                 {onShowProbeHistory && (
@@ -383,7 +306,6 @@ interface MemberListProps {
     activeItemId?: number;
     group?: Group; // group 提供当前模式和成员运行状态。
     now?: number; // now 是页面共享的当前 Unix 毫秒时间，仅展示运行态时需要。
-    testResults?: Record<number, GroupMemberTestResult>; // 整组测试结果按 item_id 索引, 供成员行渲染结果徽标。
     /**
      * When true, auto-scroll the list to bottom when a *new visible* member appears
      * (i.e. a new member id is added). Useful in "editor" flows. Defaults to true.
@@ -419,7 +341,6 @@ export function MemberList({
     activeItemId,
     group,
     now = 0,
-    testResults,
     autoScrollOnAdd = true,
     onDragStart,
     onDrop,
@@ -530,7 +451,6 @@ export function MemberList({
                                     isActive={member.item_id === activeItemId}
                                     group={group}
                                     now={now}
-                                    testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
                                     isRemoving={false}
                                     showConfirmDelete={showConfirmDelete}
                                     layoutScope={layoutScope}
@@ -566,7 +486,6 @@ export function MemberList({
                                                 isActive={member.item_id === activeItemId}
                                                 group={group}
                                                 now={now}
-                                                testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
                                                 isRemoving={removingIds.has(member.id)}
                                                 showConfirmDelete={showConfirmDelete}
                                                 layoutScope={layoutScope}
@@ -608,7 +527,6 @@ export function MemberList({
                                     isActive={member.item_id === activeItemId}
                                     group={group}
                                     now={now}
-                                    testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
                                     isRemoving={false}
                                     showConfirmDelete={showConfirmDelete}
                                     layoutScope={layoutScope}
@@ -642,7 +560,6 @@ export function MemberList({
                                         isActive={member.item_id === activeItemId}
                                         group={group}
                                         now={now}
-                                        testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
                                         isRemoving={false}
                                         showConfirmDelete={showConfirmDelete}
                                         layoutScope={layoutScope}

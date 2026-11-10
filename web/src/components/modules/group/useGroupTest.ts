@@ -1,110 +1,96 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useTranslations } from 'use-intl';
 import { toast } from 'sonner';
 import { create } from 'zustand';
-import { streamGroupMemberTests, type Group, type GroupMemberTestResult, type GroupTestMode } from '@/api/group';
+import {
+    applyGroupItemProbe,
+    streamGroupMemberTests,
+    type Group,
+    type GroupTestMode,
+} from '@/api/group';
 
-interface TestSnapshot {
-    signature: string;
-    mode: GroupTestMode;
-    startedAt: number;
-    finishedAt: number | null;
-    complete: boolean;
-    total: number;
-    results: Record<number, GroupMemberTestResult>;
-}
-
+// 测试即探测: 结论由后端逐条落库并随事件回报, 前端只保留"进度"这一份瞬态信息。
+//
+// 早先这里把整组结果快照写进 localStorage, 与授权上的 probe_* 形成两套持久状态——
+// 成员行因此同时挂两个徽标, 卡片头还多一行"上次检测"。合并后不再持久化任何测试结果:
+// 关掉页面再进来读到的只有探测结论, 与定时探测完全一致。
 interface TestState {
     signature: string;
-    snapshot: TestSnapshot | null;
     runningMode: GroupTestMode | null;
     controller: AbortController | null;
-    progress: { completed: number; total: number };
+    completed: number;
+    total: number;
 }
 
 const useTestStore = create<Record<number, TestState>>(() => ({}));
 
-function saveState(groupID: number, state: TestState) {
-    useTestStore.setState({ [groupID]: state });
-    if (!state.snapshot) return;
-    try {
-        localStorage.setItem(`octopus-group-test-v2-${groupID}`, JSON.stringify(state.snapshot));
-    } catch {
-        return;
-    }
-}
-
-function readSnapshot(storageKey: string, signature: string): TestSnapshot | null {
-    try {
-        const cached = JSON.parse(localStorage.getItem(storageKey) || 'null') as TestSnapshot | null;
-        if (!cached || cached.signature !== signature || cached.mode !== 'full' ||
-            typeof cached.startedAt !== 'number' || !Number.isInteger(cached.total) || cached.total < 0 || typeof cached.complete !== 'boolean' ||
-            typeof cached.results !== 'object' || !cached.results || Array.isArray(cached.results)) return null;
-        if (Object.entries(cached.results).some(([itemID, result]) => !result || result.item_id !== Number(itemID) || typeof result.success !== 'boolean')) return null;
-        return cached;
-    } catch {
-        return null;
-    }
-}
-
 export function useGroupTest(group: Group) {
     const t = useTranslations('group.card');
-    const storageKey = `octopus-group-test-v2-${group.id}`;
-    const signature = JSON.stringify([group.id, group.name, group.items.map((item) => [
-        item.id, item.channel_grant_id, item.channel_id, item.model_name, item.key_name, item.protocols, item.available,
-    ]).sort((first, second) => Number(first[0]) - Number(second[0]))]);
-    const cached = useMemo(() => readSnapshot(storageKey, signature), [storageKey, signature]);
+    // 成员签名变化(增删成员、换凭据)后上一轮进度不再有意义, 也不该继续显示。
+    const signature = JSON.stringify([
+        group.id,
+        group.items
+            .map((item) => [item.id, item.channel_grant_id])
+            .sort((first, second) => Number(first[0]) - Number(second[0])),
+    ]);
     const stored = useTestStore((state) => state[group.id]);
     const state = stored?.signature === signature ? stored : undefined;
-    const snapshot = state ? state.snapshot : cached;
     const runningMode = state?.runningMode ?? null;
-
-    useEffect(() => {
-        const active = useTestStore.getState()[group.id];
-        if (active?.signature !== signature) active?.controller?.abort();
-    }, [group.id, signature]);
+    const progress = useMemo(
+        () => ({ completed: state?.completed ?? 0, total: state?.total || group.items.length }),
+        [state?.completed, state?.total, group.items.length]
+    );
 
     const runTest = useCallback(async (mode: GroupTestMode) => {
-        const current = useTestStore.getState()[group.id];
-        if (current?.controller) return;
+        if (useTestStore.getState()[group.id]?.controller) return;
         const controller = new AbortController();
-        const previous = current?.signature === signature ? current.snapshot : readSnapshot(storageKey, signature);
-        const initialProgress = { completed: 0, total: group.items.length };
-        useTestStore.setState({ [group.id]: { signature, snapshot: previous, runningMode: mode, controller, progress: initialProgress } });
-        let started = false;
-        let next: TestSnapshot = { signature, mode, startedAt: Date.now(), finishedAt: null, complete: false, total: group.items.length, results: {} };
-        const publish = () => {
-            saveState(group.id, { signature, snapshot: next, runningMode: mode, controller, progress: { completed: Object.keys(next.results).length, total: next.total } });
-        };
+        const publish = (next: Partial<TestState>) =>
+            useTestStore.setState({
+                [group.id]: {
+                    signature,
+                    runningMode: mode,
+                    controller,
+                    completed: 0,
+                    total: group.items.length,
+                    ...next,
+                },
+            });
+        publish({});
+        let completed = 0;
+        let success = 0;
+        let timeout = 0;
         try {
-            await streamGroupMemberTests(group.id, mode, (event) => {
-                if (event.type === 'start') {
-                    started = true;
-                    next = { ...next, total: event.total };
-                }
-                if (event.type === 'result') next = { ...next, results: { ...next.results, [event.result.item_id]: event.result } };
-                publish();
-            }, controller.signal);
-            next = { ...next, complete: true, finishedAt: Date.now() };
-            const results = Object.values(next.results);
-            const success = results.filter((result) => result.success).length;
-            const timeout = results.filter((result) => result.status === 'timeout').length;
-            const summary = t('testSummary', { success, timeout, failed: results.length - success - timeout, total: next.total });
-            if (success === next.total) toast.success(summary);
+            await streamGroupMemberTests(
+                group.id,
+                mode,
+                (event) => {
+                    if (event.type === 'start') {
+                        publish({ completed: 0, total: event.total });
+                        return;
+                    }
+                    if (event.type !== 'result') return;
+                    completed++;
+                    if (event.result.success) success++;
+                    if (event.result.status === 'timeout') timeout++;
+                    // 结论直接搬进缓存: 成员行徽标与"是否排到末尾"都跟着这条事件即时变化。
+                    if (event.probe) applyGroupItemProbe(group.id, event.result.item_id, event.probe);
+                    publish({ completed });
+                },
+                controller.signal
+            );
+            const summary = t('testSummary', { success, timeout, failed: completed - success - timeout, total: completed });
+            if (success === completed) toast.success(summary);
             else toast.warning(summary);
         } catch (error) {
-            next = { ...next, finishedAt: Date.now() };
-            if (!controller.signal.aborted) toast.error(t('testFailed'), { description: error instanceof Error ? error.message : String(error) });
+            if (!controller.signal.aborted) {
+                toast.error(t('testFailed'), { description: error instanceof Error ? error.message : String(error) });
+            }
         } finally {
-            const snapshot = started ? next : previous;
-            saveState(group.id, { signature, snapshot, runningMode: null, controller: null, progress: { completed: Object.keys(snapshot?.results ?? {}).length, total: snapshot?.total ?? group.items.length } });
+            useTestStore.setState({
+                [group.id]: { signature, runningMode: null, controller: null, completed, total: group.items.length },
+            });
         }
-    }, [group.id, group.items.length, signature, storageKey, t]);
+    }, [group.id, group.items.length, signature, t]);
 
-    const results = runningMode && state?.progress.completed === 0 ? {} : snapshot?.results ?? {};
-    const completed = Object.keys(results).length;
-    const total = snapshot?.total ?? group.items.length;
-    const success = Object.values(results).filter((result) => result.success).length;
-    const timeout = Object.values(results).filter((result) => result.status === 'timeout').length;
-    return { snapshot, results, runningMode, runTest, progress: state?.progress ?? { completed, total }, success, timeout };
+    return { runningMode, progress, runTest };
 }

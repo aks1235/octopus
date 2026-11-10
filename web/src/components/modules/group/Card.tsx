@@ -56,6 +56,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
 
 export const GroupCard = memo(function GroupCard({ group, now }: { group: Group; now: number }) {
     const t = useTranslations('group');
+    const tProbe = useTranslations('group.probe');
     const updateGroup = useUpdateGroup();
     const activateItem = useUpdateGroup(); // 与配置提交分开持有: 共用一个实例会让点选成员点亮编辑弹窗的提交态。
     const saveChannelOrder = useGroupChannelOrder(); // 正则分组的拖拽排序走独立顺序端点, 不经成员整体提交。
@@ -66,7 +67,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
     const [members, setMembers] = useState<SelectedMember[]>([]);
     // 成员探测历史的弹窗状态：null 表示关闭，数字表示看哪个授权（grant）。
     const [historyGrantId, setHistoryGrantId] = useState<number | null>(null);
-    const { snapshot, results: testResults, runningMode, runTest, progress, success, timeout } = useGroupTest(group);
+    const { runningMode, runTest, progress } = useGroupTest(group);
     const isDragging = useRef(false);
 
     // 成员的名称, 所属渠道与可用性由后端随分组给出, 此处只做展示形状的转换。
@@ -99,6 +100,13 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
 
     const handleDragStart = useCallback(() => { isDragging.current = true; }, []);
     const handleDragFinish = useCallback(() => { isDragging.current = false; }, []);
+
+    // 最近一次探测时间挂在成员上, 分组层面只有"最晚那次"这一个值得看的汇总。
+    // 不做成常驻文字行——一页几十张卡片, 那就是新的噪音; 需要时悬停在测试按钮上看即可。
+    const lastProbeAt = useMemo(
+        () => group.items.reduce((latest, item) => (item.probe_at > latest ? item.probe_at : latest), 0),
+        [group.items]
+    );
 
     const isRegexGroup = group.member_regex !== '';
     const submitOrderPending = updateGroup.isPending || saveChannelOrder.isPending;
@@ -229,7 +237,13 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                         onClick={() => runTest('full')}
                         disabled={runningMode !== null || group.items.length === 0}
                         className="size-7"
-                        tip={runningMode === 'full' ? t('card.testRunning') : t('card.fullTest')}
+                        tip={
+                            runningMode === 'full'
+                                ? t('card.testRunning')
+                                : lastProbeAt > 0
+                                    ? `${t('card.fullTest')} · ${tProbe('lastRun', { time: new Date(lastProbeAt * 1000).toLocaleString() })}`
+                                    : t('card.fullTest')
+                        }
                     >
                         {runningMode === 'full' ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />}
                     </IconButton>
@@ -300,18 +314,11 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                 </AnimatePresence>
             </header>
 
-            {(snapshot || runningMode) && (
+            {/* 测试/探测共用一份结论, 这里只报进度: 结果去哪了看成员行的徽标。
+                "上次检测 N/M 已确认可用"那行已删除——它和成员行徽标说的是同一件事。 */}
+            {runningMode && (
                 <div className="text-xs text-muted-foreground px-1 mb-2" aria-live="polite">
-                    {runningMode
-                        ? t('card.quickProgress', { ...progress, success, timeout })
-                        : snapshot && <>
-                            {t('card.fullTest')}
-                            {' · '}
-                            {snapshot.complete
-                                ? t('card.lastResults', { success, total: snapshot.total, rate: snapshot.total ? Math.round(success / snapshot.total * 100) : 0, time: new Date(snapshot.finishedAt ?? snapshot.startedAt).toLocaleString() })
-                                : t('card.testIncomplete', { ...progress, time: new Date(snapshot.finishedAt ?? snapshot.startedAt).toLocaleString() })}
-                            {timeout > 0 && <> · {t('card.testTimeoutCount', { count: timeout })}</>}
-                        </>}
+                    {tProbe('running', progress)}
                 </div>
             )}
 
@@ -325,7 +332,6 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                     activeItemId={group.runtime.current_item_id}
                     group={group}
                     now={now}
-                    testResults={testResults}
                     onDragStart={handleDragStart}
                     onDrop={submitMembers}
                     onDragFinish={handleDragFinish}

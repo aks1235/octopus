@@ -439,17 +439,32 @@ func streamGroupMemberTests(c *gin.Context, group model.Group) {
 		c.Writer.Flush()
 	}
 	write(gin.H{"type": "start", "total": len(group.Items)})
-	// 逐条转发的同时留一份完整结果: onResult 由单协程回调, 追加无需加锁;
-	// 全部结束后一次落库, 避免每个成员一条 UPDATE 抢写锁。
-	results := make([]model.GroupMemberTestResult, 0, len(group.Items))
-	relay.TestGroupMembersStream(ctx, group, false, func(result model.GroupMemberTestResult) {
-		results = append(results, result)
-		write(gin.H{"type": "result", "result": result})
-	})
-	// 先落库再发 done: 前端收到 done 后重新拉分组时, 拿到的已是更新后的探测状态。
-	if err := op.GroupProbeApply(group.ID, results, model.ProbeSourceManual); err != nil {
-		log.Errorf("group %d probe apply failed: %v", group.ID, err)
+	// 成员 → 授权: 逐条落库靠它把测试结果对到授权上。
+	grantOfItem := make(map[int]int, len(group.Items))
+	for _, item := range group.Items {
+		grantOfItem[item.ID] = item.ChannelGrantID
 	}
+	// 测试即探测, 所以边测边落库: 每测完一个成员就把结论写进授权, 并把后端算好的结论随事件回报。
+	// 前端不再另存一份"本次测试结果"——那会与 probe_* 形成两套状态(成员行上两个徽标),
+	// 也会让"测完了界面还是旧的"这段窗口期一直存在。
+	relay.TestGroupMembersStream(ctx, group, false, func(result model.GroupMemberTestResult) {
+		payload := gin.H{"type": "result", "result": result}
+		if grantID := grantOfItem[result.ItemID]; grantID != 0 {
+			grant, err := op.GrantProbeApplyResult(grantID, result, model.ProbeSourceManual)
+			if err != nil {
+				log.Errorf("group %d item %d probe apply failed: %v", group.ID, result.ItemID, err)
+			} else if grant != nil {
+				// 判死窗口由后端算: 前端只读布尔, 不自己拿 probe_at 减 24 小时(两套窗口迟早分叉)。
+				payload["probe"] = gin.H{
+					"probe_status":   grant.ProbeStatus,
+					"probe_reason":   grant.ProbeReason,
+					"probe_at":       grant.ProbeAt,
+					"probe_blocking": op.GrantProbeDead(*grant, time.Now().Unix()),
+				}
+			}
+		}
+		write(payload)
+	})
 	write(gin.H{"type": "done"})
 }
 
