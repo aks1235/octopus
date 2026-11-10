@@ -149,6 +149,8 @@ function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResul
 // ProbeBadge 是持久探测结论的标签, 与"本次测试结果"徽标(MemberTestBadge)是两回事:
 // 前者来自库里的 probe_*, 关掉页面再进仍在; 后者只是本次测试的即时结果。
 // 三种状态都要可分辨: ok 绿勾、dead 红禁止、未探测不显示——"没探测"绝不能长得像"已验证可用"。
+// 只出图标不出文字: 满屏"探测通过/探测失败"文字标签是大面积噪音(用户反馈"看着难受"),
+// 文字、原因、时间全部收进 tooltip, 与 MemberTestBadge 的图标口径一致。
 function ProbeBadge({ member }: { member: SelectedMember }) {
     const t = useTranslations('group.card');
     if (member.probe_status !== 'dead' && member.probe_status !== 'ok') return null;
@@ -164,16 +166,15 @@ function ProbeBadge({ member }: { member: SelectedMember }) {
             <TooltipTrigger asChild>
                 <span
                     className={cn(
-                        'inline-flex shrink-0 items-center gap-0.5 rounded border px-1 text-[10px] leading-4',
+                        'inline-flex shrink-0',
                         dead
                             ? expired
-                                ? 'border-border/60 text-muted-foreground'
-                                : 'border-destructive/40 text-destructive'
-                            : 'border-emerald-600/40 text-emerald-600 dark:text-emerald-500'
+                                ? 'text-muted-foreground'
+                                : 'text-destructive'
+                            : 'text-emerald-600 dark:text-emerald-500'
                     )}
                 >
                     {dead ? <Ban className="size-3 shrink-0" /> : <CircleCheck className="size-3 shrink-0" />}
-                    {label}
                 </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-72 whitespace-normal break-all">
@@ -595,7 +596,8 @@ export function MemberList({
                             <Ban className="size-3 shrink-0" />
                             {t('card.probeBlocked', { count: blockedMembers.length })}
                         </div>
-                        <div className="flex flex-col space-y-1.5">
+                        {/* 整段降不透明度: 这些行当前不参与选路, 视觉重量理应低于上方可用成员。 */}
+                        <div className="flex flex-col space-y-1.5 opacity-80">
                             {blockedMembers.map((member) => (
                                 <MemberItem
                                     key={member.id}
