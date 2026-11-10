@@ -13,6 +13,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
 import { compileMemberRegex } from '@/lib/member-regex';
+import { ProbeHistoryPanel } from './ProbeHistoryPanel';
+import { ProbeHistoryDialog } from './ProbeHistoryDialog';
 import type { GroupMode, GroupRelayConfig } from '@/api/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
@@ -379,6 +381,7 @@ function RegexMemberSection({
 
 export function GroupEditor({
     initial,
+    groupId,
     submitText,
     submittingText,
     isSubmitting,
@@ -392,6 +395,7 @@ export function GroupEditor({
         member_regex?: string;
         members?: SelectedMember[];
     };
+    groupId?: number; // 编辑已有分组时给出: 有主键才能查该组的探测历史, 新建时没有。
     submitText: string;
     submittingText: string;
     isSubmitting: boolean;
@@ -419,6 +423,8 @@ export function GroupEditor({
     }));
     const [memberRegex, setMemberRegex] = useState(initial?.member_regex ?? '');
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
+    // 探测历史弹窗：null 关闭，数字表示看哪个授权（grant）。
+    const [historyGrantId, setHistoryGrantId] = useState<number | null>(null);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
     // 初始渠道顺序只在挂载时折算一次: 提交时与当前顺序比对, 有变化才走顺序端点(独立于分组更新提交)。
     const initialChannelOrder = useMemo(() => channelOrderOf(initial?.members ?? []), [initial?.members]);
@@ -569,9 +575,12 @@ export function GroupEditor({
                     </Field>
 
                     <Tabs defaultValue="members" className="flex flex-1 min-h-0">
-                        <TabsList className="grid w-full shrink-0 grid-cols-2">
+                        <TabsList className={cn('grid w-full shrink-0', groupId ? 'grid-cols-3' : 'grid-cols-2')}>
                             <TabsTrigger value="members">{t('form.members')}</TabsTrigger>
                             <TabsTrigger value="relay">{t('form.relay')}</TabsTrigger>
+                            {groupId !== undefined && (
+                                <TabsTrigger value="probe">{t('probe.tab')}</TabsTrigger>
+                            )}
                         </TabsList>
 
                         <TabsContent value="members" className="min-h-0 overflow-hidden">
@@ -743,6 +752,12 @@ export function GroupEditor({
                                 </Field>
                             </div>
                         </TabsContent>
+
+                        {groupId !== undefined && (
+                            <TabsContent value="probe" className="min-h-0 overflow-hidden px-1">
+                                <ProbeHistoryPanel groupId={groupId} onOpenMember={setHistoryGrantId} />
+                            </TabsContent>
+                        )}
                     </Tabs>
                 </FieldGroup>
             </div>
@@ -763,6 +778,15 @@ export function GroupEditor({
                     </Button>
                 </div>
             </div>
+
+            {groupId !== undefined && (
+                <ProbeHistoryDialog
+                    grantId={historyGrantId}
+                    onOpenChange={(open) => {
+                        if (!open) setHistoryGrantId(null);
+                    }}
+                />
+            )}
         </form>
     );
 }

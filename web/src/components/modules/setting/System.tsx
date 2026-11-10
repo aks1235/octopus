@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
-import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, Filter, X, Activity } from 'lucide-react';
+import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, Filter, X, Activity, History as HistoryIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -24,6 +24,7 @@ export function SettingSystem() {
     const [corsInputValue, setCorsInputValue] = useState('');
     const [modelFilter, setModelFilter] = useState('');
     const [groupProbeEnabled, setGroupProbeEnabled] = useState(false);
+    const [grantProbeKeepDays, setGrantProbeKeepDays] = useState('90');
     const [probeRunning, setProbeRunning] = useState(false);
 
     const initialProxyUrl = useRef('');
@@ -33,6 +34,7 @@ export function SettingSystem() {
     const initialCorsAllowOrigins = useRef('');
     const initialModelFilter = useRef('');
     const initialGroupProbeEnabled = useRef(false);
+    const initialGrantProbeKeepDays = useRef('');
 
     useEffect(() => {
         if (settings) {
@@ -281,6 +283,22 @@ export function SettingSystem() {
                     </Button>
                     <Switch checked={groupProbeEnabled} onCheckedChange={handleGroupProbeToggle} />
                 </div>
+            </div>
+
+            {/* 探测历史保留期: 独立于转发日志保留期, 与转发日志互不影响 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <HistoryIcon className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('grantProbeKeepDays.label')}</span>
+                </div>
+                <Input
+                    type="number"
+                    value={grantProbeKeepDays}
+                    onChange={(e) => setGrantProbeKeepDays(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.GrantProbeKeepDays, grantProbeKeepDays, initialGrantProbeKeepDays.current)}
+                    placeholder={t('grantProbeKeepDays.placeholder')}
+                    className="w-48 rounded-xl"
+                />
             </div>
 
             {/* 全局模型过滤: 渠道拉取模型列表时与渠道自身过滤表达式取 AND */}

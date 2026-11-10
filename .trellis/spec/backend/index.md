@@ -11,7 +11,7 @@
 | [api-serialization.md](./api-serialization.md) | API 序列化空值契约:Go nil 切片→JSON null,前端 API→state 边界必须 `?? []` 归一化(迁移库空值触发崩溃的防护);RequireJSON 空 body 放行但前端 mutation 须显式 `body: {}` |
 | [channel-health-reconcile.md](./channel-health-reconcile.md) | 健康检查模型对账契约:探测清单与判活分离、单凭据替换语义(保主键统计/级联预期)、三层防误删护栏、收尾与保存路径同款、SSE 事件已知边界 |
 | [backup-import.md](./backup-import.md) | 备份导入契约:身份用天然键而非主键、三策略(skip/overwrite/rename)、子表主键与 active_item_id/stats_api_key 必须重映射、按主键合并的三类事故与测试锚点 |
-| [channel-probe-health.md](./channel-probe-health.md) | 渠道探测与可用性降权契约:复用 TestGroupMembers(成员粒度/分组间串行)、判据白名单不做失败率、状态挂 grant 四列、熔断跳过+24h 过期护栏、定时探测 client_name、并发闸上移、成员列表折叠与 item_id 下标 |
+| [channel-probe-health.md](./channel-probe-health.md) | 渠道探测与可用性降权契约:复用 TestGroupMembers(成员粒度/分组间串行)、判据白名单不做失败率、状态挂 grant 四列、熔断跳过+24h 过期护栏、定时探测 client_name、探测历史表与 90 天保留期、并发闸上移、成员列表折叠与 item_id 下标 |
 | [database-guidelines.md](./database-guidelines.md) | 数据库层规范 |
 | [directory-structure.md](./directory-structure.md) | 目录结构规范 |
 | [error-handling.md](./error-handling.md) | 错误处理规范 |

@@ -194,6 +194,11 @@
             "busy": "A round is already running, try later",
             "failed": "Failed to start probe"
         },
+        "grantProbeKeepDays": {
+            "label": "Probe history retention (days)",
+            "placeholder": "0 keeps forever"
+        },
+
         "backup": {
             "title": "Backup / Restore",
             "export": {
@@ -418,6 +423,21 @@
                 "save": "Save",
                 "confirmDelete": "Confirm Delete"
             }
+        },
+        "probe": {
+            "tab": "Probe history",
+            "open": "View probe history",
+            "title": "Probe history",
+            "window": "Last {days} days",
+            "loading": "Loading",
+            "okCount": "{count} passed",
+            "failedCount": "{count} failed",
+            "lastAt": "last {time}",
+            "empty": "No probes in this window",
+            "sourceManual": "manual test",
+            "sourceScheduled": "scheduled probe",
+            "summaryHint": "Most failures first; click a row for details",
+            "summaryEmpty": "No probe records yet — run a test or enable the scheduler"
         },
         "form": {
             "name": "Group Name",

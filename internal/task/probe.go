@@ -91,6 +91,15 @@ func RunGroupProbeRoundAsync() bool {
 
 // runGroupProbeRoundBody 是真正的一轮探测, 调用方必须已持有 probeRoundRunning。
 func runGroupProbeRoundBody() int {
+	// 保留期清理挂在写入方一侧: 不写就没必要清, 也不必另立定时任务。
+	if keepDays, err := op.SettingGetInt(model.SettingKeyGrantProbeKeepDays); err == nil {
+		if pruned, err := op.GrantProbePrune(keepDays); err != nil {
+			log.Warnf("grant probe history prune failed: %v", err)
+		} else if pruned > 0 {
+			log.Infof("grant probe history pruned: %d rows", pruned)
+		}
+	}
+
 	handled := 0
 	for _, group := range op.GroupList() {
 		if len(group.Items) == 0 {
@@ -109,7 +118,7 @@ func runGroupProbeRoundBody() int {
 		relay.GroupTestRelease(group.ID)
 
 		// 先释放闸再落库: 落库是写操作, 不该挡住用户手动点测试。
-		if err := op.GroupProbeApply(group.ID, results); err != nil {
+		if err := op.GroupProbeApply(group.ID, results, model.ProbeSourceScheduled); err != nil {
 			log.Errorf("group %d probe apply failed: %v", group.ID, err)
 		}
 		handled++

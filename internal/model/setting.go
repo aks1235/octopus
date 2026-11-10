@@ -21,6 +21,7 @@ const (
 	SettingKeyRelayLogKeepPeriod      SettingKey = "relay_log_keep_period"      // 历史日志保留天数, 超期由周期任务清理
 	SettingKeyModelFilter             SettingKey = "model_filter"               // 渠道拉取模型列表时的全局过滤正则; 留空表示不过滤
 	SettingKeyGroupProbeEnabled       SettingKey = "group_probe_enabled"        // 是否定时探测分组成员可用性(6-12 小时随机一轮); 默认关闭
+	SettingKeyGrantProbeKeepDays      SettingKey = "grant_probe_keep_days"      // 探测历史保留天数, 0 表示不清理; 与转发日志保留期互不影响
 )
 
 type Setting struct {
@@ -40,6 +41,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},       // 默认日志保存7天
 		{Key: SettingKeyModelFilter, Value: ""},               // 默认不过滤模型
 		{Key: SettingKeyGroupProbeEnabled, Value: "false"},    // 默认不自动探测: 探测会产生真实上游请求与配额消耗, 由人工开启
+		{Key: SettingKeyGrantProbeKeepDays, Value: "90"},      // 探测历史默认留 90 天: 体量极小, 保留三个月的对比窗口更有用
 	}
 }
 
@@ -77,6 +79,15 @@ func (s *Setting) Validate() error {
 	case SettingKeyGroupProbeEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("group probe enabled must be true or false")
+		}
+		return nil
+	case SettingKeyGrantProbeKeepDays:
+		days, err := strconv.Atoi(s.Value)
+		if err != nil {
+			return fmt.Errorf("grant probe keep days must be an integer")
+		}
+		if days < 0 {
+			return fmt.Errorf("grant probe keep days must not be negative")
 		}
 		return nil
 	case SettingKeyModelFilter:

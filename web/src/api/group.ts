@@ -291,3 +291,60 @@ export function useResetGroupCooldown() {
 export async function runGroupProbe(): Promise<{ started: boolean }> {
     return apiRequest<{ started: boolean }>('/api/v1/group/probe/run', { method: 'POST', body: {} });
 }
+
+// GrantProbeRecord 是一次真实探测的审计行，用于回看历史。
+export interface GrantProbeRecord {
+    id: number;
+    grant_id: number;
+    at: number; // 探测完成时间（unix 秒）
+    success: boolean;
+    reason: string; // 失败原因摘要，成功为空
+    use_time: number; // 毫秒
+    protocol: number; // 成功命中的协议位，失败为 0
+    source: string; // manual / scheduled
+}
+
+// GrantProbeTimeline 是单个成员的探测历史：汇总 + 明细（时间倒序）。
+export interface GrantProbeTimeline {
+    grant_id: number;
+    channel_name: string;
+    model_name: string;
+    key_name: string;
+    ok: number;
+    failed: number;
+    last_at: number;
+    last_error: string;
+    records: GrantProbeRecord[];
+}
+
+// GrantProbeMemberSummary 是分组历史里的一行：该成员在窗口内的成败与最近失败原因。
+export interface GrantProbeMemberSummary {
+    grant_id: number;
+    channel_name: string;
+    model_name: string;
+    key_name: string;
+    ok: number;
+    failed: number;
+    last_at: number;
+    last_error: string;
+}
+
+// useGrantProbeTimeline 拉取单个成员的探测历史；grantId 为空（未选中）时不请求。
+export function useGrantProbeTimeline(grantId: number | null, days = 90) {
+    return useQuery({
+        queryKey: ['group-probe-history', grantId, days],
+        enabled: grantId != null && grantId > 0,
+        queryFn: () => apiRequest<GrantProbeTimeline>(`/api/v1/group/probe/history/${grantId}?days=${days}`),
+        staleTime: 30_000,
+    });
+}
+
+// useGroupProbeSummary 拉取分组内各成员的探测汇总；面板未展开时不请求。
+export function useGroupProbeSummary(groupId: number, days = 30, enabled = true) {
+    return useQuery({
+        queryKey: ['group-probe-summary', groupId, days],
+        enabled: enabled && groupId > 0,
+        queryFn: () => apiRequest<GrantProbeMemberSummary[]>(`/api/v1/group/probe/summary/${groupId}?days=${days}`),
+        staleTime: 30_000,
+    });
+}

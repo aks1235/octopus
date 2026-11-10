@@ -77,6 +77,14 @@ func init() {
 				Handle(runGroupProbe),
 		).
 		AddRoute(
+			router.NewRoute("/probe/history/:grant_id", http.MethodGet).
+				Handle(getGrantProbeHistory),
+		).
+		AddRoute(
+			router.NewRoute("/probe/summary/:id", http.MethodGet).
+				Handle(getGroupProbeSummary),
+		).
+		AddRoute(
 			router.NewRoute("/cooldown-reset/:id", http.MethodPost).
 				Handle(resetGroupCooldown),
 		)
@@ -378,7 +386,7 @@ func testGroupMembers(c *gin.Context) {
 	results := relay.TestGroupMembers(c.Request.Context(), group)
 	// 测试即探测: 结论落到各成员引用的授权上, 界面与选路跳过由此共用同一份状态。
 	// 落库失败只记日志不影响测试结果返回——用户要的是连通性结论, 状态持久化是附带收益。
-	if err := op.GroupProbeApply(id, results); err != nil {
+	if err := op.GroupProbeApply(id, results, model.ProbeSourceManual); err != nil {
 		log.Errorf("group %d probe apply failed: %v", id, err)
 	}
 	resp.Success(c, results)
@@ -439,7 +447,7 @@ func streamGroupMemberTests(c *gin.Context, group model.Group) {
 		write(gin.H{"type": "result", "result": result})
 	})
 	// 先落库再发 done: 前端收到 done 后重新拉分组时, 拿到的已是更新后的探测状态。
-	if err := op.GroupProbeApply(group.ID, results); err != nil {
+	if err := op.GroupProbeApply(group.ID, results, model.ProbeSourceManual); err != nil {
 		log.Errorf("group %d probe apply failed: %v", group.ID, err)
 	}
 	write(gin.H{"type": "done"})
@@ -451,6 +459,56 @@ func streamGroupMemberTests(c *gin.Context, group model.Group) {
 func runGroupProbe(c *gin.Context) {
 	started := task.RunGroupProbeRoundAsync()
 	resp.Success(c, gin.H{"started": started})
+}
+
+// probeHistoryDays 解析窗口天数, 缺省用 fallback, 上限一年(再长也没有意义: 探测是稀疏采样)。
+func probeHistoryDays(c *gin.Context, fallback int) int {
+	raw := strings.TrimSpace(c.Query("days"))
+	if raw == "" {
+		return fallback
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil || days <= 0 {
+		return fallback
+	}
+	if days > 365 {
+		return 365
+	}
+	return days
+}
+
+// getGrantProbeHistory 返回单个成员的探测历史: 窗口内成败汇总 + 明细(时间倒序)。
+func getGrantProbeHistory(c *gin.Context) {
+	grantID, err := strconv.Atoi(c.Param("grant_id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	timeline, err := op.GrantProbeTimeline(grantID, probeHistoryDays(c, 90))
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, timeline)
+}
+
+// getGroupProbeSummary 返回分组内各成员在窗口内的探测汇总, 失败次数多的排前面。
+func getGroupProbeSummary(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := op.GroupGet(id); err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	rows, err := op.GrantProbeGroupSummary(id, probeHistoryDays(c, 30))
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, rows)
 }
 
 // resetGroupCooldown 清空分组的全部成员冷却与连续冷却计数。

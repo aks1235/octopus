@@ -115,7 +115,22 @@ one-api（`monitor/channel.go`）与 new-api（`model/ability.go`、`model/cache
 - **单组超时** 10 分钟（`probeRoundTimeout`）：成员多且全失败时避免一轮挂死在某组上。
 - 手动触发端点与定时探测**共用同一把闸**，见契约七。
 
-## 契约六：日志与统计口径
+## 契约六：探测历史（`grant_probe_records`）
+
+**What**：每次落库结论时同事务外写一行历史：`grant_id / at / success / reason / use_time / protocol / source`（`source` = `manual` / `scheduled`）。保留期由设置项 `grant_probe_keep_days`（默认 90，0 表示不清理）控制，清理挂在探测轮开头——不写就没必要清，也不必另立定时任务。
+
+**Why**：`channel_grants.probe_*` 只存最新结论，每次覆盖；用户要的是"这一周它挂过几次"。转发日志里其实有原始记录，但它受 `relay_log_keep_period`（默认 7 天）约束，**回看一周正好卡在清理边界**，且无法按探测来源筛选。专表的保留期与前两者解耦。
+
+**边界**：
+- **历史写失败只告警，不回滚结论**：成员判死/恢复是选路要用的强一致数据，历史是审计数据，丢一条不该让结论失效。
+- 不可用（渠道/凭据被禁用）与取消的成员**不写历史**——它们根本没发上游请求。
+- 一行 = 一次探测。同一 grant 在多个分组里时，每轮会被测多次，就记多行；这是事实，不做跨组去重。
+- 分组汇总只含该分组**当前持有**的成员；成员被移出后历史仍在表里，但不再出现在该组视图。
+- **不做趋势折线图**：6–12 小时一轮，一个成员一周只有 14–28 个点，曲线是插值幻觉。只做"事件列表 + 窗口内成败计数"。
+- 查询接口：`GET /api/v1/group/probe/history/:grant_id?days=90`（单成员时间线）、`GET /api/v1/group/probe/summary/:id?days=30`（分组内按成员汇总，失败多的在前）。
+- 界面入口：成员行「历史」按钮（弹窗）+ 分组编辑页第三个标签页「探测历史」（汇总表，点行看明细）。
+
+## 契约七：日志与统计口径
 
 **What**：探测写 `relay_logs`，`client_name` 用新常量 **`定时探测`**（已有 `面板测试`、`分组测试`）。
 
@@ -126,7 +141,7 @@ one-api（`monitor/channel.go`）与 new-api（`model/ability.go`、`model/cache
 - 任何「按渠道聚合成功率」的查询必须排除三个测试 `client_name`，否则探测日志会稀释失败率。
 - 探测日志同样受 `relay_log_keep_period`（默认 7 天）清理，历史明细不可长期依赖。
 
-## 契约七：并发闸必须共用
+## 契约八：并发闸必须共用
 
 **What**：闸已从 `internal/server/handlers/group.go` 的私有 `groupTests` 上移到 `internal/relay/group_test_lock.go`，导出 `relay.GroupTestAcquire(id)` / `relay.GroupTestRelease(id)`。手动测试（非流式 / 流式）与定时探测（`internal/task/probe.go`）共用同一把闸。
 

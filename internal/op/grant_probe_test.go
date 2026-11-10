@@ -104,7 +104,7 @@ func TestGroupProbeApply_verdicts(t *testing.T) {
 	if err := GroupProbeApply(1, []model.GroupMemberTestResult{
 		{ItemID: 1, Status: "unavailable", Error: "channel disabled"},
 		{ItemID: 1, Status: "canceled", Error: "context canceled"},
-	}); err != nil {
+	}, model.ProbeSourceManual); err != nil {
 		t.Fatalf("apply unavailable/canceled: %v", err)
 	}
 	if got := probeGrantFromDB(t); got.ProbeAt != 0 || got.ProbeStatus != ProbeStatusUnknown {
@@ -114,7 +114,7 @@ func TestGroupProbeApply_verdicts(t *testing.T) {
 	// 抖动第一次: 只记录原因与时间, 不定性(既不绿也不死)。
 	if err := GroupProbeApply(1, []model.GroupMemberTestResult{
 		{ItemID: 1, Status: "failed", Error: "upstream responded 502 Bad Gateway"},
-	}); err != nil {
+	}, model.ProbeSourceManual); err != nil {
 		t.Fatalf("apply 502: %v", err)
 	}
 	got := probeGrantFromDB(t)
@@ -126,7 +126,7 @@ func TestGroupProbeApply_verdicts(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		if err := GroupProbeApply(1, []model.GroupMemberTestResult{
 			{ItemID: 1, Status: "timeout", Error: "upstream stream first event timeout"},
-		}); err != nil {
+		}, model.ProbeSourceManual); err != nil {
 			t.Fatalf("apply timeout: %v", err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestGroupProbeApply_verdicts(t *testing.T) {
 	// 成功即回到 ok 并清零, 原因清空。
 	if err := GroupProbeApply(1, []model.GroupMemberTestResult{
 		{ItemID: 1, Status: "passed", Success: true},
-	}); err != nil {
+	}, model.ProbeSourceManual); err != nil {
 		t.Fatalf("apply success: %v", err)
 	}
 	got = probeGrantFromDB(t)
@@ -148,7 +148,7 @@ func TestGroupProbeApply_verdicts(t *testing.T) {
 	// 确定性错误一次即判死, 且与已有的 ok 无关。
 	if err := GroupProbeApply(1, []model.GroupMemberTestResult{
 		{ItemID: 1, Status: "failed", Error: `upstream responded 410 Gone: The model 'm1' does not exist`},
-	}); err != nil {
+	}, model.ProbeSourceManual); err != nil {
 		t.Fatalf("apply fatal: %v", err)
 	}
 	got = probeGrantFromDB(t)
@@ -170,7 +170,7 @@ func TestGroupProbeApply_ignoresUnknownItem(t *testing.T) {
 	// 成员已被移除(测试进行中移除)时结果仍会回来, 不得为此报错或错误归因到别的授权。
 	if err := GroupProbeApply(1, []model.GroupMemberTestResult{
 		{ItemID: 999, Status: "failed", Error: "upstream responded 410 Gone"},
-	}); err != nil {
+	}, model.ProbeSourceManual); err != nil {
 		t.Fatalf("apply unknown item: %v", err)
 	}
 	if got := probeGrantFromDB(t); got.ProbeAt != 0 {

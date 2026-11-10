@@ -139,15 +139,15 @@ func GrantProbeDead(grant model.ChannelGrant, now int64) bool {
 	return now-grant.ProbeAt <= ProbeDeadTTLSeconds
 }
 
-// GroupProbeApply 把一次分组探测的结果落到各成员引用的授权上。
+// GroupProbeApply 把一次分组探测的结果落到各成员引用的授权上, 并逐条写一条历史记录。
 //
 // 结论只写授权的 probe_* 四列, 不改渠道与凭据的启停、不改分组成员、不触发授权对账:
 // 探测是旁路观测, 唯一的下游影响是选路时跳过已判死的成员(见 relay 层), 24 小时未再探测即自动失效。
 //
-// 不作为探测结论的情形(直接跳过, 保持原状态):
+// 不作为探测结论的情形(直接跳过, 保持原状态, 也不留历史):
 //   - 成员不可用(渠道或凭据被禁用): 根本没发上游请求, 结果里的失败只是本地解析结论;
 //   - 请求被取消: 客户端断开或本轮中断, 不代表上游状态。
-func GroupProbeApply(groupID int, results []model.GroupMemberTestResult) error {
+func GroupProbeApply(groupID int, results []model.GroupMemberTestResult, source string) error {
 	if len(results) == 0 {
 		return nil
 	}
@@ -162,6 +162,7 @@ func GroupProbeApply(groupID int, results []model.GroupMemberTestResult) error {
 
 	now := time.Now().Unix()
 	applied := 0
+	records := make([]model.GrantProbeRecord, 0, len(results))
 	for _, result := range results {
 		if result.Status == "unavailable" || result.Status == "canceled" {
 			continue
@@ -204,10 +205,73 @@ func GroupProbeApply(groupID int, results []model.GroupMemberTestResult) error {
 
 		grant.ProbeStatus, grant.ProbeReason, grant.ProbeAt, grant.ProbeFailCount = probeStatus, probeReason, now, failCount
 		channelGrantCache.Set(grant.ID, grant)
+		records = append(records, model.GrantProbeRecord{
+			GrantID:  grantID,
+			At:       now,
+			Success:  result.Success,
+			Reason:   probeReason,
+			UseTime:  result.UseTime,
+			Protocol: int(result.Protocol),
+			Source:   source,
+		})
 		applied++
+	}
+	// 历史与结论分开落库: 结论是选路要用的强一致数据, 历史是审计数据。
+	// 历史写失败只告警不回滚——丢了这一条不该让"成员判死/恢复"这个更要紧的结论一起失效。
+	if len(records) > 0 {
+		if err := db.GetDB().CreateInBatches(records, 100).Error; err != nil {
+			log.Warnf("group %d probe history write failed: %v", groupID, err)
+		}
 	}
 	if applied > 0 {
 		log.Debugf("group %d probe applied to %d grants", groupID, applied)
 	}
 	return nil
+}
+
+// GrantProbePrune 按保留期清理历史, 返回删除行数。
+// keepDays <= 0 表示不清理(与转发日志 keep_period 的语义一致)。
+func GrantProbePrune(keepDays int) (int64, error) {
+	if keepDays <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().AddDate(0, 0, -keepDays).Unix()
+	result := db.GetDB().Where("at < ?", cutoff).Delete(&model.GrantProbeRecord{})
+	return result.RowsAffected, result.Error
+}
+
+// GrantProbeTimeline 返回单个成员在窗口内的探测历史: 汇总 + 明细(时间倒序)。
+// days <= 0 表示不限时间窗。
+func GrantProbeTimeline(grantID int, days int) (model.GrantProbeTimeline, error) {
+	query := db.GetDB().Where("grant_id = ?", grantID)
+	if days > 0 {
+		query = query.Where("at >= ?", time.Now().AddDate(0, 0, -days).Unix())
+	}
+	var records []model.GrantProbeRecord
+	if err := query.Order("at DESC, id DESC").Limit(500).Find(&records).Error; err != nil {
+		return model.GrantProbeTimeline{}, err
+	}
+	timeline := model.GrantProbeTimeline{GrantID: grantID, Records: records}
+	// 名称取授权当前指向的实体: 历史行只存主键, 渠道/模型/凭据改名后按现状展示。
+	if grant, err := ChannelGrantGet(grantID); err == nil && grant.ChannelModel != nil && grant.ChannelKey != nil {
+		timeline.ModelName = grant.ChannelModel.Name
+		timeline.KeyName = grant.ChannelKey.Name
+		if channel, err := ChannelGet(grant.ChannelModel.ChannelID); err == nil {
+			timeline.ChannelName = channel.Name
+		}
+	}
+	for _, record := range records {
+		if record.Success {
+			timeline.OK++
+			continue
+		}
+		timeline.Failed++
+		if timeline.LastError == "" {
+			timeline.LastError = record.Reason
+		}
+	}
+	if len(records) > 0 {
+		timeline.LastAt = records[0].At
+	}
+	return timeline, nil
 }

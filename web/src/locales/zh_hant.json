@@ -194,6 +194,11 @@
             "busy": "已有一輪在跑，請稍後",
             "failed": "觸發探測失敗"
         },
+        "grantProbeKeepDays": {
+            "label": "探測歷史保留（天）",
+            "placeholder": "0 表示不清理"
+        },
+
         "backup": {
             "title": "備份 / 復原",
             "export": {
@@ -418,6 +423,21 @@
                 "save": "儲存",
                 "confirmDelete": "確認刪除"
             }
+        },
+        "probe": {
+            "tab": "探測歷史",
+            "open": "查看探測歷史",
+            "title": "探測歷史",
+            "window": "最近 {days} 天",
+            "loading": "載入中",
+            "okCount": "成功 {count} 次",
+            "failedCount": "失敗 {count} 次",
+            "lastAt": "最近 {time}",
+            "empty": "這段時間沒有探測記錄",
+            "sourceManual": "人工測試",
+            "sourceScheduled": "定時探測",
+            "summaryHint": "失敗次數多的排前面，點一行看明細",
+            "summaryEmpty": "還沒有探測記錄，先跑一輪測試或開啟定時探測"
         },
         "form": {
             "name": "分組名稱",

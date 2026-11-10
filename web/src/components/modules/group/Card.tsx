@@ -12,6 +12,7 @@ import { MemberList } from './ItemList';
 import { GroupEditor, type GroupEditorValues } from './Editor';
 import { channelOrderOf } from './utils';
 import { useGroupTest } from './useGroupTest';
+import { ProbeHistoryDialog } from './ProbeHistoryDialog';
 import {
     MorphingDialog,
     MorphingDialogContainer,
@@ -35,6 +36,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
         <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
             <GroupEditor
                 key={`edit-group-${group.id}`}
+                groupId={group.id}
                 initial={{
                     name: group.name,
                     mode: group.mode,
@@ -62,6 +64,8 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
 
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [members, setMembers] = useState<SelectedMember[]>([]);
+    // 成员探测历史的弹窗状态：null 表示关闭，数字表示看哪个授权（grant）。
+    const [historyGrantId, setHistoryGrantId] = useState<number | null>(null);
     const { snapshot, results: testResults, runningMode, runTest, progress, success, timeout } = useGroupTest(group);
     const isDragging = useRef(false);
 
@@ -316,6 +320,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                     onReorder={setMembers}
                     onRemove={isRegexGroup ? undefined : handleRemoveMember}
                     onActivate={group.mode === 'manual' ? handleActivate : undefined}
+                    onShowProbeHistory={setHistoryGrantId}
                     activeItemId={group.runtime.current_item_id}
                     group={group}
                     now={now}
@@ -327,6 +332,13 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                     layoutScope={`card-${group.id}`}
                 />
             </section>
+
+            <ProbeHistoryDialog
+                grantId={historyGrantId}
+                onOpenChange={(open) => {
+                    if (!open) setHistoryGrantId(null);
+                }}
+            />
         </article >
     );
 });

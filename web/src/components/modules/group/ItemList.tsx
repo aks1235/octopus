@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2, CircleCheck, CircleX, Ban, Clock3 } from 'lucide-react';
+import { Layers, GripVertical, X, Trash2, CircleCheck, CircleX, Ban, Clock3, History } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -190,6 +190,7 @@ function MemberItem({
     member,
     onRemove,
     onActivate,
+    onShowProbeHistory,
     isActive,
     group,
     now,
@@ -202,6 +203,7 @@ function MemberItem({
     member: SelectedMember;
     onRemove?: (id: string) => void;
     onActivate?: (itemId: number) => void;
+    onShowProbeHistory?: (grantId: number) => void; // 缺省时不渲染历史按钮
     isActive?: boolean;
     group?: Group; // group 提供成员当前的冷却和亲和时间。
     now: number; // now 是成员列表共享的当前 Unix 毫秒时间。
@@ -214,6 +216,7 @@ function MemberItem({
     const { Icon, className: iconClassName } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isDisabled = member.enabled === false;
+    const tProbe = useTranslations('group.probe');
 
     return (
         <div
@@ -290,6 +293,21 @@ function MemberItem({
                 {testResult && <MemberTestBadge result={testResult} unavailable={isDisabled} />}
                 {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
 
+                {onShowProbeHistory && (
+                    <button
+                        type="button"
+                        title={tProbe('open')}
+                        onClick={(event) => {
+                            // 阻止冒泡: 整行点击是"设为活动项", 看历史不该顺带改路由。
+                            event.stopPropagation();
+                            onShowProbeHistory(member.channel_grant_id);
+                        }}
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                        <History className="size-3" />
+                    </button>
+                )}
+
                 {onRemove && (!showConfirmDelete || !confirmDelete) && (
                     <motion.button
                         layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
@@ -348,6 +366,7 @@ interface MemberListProps {
     onReorder: (members: SelectedMember[]) => void;
     onRemove?: (id: string) => void; // 缺省时成员行不渲染删除按钮（正则分组成员集合只读）。
     onActivate?: (itemId: number) => void;
+    onShowProbeHistory?: (grantId: number) => void; // 缺省时成员行不渲染"探测历史"按钮。
     activeItemId?: number;
     group?: Group; // group 提供当前模式和成员运行状态。
     now?: number; // now 是页面共享的当前 Unix 毫秒时间，仅展示运行态时需要。
@@ -383,6 +402,7 @@ export function MemberList({
     onReorder,
     onRemove,
     onActivate,
+    onShowProbeHistory,
     activeItemId,
     group,
     now = 0,
@@ -487,6 +507,7 @@ export function MemberList({
                                     member={member}
                                     onRemove={onRemove}
                                     onActivate={onActivate}
+                                    onShowProbeHistory={onShowProbeHistory}
                                     isActive={member.item_id === activeItemId}
                                     group={group}
                                     now={now}
@@ -522,6 +543,7 @@ export function MemberList({
                                                 member={member}
                                                 onRemove={onRemove}
                                                 onActivate={onActivate}
+                                                onShowProbeHistory={onShowProbeHistory}
                                                 isActive={member.item_id === activeItemId}
                                                 group={group}
                                                 now={now}
@@ -564,6 +586,7 @@ export function MemberList({
                                         member={member}
                                         onRemove={onRemove}
                                         onActivate={onActivate}
+                                        onShowProbeHistory={onShowProbeHistory}
                                         isActive={member.item_id === activeItemId}
                                         group={group}
                                         now={now}
