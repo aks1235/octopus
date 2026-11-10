@@ -102,6 +102,8 @@ func runGroupProbeRoundBody() int {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), probeRoundTimeout)
+		// 来源标识钉成"定时探测": 与人工点"测试全部成员"在转发日志里可区分, 统计排除也覆盖得到。
+		ctx = relay.WithProbeClientName(ctx)
 		results := relay.TestGroupMembers(ctx, group)
 		cancel()
 		relay.GroupTestRelease(group.ID)

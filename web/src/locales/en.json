@@ -396,6 +396,8 @@
             "testUnavailableReason": "Unavailable: {reason}",
             "testUnavailable": "Unavailable",
             "probeDead": "Probe failed",
+            "probeOk": "Probe passed",
+            "probeExpired": "verdict expired, no longer skipped",
             "probeDeadTime": "probed {time}",
             "disabledMembers": "{count} disabled members",
             "collapseDisabled": "Collapse disabled members",

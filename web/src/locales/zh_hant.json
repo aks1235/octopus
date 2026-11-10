@@ -396,6 +396,8 @@
             "testUnavailableReason": "不可用：{reason}",
             "testUnavailable": "不可用",
             "probeDead": "探測失敗",
+            "probeOk": "探測通過",
+            "probeExpired": "結論已過期，選路不再跳過",
             "probeDeadTime": "探測時間 {time}",
             "disabledMembers": "已禁用成員 {count} 個",
             "collapseDisabled": "收起已禁用成員",

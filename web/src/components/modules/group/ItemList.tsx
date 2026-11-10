@@ -143,23 +143,42 @@ function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResul
     );
 }
 
-// ProbeBadge 探测结论徽标。
-// 只标"已判死", 不标"通过": 未探测过的成员占多数, 一旦用绿色表示通过, 界面上"没探测"与"已验证可用"就会被混为一谈。
-function ProbeBadge({ member }: { member: SelectedMember }) {
+// probeDeadTtl 判死结论的选路有效期, 与后端 op.ProbeDeadTTLSeconds 同值。
+// 超过它结论仍在库里(界面照旧展示), 但选路不再跳过, 因此标签要弱化成"已过期"。
+const probeDeadTtl = 24 * 60 * 60 * 1000;
+
+// ProbeBadge 是持久探测结论的标签, 与"本次测试结果"徽标(MemberTestBadge)是两回事:
+// 前者来自库里的 probe_*, 关掉页面再进仍在; 后者只是本次测试的即时结果。
+// 三种状态都要可分辨: ok 绿勾、dead 红禁止、未探测不显示——"没探测"绝不能长得像"已验证可用"。
+function ProbeBadge({ member, now }: { member: SelectedMember; now: number }) {
     const t = useTranslations('group.card');
-    if (member.probe_status !== 'dead') return null;
-    const time = member.probe_at ? new Date(member.probe_at * 1000).toLocaleString() : '';
+    if (member.probe_status !== 'dead' && member.probe_status !== 'ok') return null;
+    const dead = member.probe_status === 'dead';
+    const at = (member.probe_at ?? 0) * 1000;
+    const expired = dead && at > 0 && now > 0 && now - at > probeDeadTtl;
+    const time = at ? new Date(at).toLocaleString() : '';
+    const label = dead ? t('probeDead') : t('probeOk');
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
-                    <Ban className="size-3.5 shrink-0" />
-                    {t('probeDead')}
+                <span
+                    className={cn(
+                        'inline-flex shrink-0 items-center gap-0.5 rounded border px-1 text-[10px] leading-4',
+                        dead
+                            ? expired
+                                ? 'border-border/60 text-muted-foreground'
+                                : 'border-destructive/40 text-destructive'
+                            : 'border-emerald-600/40 text-emerald-600 dark:text-emerald-500'
+                    )}
+                >
+                    {dead ? <Ban className="size-3 shrink-0" /> : <CircleCheck className="size-3 shrink-0" />}
+                    {label}
                 </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-72 whitespace-normal break-all">
-                {member.probe_reason || t('probeDead')}
+                {dead ? member.probe_reason || label : label}
                 {time ? ` · ${t('probeDeadTime', { time })}` : ''}
+                {expired ? ` · ${t('probeExpired')}` : ''}
             </TooltipContent>
         </Tooltip>
     );
@@ -247,26 +266,28 @@ function MemberItem({
                 </span>
 
                 <div className="flex flex-col min-w-0 flex-1">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span className={cn(
-                                'w-fit max-w-full text-sm font-medium truncate leading-tight',
-                                isDisabled && 'text-muted-foreground'
-                            )}>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span className={cn(
+                                    'w-fit max-w-full text-sm font-medium truncate leading-tight',
+                                    isDisabled && 'text-muted-foreground'
+                                )}>
+                                    {member.name}
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent key={member.name} side="top" sideOffset={10} align="center">
                                 {member.name}
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent key={member.name} side="top" sideOffset={10} align="center">
-                            {member.name}
-                        </TooltipContent>
-                    </Tooltip>
+                            </TooltipContent>
+                        </Tooltip>
+                        <ProbeBadge member={member} now={now} />
+                    </span>
                     <span className="text-[10px] text-muted-foreground truncate leading-tight">
                         {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
                     </span>
                 </div>
 
                 {testResult && <MemberTestBadge result={testResult} unavailable={isDisabled} />}
-                <ProbeBadge member={member} />
                 {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
 
                 {onRemove && (!showConfirmDelete || !confirmDelete) && (

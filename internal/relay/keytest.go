@@ -38,6 +38,34 @@ const keyTestUserAgent = "octopus-key-test"
 // 与渠道面板测试、真实转发在 client_name 与 user_agent 两个维度均可区分。
 const groupTestClientName = "分组测试"
 
+// ProbeClientName / ProbeUserAgent 定时探测的固定标识: 与人工"分组测试"区分开,
+// 否则日志里分不出这条请求是人点的还是定时跑出来的, 统计排除也会漏掉一类。
+const (
+	ProbeClientName = "定时探测"
+	ProbeUserAgent  = "octopus-probe"
+)
+
+// testClientNameKey 把日志来源标识经 ctx 传给各成员测试, 避免为它改动一串函数签名。
+type testClientNameKey struct{}
+
+// withTestClientName 给本轮测试指定日志来源标识; 未指定时按人工"分组测试"记。
+func withTestClientName(ctx context.Context, clientName, userAgent string) context.Context {
+	return context.WithValue(ctx, testClientNameKey{}, [2]string{clientName, userAgent})
+}
+
+// WithProbeClientName 把本轮成员测试的日志来源标识标成"定时探测"(供 task 侧调用)。
+func WithProbeClientName(ctx context.Context) context.Context {
+	return withTestClientName(ctx, ProbeClientName, ProbeUserAgent)
+}
+
+// testClientNameOf 取本轮测试的日志来源标识。
+func testClientNameOf(ctx context.Context) (string, string) {
+	if pair, ok := ctx.Value(testClientNameKey{}).([2]string); ok && pair[0] != "" {
+		return pair[0], pair[1]
+	}
+	return groupTestClientName, groupTestUserAgent
+}
+
 const groupTestUserAgent = "octopus-group-test"
 
 // groupTestConcurrency 分组成员测试的并发上限: 成员常跨渠道, 串行会让慢渠道拖住整组
@@ -379,7 +407,8 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			result.Status = "timeout"
 		}
-		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, groupTestClientName, groupTestUserAgent, nil, "", "", 0)
+		clientName, userAgent := testClientNameOf(ctx)
+		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, nil, "", "", 0)
 		return result
 	}
 
@@ -401,7 +430,8 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 		result.Status = "passed"
 		result.CooldownCleared = clearMemberCooldown(group.ID, item.ID)
 	}
-	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, groupTestClientName, groupTestUserAgent, attempts, requestContent, responseContent, result.UseTime)
+	clientName, userAgent := testClientNameOf(ctx)
+	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, attempts, requestContent, responseContent, result.UseTime)
 	return result
 }
 
