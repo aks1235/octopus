@@ -250,15 +250,29 @@ func scanGroupItems(items []model.GroupItem, route *RouteState, now int64, start
 
 // selectableGroupItems 返回分组内当前可选路的成员, 保持原有优先级顺序。
 // 可选与界面 Available 同口径: ChannelGrantGet 能取得授权, 即渠道与凭据均启用且授权两侧均在。
-// 转发每轮重读分组后调用, 只查内存缓存, 不引入新的缓存副本。
+// 在此之上再剔除"已判死且结论未过期"的成员(探测熔断): 它们要么确定性失败、要么连续抖动,
+// 每轮都先撞一次只会白等一个超时。转发每轮重读分组后调用, 只查内存缓存, 不引入新的缓存副本。
 func selectableGroupItems(group model.Group) []model.GroupItem {
-	items := make([]model.GroupItem, 0, len(group.Items))
+	now := time.Now().Unix()
+	usable := make([]model.GroupItem, 0, len(group.Items))
+	selectable := make([]model.GroupItem, 0, len(group.Items))
 	for _, item := range group.Items {
-		if _, err := op.ChannelGrantGet(item.ChannelGrantID); err == nil {
-			items = append(items, item)
+		grant, err := op.ChannelGrantGet(item.ChannelGrantID)
+		if err != nil {
+			continue
 		}
+		usable = append(usable, item)
+		if op.GrantProbeDead(grant, now) {
+			continue
+		}
+		selectable = append(selectable, item)
 	}
-	return items
+	// 全员被判死时退回"可用但未过滤"的集合: 宁可白试一次, 也不让整组变成零成员而卡在等待循环里。
+	// 探测结论可能整体陈旧(例如整段时间网络不通), 这条兜底保证熔断不会升级成"分组不可用"。
+	if len(selectable) == 0 {
+		return usable
+	}
+	return selectable
 }
 
 // recordRouteSuccess 上报一轮成功: 结束该成员的冷却与探测占用, 并在故障切换后按配置开始亲和。

@@ -30,6 +30,9 @@ export interface GroupItem {
     key_name: string;
     protocols: number; // 该授权支持的 Protocol 位掩码。
     available: boolean; // 为假表示该成员当前无法转发，但仍会列出以便移除。
+    probe_status: string; // 探测结论：空=未探测，ok=最近一次探测通过，dead=已判死（选路跳过，24 小时后自动失效）。
+    probe_reason: string; // 判死或最近一次失败的原因摘要，已由后端截断。
+    probe_at: number; // 最近一次探测完成的时间（unix 秒），0 表示从未探测。
 }
 
 // GroupRuntime 是分组的实时路由状态。
@@ -281,4 +284,10 @@ export function useResetGroupCooldown() {
             apiRequest<Group>(`/api/v1/group/cooldown-reset/${id}`, { method: 'POST', body: {} }),
         onSuccess: writeGroupCache,
     });
+}
+
+// runGroupProbe 立即触发一轮分组成员探测（后台执行，立即返回是否真的启动）。
+// 用于首次开启前先手动打一轮观察上游反应，以及不必等 6–12 小时的日常巡检。
+export async function runGroupProbe(): Promise<{ started: boolean }> {
+    return apiRequest<{ started: boolean }>('/api/v1/group/probe/run', { method: 'POST', body: {} });
 }

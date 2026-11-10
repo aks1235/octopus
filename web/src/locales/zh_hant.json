@@ -184,6 +184,16 @@
             "invalid": "過濾表達式無效"
         },
         "saved": "已儲存",
+        "groupProbe": {
+            "label": "分成員定時探測",
+            "hint": "每 6-12 小時隨機一輪",
+            "tip": "對每個分組的全部成員發一次「1+1等於幾？」的真實請求，結論用於成員標註與選路跳過。會產生真實上游請求與配額消耗，建議先手動跑一輪觀察。關閉後已判死的成員最多一天自動失效。",
+            "runNow": "立即探測一輪",
+            "running": "已提交...",
+            "started": "探測已開始，稍後重新整理查看結果",
+            "busy": "已有一輪在跑，請稍後",
+            "failed": "觸發探測失敗"
+        },
         "backup": {
             "title": "備份 / 復原",
             "export": {
@@ -385,6 +395,10 @@
             "testRecovered": "可用（{protocol}），冷卻已清除",
             "testUnavailableReason": "不可用：{reason}",
             "testUnavailable": "不可用",
+            "probeDead": "探測失敗",
+            "probeDeadTime": "探測時間 {time}",
+            "disabledMembers": "已禁用成員 {count} 個",
+            "collapseDisabled": "收起已禁用成員",
             "quickTest": "快速體檢",
             "fullTest": "完整測試全部成員",
             "quickProgress": "檢測中 {completed}/{total} · {success} 個已確認可用 · {timeout} 個逾時",
@@ -429,6 +443,7 @@
             "affinityHintRoundrobin": "輪詢按請求輪流使用成員，不使用親和",
             "items": "成員順序",
             "addItem": "新增模型",
+            "unavailableTag": "不可用",
             "autoAdd": "自動新增",
             "clear": "清空",
             "memberRegex": "成員正則",

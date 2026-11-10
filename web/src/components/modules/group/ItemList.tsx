@@ -26,13 +26,31 @@ export interface SelectedMember {
     key_name: string;
     protocols: number;
     item_id?: number;
+    // 探测结论由后端随授权下发: 空=未探测, ok=通过, dead=已判死(选路会跳过, 24 小时后自动失效)。
+    probe_status?: string;
+    probe_reason?: string;
+    probe_at?: number;
 }
 
-function reorderList<T>(list: T[], startIndex: number, endIndex: number): T[] {
-    const result = [...list];
-    const [removed] = result.splice(startIndex, 1);
-    result.splice(endIndex, 0, removed);
-    return result;
+// reorderVisible 在"渲染列表被过滤"的前提下重排完整成员数组。
+//
+// 拖拽下标来自渲染列表（已隐藏已禁用成员），而提交顺序必须是完整成员顺序——成员顺序即选路优先级。
+// 直接对完整数组用渲染下标会错位（隐藏项把后面的成员整体前移），故按被拖动成员与目标的身份定位：
+// 把 moved 插到目标成员之前（向下拖则插到其后），其余成员相对顺序保持不变。
+function reorderVisible(
+    full: SelectedMember[],
+    visible: SelectedMember[],
+    startIndex: number,
+    endIndex: number
+): SelectedMember[] {
+    const moved = visible[startIndex];
+    const target = visible[endIndex];
+    if (!moved || !target) return full;
+    const rest = full.filter((member) => member.id !== moved.id);
+    const anchor = rest.findIndex((member) => member.id === target.id);
+    if (anchor < 0) return full;
+    const insertAt = endIndex > startIndex ? anchor + 1 : anchor;
+    return [...rest.slice(0, insertAt), moved, ...rest.slice(insertAt)];
 }
 
 type MemberItemDnd = {
@@ -40,6 +58,16 @@ type MemberItemDnd = {
     draggableProps: DraggableProvided['draggableProps'];
     dragHandleProps: DraggableProvided['dragHandleProps'];
     isDragging: boolean;
+};
+
+// staticDnd 给折叠区（不参与拖拽）的成员行用的空拖拽属性：
+// 折叠区里的成员不可拖不可排序，但行本身的展示与移除按钮与主列表一致。
+const staticDnd: MemberItemDnd = {
+    innerRef: () => {},
+    // 空对象成对断言：dnd 库的两个 data-* 属性只在其自身的拖拽上下文里有意义，折叠区不参与拖拽。
+    draggableProps: {} as MemberItemDnd['draggableProps'],
+    dragHandleProps: null,
+    isDragging: false,
 };
 
 // protocolLabel 把成功的协议位显示成路径里讲的端点名, 与渠道 key 测试结果面板同款口径。
@@ -110,6 +138,28 @@ function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResul
             </TooltipTrigger>
             <TooltipContent className="max-w-72 whitespace-normal break-all">
                 {result.error || t('testFailed')}
+            </TooltipContent>
+        </Tooltip>
+    );
+}
+
+// ProbeBadge 探测结论徽标。
+// 只标"已判死", 不标"通过": 未探测过的成员占多数, 一旦用绿色表示通过, 界面上"没探测"与"已验证可用"就会被混为一谈。
+function ProbeBadge({ member }: { member: SelectedMember }) {
+    const t = useTranslations('group.card');
+    if (member.probe_status !== 'dead') return null;
+    const time = member.probe_at ? new Date(member.probe_at * 1000).toLocaleString() : '';
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+                    <Ban className="size-3.5 shrink-0" />
+                    {t('probeDead')}
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-72 whitespace-normal break-all">
+                {member.probe_reason || t('probeDead')}
+                {time ? ` · ${t('probeDeadTime', { time })}` : ''}
             </TooltipContent>
         </Tooltip>
     );
@@ -216,6 +266,7 @@ function MemberItem({
                 </div>
 
                 {testResult && <MemberTestBadge result={testResult} unavailable={isDisabled} />}
+                <ProbeBadge member={member} />
                 {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
 
                 {onRemove && (!showConfirmDelete || !confirmDelete) && (
@@ -333,6 +384,12 @@ export function MemberList({
     const isEmpty = visibleCount === 0;
     const t = useTranslations('group');
 
+    // 已禁用成员默认收在底部的只读折叠区：它们的数量常远超可用成员，平铺会把可用项挤到屏幕外
+    //（用户原话：要往下翻才能找到）。顺序即选路优先级，故收起只影响渲染，提交始终是全量成员。
+    const [showDisabledMembers, setShowDisabledMembers] = useState(false);
+    const draggableMembers = members.filter((member) => member.enabled !== false || removingIds.has(member.id));
+    const disabledMembers = members.filter((member) => member.enabled === false && !removingIds.has(member.id));
+
     useEffect(() => {
         // Skip the initial mount so we don't auto-scroll on first render / initial data load.
         if (!hasMountedRef.current) {
@@ -367,7 +424,7 @@ export function MemberList({
             if (!destination) return;
             if (destination.index === source.index) return;
 
-            const next = reorderList(members, source.index, destination.index);
+            const next = reorderVisible(members, draggableMembers, source.index, destination.index);
             onReorder(next);
             onDrop?.(next);
         } finally {
@@ -403,7 +460,7 @@ export function MemberList({
                     <Droppable
                         droppableId={`members-${layoutScope}`}
                         renderClone={(draggableProvided, snapshot, rubric) => {
-                            const member = members[rubric.source.index];
+                            const member = draggableMembers[rubric.source.index];
                             return (
                                 <MemberItem
                                     member={member}
@@ -432,7 +489,7 @@ export function MemberList({
                                 {...droppableProvided.droppableProps}
                                 className="p-2 flex flex-col space-y-1.5"
                             >
-                                {members.map((member, index) => (
+                                {draggableMembers.map((member, index) => (
                                     <Draggable
                                         key={member.id}
                                         draggableId={member.id}
@@ -466,6 +523,40 @@ export function MemberList({
                         )}
                     </Droppable>
                 </DragDropContext>
+
+                {disabledMembers.length > 0 && (
+                    <div className="px-2 pb-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowDisabledMembers((value) => !value)}
+                            className="w-full rounded-lg border border-dashed border-border/60 px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/60"
+                        >
+                            {showDisabledMembers
+                                ? t('card.collapseDisabled')
+                                : t('card.disabledMembers', { count: disabledMembers.length })}
+                        </button>
+                        {showDisabledMembers && (
+                            <div className="mt-1.5 flex flex-col space-y-1.5">
+                                {disabledMembers.map((member) => (
+                                    <MemberItem
+                                        key={member.id}
+                                        member={member}
+                                        onRemove={onRemove}
+                                        onActivate={onActivate}
+                                        isActive={member.item_id === activeItemId}
+                                        group={group}
+                                        now={now}
+                                        testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
+                                        isRemoving={false}
+                                        showConfirmDelete={showConfirmDelete}
+                                        layoutScope={layoutScope}
+                                        dnd={staticDnd}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

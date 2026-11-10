@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
-import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, Filter, X } from 'lucide-react';
+import { Monitor, Globe, Clock, Shield, HelpCircle, HeartPulse, ShieldAlert, Filter, X, Activity } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
+import { runGroupProbe } from '@/api/group';
 import { compileMemberRegex } from '@/lib/member-regex';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -20,6 +23,8 @@ export function SettingSystem() {
     const [corsAllowOrigins, setCorsAllowOrigins] = useState('');
     const [corsInputValue, setCorsInputValue] = useState('');
     const [modelFilter, setModelFilter] = useState('');
+    const [groupProbeEnabled, setGroupProbeEnabled] = useState(false);
+    const [probeRunning, setProbeRunning] = useState(false);
 
     const initialProxyUrl = useRef('');
     const initialStatsSaveInterval = useRef('');
@@ -27,6 +32,7 @@ export function SettingSystem() {
     const initialHealthFailThreshold = useRef('');
     const initialCorsAllowOrigins = useRef('');
     const initialModelFilter = useRef('');
+    const initialGroupProbeEnabled = useRef(false);
 
     useEffect(() => {
         if (settings) {
@@ -60,6 +66,11 @@ export function SettingSystem() {
                 queueMicrotask(() => setModelFilter(modelFilterSetting.value));
                 initialModelFilter.current = modelFilterSetting.value;
             }
+            const groupProbe = settings.find(s => s.key === SettingKey.GroupProbeEnabled);
+            if (groupProbe) {
+                queueMicrotask(() => setGroupProbeEnabled(groupProbe.value === 'true'));
+                initialGroupProbeEnabled.current = groupProbe.value === 'true';
+            }
         }
     }, [settings]);
 
@@ -81,9 +92,40 @@ export function SettingSystem() {
                     initialCorsAllowOrigins.current = value;
                 } else if (key === SettingKey.ModelFilter) {
                     initialModelFilter.current = value;
+                } else if (key === SettingKey.GroupProbeEnabled) {
+                    initialGroupProbeEnabled.current = value === 'true';
                 }
             }
         });
+    };
+
+    // 定时探测开关: 只有开着才会每 6–12 小时自动跑一轮; 关掉后已落库的判死结论最多一天自动失效。
+    const handleGroupProbeToggle = (next: boolean) => {
+        setGroupProbeEnabled(next);
+        setSetting.mutate({ key: SettingKey.GroupProbeEnabled, value: next ? 'true' : 'false' }, {
+            onSuccess: () => {
+                initialGroupProbeEnabled.current = next;
+                toast.success(t('saved'));
+            },
+            onError: (error) => {
+                // 失败必须回滚开关: 否则界面显示的与库里的不一致, 用户以为已经打开了。
+                setGroupProbeEnabled(!next);
+                toast.error(error.message);
+            },
+        });
+    };
+
+    // 手动跑一轮: 一轮可能持续数分钟, 这里只确认"已开始", 不占着请求等它结束。
+    const handleRunProbe = async () => {
+        setProbeRunning(true);
+        try {
+            const { started } = await runGroupProbe();
+            toast.success(started ? t('groupProbe.started') : t('groupProbe.busy'));
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : t('groupProbe.failed'));
+        } finally {
+            setProbeRunning(false);
+        }
     };
 
     const corsAllowOriginsList = useMemo(() => {
@@ -208,6 +250,37 @@ export function SettingSystem() {
                     placeholder={t('healthCheck.threshold.placeholder')}
                     className="w-48 rounded-xl"
                 />
+            </div>
+
+            {/* 分组成员定时探测: 6-12 小时随机一轮, 结论用于成员标注与选路熔断 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Activity className="h-5 w-5 text-muted-foreground" />
+                    <div className="flex flex-col">
+                        <span className="text-sm font-medium">{t('groupProbe.label')}</span>
+                        <span className="text-xs text-muted-foreground">{t('groupProbe.hint')}</span>
+                    </div>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={10} align="center" className="max-w-72">
+                            {t('groupProbe.tip')}
+                        </TooltipContent>
+                    </Tooltip>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={handleRunProbe}
+                        disabled={probeRunning}
+                    >
+                        {probeRunning ? t('groupProbe.running') : t('groupProbe.runNow')}
+                    </Button>
+                    <Switch checked={groupProbeEnabled} onCheckedChange={handleGroupProbeToggle} />
+                </div>
             </div>
 
             {/* 全局模型过滤: 渠道拉取模型列表时与渠道自身过滤表达式取 AND */}

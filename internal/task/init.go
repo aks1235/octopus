@@ -110,4 +110,8 @@ func Init() {
 			log.Warnf("failed to backfill relay log attempts: %v", err)
 		}
 	})
+
+	// 启动定时探测协程。不走 Register: 它的周期是"每轮结束随机 6–12 小时", 与固定 ticker 语义不符。
+	// 开关默认关闭, 协程本身常驻并按分钟级间隔重读设置。
+	startGroupProbe()
 }

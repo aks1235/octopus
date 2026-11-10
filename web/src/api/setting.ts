@@ -19,6 +19,7 @@ export const SettingKey = {
     ModelFilter: 'model_filter',
     RelayLogKeepEnabled: 'relay_log_keep_enabled',
     RelayLogKeepPeriod: 'relay_log_keep_period',
+    GroupProbeEnabled: 'group_probe_enabled',
 } as const;
 
 /**

@@ -20,6 +20,7 @@ const (
 	SettingKeyRelayLogKeepEnabled     SettingKey = "relay_log_keep_enabled"     // 是否保留历史转发日志(关闭时仅内存保留最近若干条)
 	SettingKeyRelayLogKeepPeriod      SettingKey = "relay_log_keep_period"      // 历史日志保留天数, 超期由周期任务清理
 	SettingKeyModelFilter             SettingKey = "model_filter"               // 渠道拉取模型列表时的全局过滤正则; 留空表示不过滤
+	SettingKeyGroupProbeEnabled       SettingKey = "group_probe_enabled"        // 是否定时探测分组成员可用性(6-12 小时随机一轮); 默认关闭
 )
 
 type Setting struct {
@@ -38,6 +39,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},   // 默认保留历史日志
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},       // 默认日志保存7天
 		{Key: SettingKeyModelFilter, Value: ""},               // 默认不过滤模型
+		{Key: SettingKeyGroupProbeEnabled, Value: "false"},    // 默认不自动探测: 探测会产生真实上游请求与配额消耗, 由人工开启
 	}
 }
 
@@ -70,6 +72,11 @@ func (s *Setting) Validate() error {
 	case SettingKeyRelayLogKeepEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("relay log keep enabled must be true or false")
+		}
+		return nil
+	case SettingKeyGroupProbeEnabled:
+		if s.Value != "true" && s.Value != "false" {
+			return fmt.Errorf("group probe enabled must be true or false")
 		}
 		return nil
 	case SettingKeyModelFilter:

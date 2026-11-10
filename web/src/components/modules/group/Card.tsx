@@ -78,6 +78,9 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
             key_name: item.key_name,
             protocols: item.protocols,
             item_id: item.id,
+            probe_status: item.probe_status,
+            probe_reason: item.probe_reason,
+            probe_at: item.probe_at,
         })),
         [group.items]
     );

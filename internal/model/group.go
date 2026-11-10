@@ -94,6 +94,11 @@ type GroupItem struct {
 	KeyName     string   `json:"key_name" gorm:"-"`     // 授权引用的凭据名称。
 	Protocols   Protocol `json:"protocols" gorm:"-"`    // 授权支持的协议位掩码。
 	Available   bool     `json:"available" gorm:"-"`    // 渠道与凭据均启用且模型, 凭据均存在时为真; 为假表示该成员当前无法转发, 但仍需列出以便移除。
+
+	// 探测结论, 与授权的 probe_* 列同源: 界面只做标注, 不参与可用性判定(available 仍只看启停)。
+	ProbeStatus string `json:"probe_status" gorm:"-"` // 空=未探测, ok=最近一次探测通过, dead=已判死。
+	ProbeReason string `json:"probe_reason" gorm:"-"` // 判死或最近一次失败的原因摘要, 已截断。
+	ProbeAt     int64  `json:"probe_at" gorm:"-"`     // 最近一次探测完成时间(unix 秒), 0 表示从未探测。
 }
 
 // 创建分组请求; 成员顺序即优先级顺序。

@@ -90,6 +90,13 @@ type ChannelGrant struct {
 	ChannelKeyID   int           `json:"channel_key_id" gorm:"not null;index:idx_channel_grant,unique"`                                      // 凭据 ID。
 	ChannelKey     *ChannelKey   `json:"channel_key,omitempty" gorm:"foreignKey:ChannelKeyID;references:ID;constraint:OnDelete:CASCADE"`     // 授权引用的凭据。
 	Protocols      Protocol      `json:"protocols" gorm:"not null"`                                                                          // 该组合支持的协议位掩码。
+
+	// 探测结论: 由分组成员测试落库, 只用于选路跳过与界面标注, 不参与授权对账, 也不改渠道/凭据的启停。
+	// 状态用字符串而非布尔: 空串天然表示"从未探测", 与 gorm default:true 的零值坑无关。
+	ProbeStatus    string `json:"probe_status" gorm:"not null;default:''"`    // 空=未探测, ok=最近一次探测通过, dead=已判死。
+	ProbeReason    string `json:"probe_reason" gorm:"not null;default:''"`    // 判死或最近一次失败的原因摘要, 已截断。
+	ProbeAt        int64  `json:"probe_at" gorm:"not null;default:0"`         // 最近一次真实探测完成的时间(unix 秒), 0 表示从未探测。
+	ProbeFailCount int    `json:"probe_fail_count" gorm:"not null;default:0"` // 计数类失败(5xx/超时)的连续次数, 成功即清零。
 }
 
 // 渠道读写副本: 编辑表单的完整形状, 读取与提交同构。

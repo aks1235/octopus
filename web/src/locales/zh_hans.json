@@ -184,6 +184,16 @@
             "invalid": "过滤表达式无效"
         },
         "saved": "已保存",
+        "groupProbe": {
+            "label": "分组成员定时探测",
+            "hint": "每 6-12 小时随机一轮",
+            "tip": "对每个分组的全部成员发一次「1+1等于几？」的真实请求，结论用于成员标注与选路跳过。会产生真实上游请求与配额消耗，建议先手动跑一轮观察。关闭后已判死的成员最多一天自动失效。",
+            "runNow": "立即探测一轮",
+            "running": "已提交...",
+            "started": "探测已开始，稍后刷新查看结果",
+            "busy": "已有一轮在跑，请稍后",
+            "failed": "触发探测失败"
+        },
         "backup": {
             "title": "备份 / 恢复",
             "export": {
@@ -385,6 +395,10 @@
             "testRecovered": "可用（{protocol}），冷却已清除",
             "testUnavailableReason": "不可用：{reason}",
             "testUnavailable": "不可用",
+            "probeDead": "探测失败",
+            "probeDeadTime": "探测时间 {time}",
+            "disabledMembers": "已禁用成员 {count} 个",
+            "collapseDisabled": "收起已禁用成员",
             "quickTest": "快速体检",
             "fullTest": "完整测试全部成员",
             "quickProgress": "检测中 {completed}/{total} · {success} 个已确认可用 · {timeout} 个超时",
@@ -429,6 +443,7 @@
             "affinityHintRoundrobin": "轮询按请求轮流使用成员，不使用亲和",
             "items": "成员顺序",
             "addItem": "添加模型",
+            "unavailableTag": "不可用",
             "autoAdd": "自动添加",
             "clear": "清空",
             "memberRegex": "成员正则",

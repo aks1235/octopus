@@ -728,6 +728,10 @@ func groupSnapshot(group model.Group) model.Group {
 			continue
 		}
 		group.Items[i].Protocols = grant.Protocols
+		// 探测结论随授权一起下发: 界面按它对成员行标注, 无需再按授权回查一次。
+		group.Items[i].ProbeStatus = grant.ProbeStatus
+		group.Items[i].ProbeReason = grant.ProbeReason
+		group.Items[i].ProbeAt = grant.ProbeAt
 		channelModel, modelOK := channelModelCache.Get(grant.ChannelModelID)
 		channelKey, keyOK := channelKeyCache.Get(grant.ChannelKeyID)
 		if !modelOK || !keyOK {

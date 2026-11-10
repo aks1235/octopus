@@ -17,6 +17,8 @@ import (
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
+	"github.com/bestruirui/octopus/internal/task"
+	"github.com/charmbracelet/log"
 	"github.com/dlclark/regexp2"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
@@ -71,6 +73,10 @@ func init() {
 				Handle(testGroupMembersStream),
 		).
 		AddRoute(
+			router.NewRoute("/probe/run", http.MethodPost).
+				Handle(runGroupProbe),
+		).
+		AddRoute(
 			router.NewRoute("/cooldown-reset/:id", http.MethodPost).
 				Handle(resetGroupCooldown),
 		)
@@ -101,7 +107,6 @@ const groupEventBuffer = 16 // 单个分组事件流连接的非阻塞消息缓�
 var (
 	groupEventMu      sync.Mutex                           // groupEventMu 保护全部分组事件流连接。
 	groupEventStreams = make(map[chan groupEvent]struct{}) // 全部分组事件流 SSE 连接。
-	groupTests        sync.Map
 )
 
 // publishGroupEvent 非阻塞发布一条分组变更事件, 连接拥塞时关闭它并交给客户端重连后重新拉取对齐。
@@ -364,12 +369,18 @@ func testGroupMembers(c *gin.Context) {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
-	if _, running := groupTests.LoadOrStore(id, struct{}{}); running {
+	// 闸在 relay: 定时探测与手动测试必须互斥, 而 task 侧看不到 handlers 包的私有变量。
+	if !relay.GroupTestAcquire(id) {
 		resp.Error(c, http.StatusConflict, "group test already running")
 		return
 	}
-	defer groupTests.Delete(id)
+	defer relay.GroupTestRelease(id)
 	results := relay.TestGroupMembers(c.Request.Context(), group)
+	// 测试即探测: 结论落到各成员引用的授权上, 界面与选路跳过由此共用同一份状态。
+	// 落库失败只记日志不影响测试结果返回——用户要的是连通性结论, 状态持久化是附带收益。
+	if err := op.GroupProbeApply(id, results); err != nil {
+		log.Errorf("group %d probe apply failed: %v", id, err)
+	}
 	resp.Success(c, results)
 }
 
@@ -393,11 +404,11 @@ func testGroupMembersStream(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "unknown test mode")
 		return
 	}
-	if _, running := groupTests.LoadOrStore(id, struct{}{}); running {
+	if !relay.GroupTestAcquire(id) {
 		resp.Error(c, http.StatusConflict, "group test already running")
 		return
 	}
-	defer groupTests.Delete(id)
+	defer relay.GroupTestRelease(id)
 	streamGroupMemberTests(c, group)
 }
 
@@ -420,10 +431,26 @@ func streamGroupMemberTests(c *gin.Context, group model.Group) {
 		c.Writer.Flush()
 	}
 	write(gin.H{"type": "start", "total": len(group.Items)})
+	// 逐条转发的同时留一份完整结果: onResult 由单协程回调, 追加无需加锁;
+	// 全部结束后一次落库, 避免每个成员一条 UPDATE 抢写锁。
+	results := make([]model.GroupMemberTestResult, 0, len(group.Items))
 	relay.TestGroupMembersStream(ctx, group, false, func(result model.GroupMemberTestResult) {
+		results = append(results, result)
 		write(gin.H{"type": "result", "result": result})
 	})
+	// 先落库再发 done: 前端收到 done 后重新拉分组时, 拿到的已是更新后的探测状态。
+	if err := op.GroupProbeApply(group.ID, results); err != nil {
+		log.Errorf("group %d probe apply failed: %v", group.ID, err)
+	}
 	write(gin.H{"type": "done"})
+}
+
+// runGroupProbe 立即触发一轮定时探测(后台执行, 立即返回)。
+// 用途: 首次启用前先手动打一轮看上游反应(公益站被连打可能限流), 以及日常不必等 6-12 小时的巡检。
+// 已在跑时返回 started=false 而不是 409: 这是幂等的"请跑一轮", 撞车不算错误。
+func runGroupProbe(c *gin.Context) {
+	started := task.RunGroupProbeRoundAsync()
+	resp.Success(c, gin.H{"started": started})
 }
 
 // resetGroupCooldown 清空分组的全部成员冷却与连续冷却计数。

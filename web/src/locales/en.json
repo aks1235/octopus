@@ -184,6 +184,16 @@
             "invalid": "Invalid filter regex"
         },
         "saved": "Saved",
+        "groupProbe": {
+            "label": "Scheduled member probe",
+            "hint": "One round every 6-12 hours",
+            "tip": "Sends a real \"1+1=?\" request to every member of every group; results drive member badges and routing skips. Consumes real upstream quota — run one round manually first. Disabling it makes dead verdicts expire within a day.",
+            "runNow": "Run a round now",
+            "running": "Submitted...",
+            "started": "Probe started, refresh later to see results",
+            "busy": "A round is already running, try later",
+            "failed": "Failed to start probe"
+        },
         "backup": {
             "title": "Backup / Restore",
             "export": {
@@ -385,6 +395,10 @@
             "testRecovered": "Available ({protocol}), cooldown cleared",
             "testUnavailableReason": "Unavailable: {reason}",
             "testUnavailable": "Unavailable",
+            "probeDead": "Probe failed",
+            "probeDeadTime": "probed {time}",
+            "disabledMembers": "{count} disabled members",
+            "collapseDisabled": "Collapse disabled members",
             "quickTest": "Quick check",
             "fullTest": "Test all members",
             "quickProgress": "Checking {completed}/{total} · {success} confirmed available · {timeout} timed out",
@@ -429,6 +443,7 @@
             "affinityHintRoundrobin": "Round robin rotates across members per request; affinity does not apply",
             "items": "Member Order",
             "addItem": "Add Model",
+            "unavailableTag": "Unavailable",
             "autoAdd": "Auto Add",
             "clear": "Clear",
             "memberRegex": "Member Regex",

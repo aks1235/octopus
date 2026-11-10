@@ -217,6 +217,12 @@ function ModelPickerSection({
                                                                 >
                                                                     <span className="flex min-w-0 items-center gap-2">
                                                                         <span className="truncate text-xs text-muted-foreground">{m.key_name}</span>
+                                                                        {/* 渠道或凭据已禁用的候选仍然可选(添加入口本身合法), 但要一眼看出它当前转不出去。 */}
+                                                                        {!m.enabled && (
+                                                                            <span className="shrink-0 rounded border border-border/60 px-1 text-[10px] leading-4 text-muted-foreground/70">
+                                                                                {t('form.unavailableTag')}
+                                                                            </span>
+                                                                        )}
                                                                         {/* 标出该凭据讲得通的协议: 同一模型的不同凭据可能只支持其中一部分, 选之前就要能看出来。 */}
                                                                         {PROTOCOL_TAGS.map(({ bit, label }) => (m.protocols & bit) !== 0 && (
                                                                             <span

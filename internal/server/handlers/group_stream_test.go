@@ -6,12 +6,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server/auth"
 	"github.com/gin-gonic/gin"
 )
@@ -111,12 +113,27 @@ func TestGroupMemberStream_validationAndExclusion(t *testing.T) {
 	if code != http.StatusUnsupportedMediaType {
 		t.Fatalf("missing JSON content type status = %d", code)
 	}
-	groupTests.Store(2, struct{}{})
-	defer groupTests.Delete(2)
+	relay.GroupTestAcquire(2)
+	defer relay.GroupTestRelease(2)
 	for _, path := range []string{"/api/v1/group/test/2", "/api/v1/group/test/2/stream?mode=full"} {
 		code, _ := doOrderRequest(t, engine, http.MethodPost, path, gin.H{})
 		if code != http.StatusConflict {
 			t.Fatalf("%s status = %d, want conflict", path, code)
 		}
+	}
+}
+
+// TestRunGroupProbe_routeRegistered 验证手动触发探测的路由已注册:
+// 路由拼错只会在这里暴露(该端点没有其它测试覆盖), 空库下异步任务是空转, 不会真的打上游。
+func TestRunGroupProbe_routeRegistered(t *testing.T) {
+	if err := db.InitDB("sqlite", filepath.Join(t.TempDir(), "probe-route.db"), false); err != nil {
+		t.Fatalf("InitDB() error = %v", err)
+	}
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("InitCache() error = %v", err)
+	}
+	recorder := groupStreamRequest(t, "/api/v1/group/probe/run")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("probe/run status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
