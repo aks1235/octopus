@@ -155,15 +155,18 @@ func clearMemberCooldown(groupID, itemID int) bool {
 // 选路前先剔除不可选成员: 渠道或凭据被禁用以及授权两侧缺失与冷却同级, 直接不进入选路,
 // 不产生失败计数, 不占用恢复探测名额; 禁用不等于删除, 成员仍在分组里, 界面以 Available 标记不可用。
 func pickGroupItem(group model.Group, walk *routeWalk) model.GroupItem {
-	items := selectableGroupItems(group)
 	if group.Mode == model.GroupModeManual {
-		for _, item := range items {
+		// 手动模式只认人工指定的那一个成员, 因此**不受探测熔断影响**: 熔断的目的是省掉"先撞一次再换下一个"
+		// 的浪费, 而这里没有"下一个", 跳过它只会让请求在等待循环里挂到客户端超时。
+		// 结论可能是假阴性(探测打的是 1+1, 真实请求可能通), 人工钉住就按人工的意思试一次。
+		for _, item := range usableGroupItems(group) {
 			if item.ID == group.ActiveItemID {
 				return item
 			}
 		}
 		return model.GroupItem{}
 	}
+	items := selectableGroupItems(group)
 	if len(items) == 0 {
 		return model.GroupItem{}
 	}
@@ -248,21 +251,31 @@ func scanGroupItems(items []model.GroupItem, route *RouteState, now int64, start
 	return model.GroupItem{}
 }
 
+// usableGroupItems 返回分组内"能转发"的成员, 保持原有优先级顺序。
+// 口径与界面 Available 一致: ChannelGrantGet 能取得授权, 即渠道与凭据均启用且授权两侧均在。
+// 与 selectableGroupItems 的区别只有一条: 这里不看探测熔断。
+func usableGroupItems(group model.Group) []model.GroupItem {
+	items := make([]model.GroupItem, 0, len(group.Items))
+	for _, item := range group.Items {
+		if _, err := op.ChannelGrantGet(item.ChannelGrantID); err != nil {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
 // selectableGroupItems 返回分组内当前可选路的成员, 保持原有优先级顺序。
-// 可选与界面 Available 同口径: ChannelGrantGet 能取得授权, 即渠道与凭据均启用且授权两侧均在。
-// 在此之上再剔除"已判死且结论未过期"的成员(探测熔断): 它们要么确定性失败、要么连续抖动,
+// 在"能转发"之上再剔除"已判死且结论未过期"的成员(探测熔断): 它们要么确定性失败、要么连续抖动,
 // 每轮都先撞一次只会白等一个超时。转发每轮重读分组后调用, 只查内存缓存, 不引入新的缓存副本。
 func selectableGroupItems(group model.Group) []model.GroupItem {
 	now := time.Now().Unix()
-	usable := make([]model.GroupItem, 0, len(group.Items))
-	selectable := make([]model.GroupItem, 0, len(group.Items))
-	for _, item := range group.Items {
+	usable := usableGroupItems(group)
+	selectable := make([]model.GroupItem, 0, len(usable))
+	for _, item := range usable {
+		// usable 已证明授权可取, 这里的 err 只是同轮内的变更, 按不可选处理。
 		grant, err := op.ChannelGrantGet(item.ChannelGrantID)
-		if err != nil {
-			continue
-		}
-		usable = append(usable, item)
-		if op.GrantProbeDead(grant, now) {
+		if err != nil || op.GrantProbeDead(grant, now) {
 			continue
 		}
 		selectable = append(selectable, item)

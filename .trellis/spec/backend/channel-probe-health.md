@@ -99,6 +99,7 @@ one-api（`monitor/channel.go`）与 new-api（`model/ability.go`、`model/cache
 - **绝不移出分组**：`op.GroupManualAbsorb` 5 分钟兜底会把成员加回来，且只增不减（见 `group-manual-absorb.md`）。
 - **全员判死必须回退**：过滤后候选为空时，退回「可用但未过滤」的集合。否则一旦整组被判死（例如整段时间网络不通导致全员连错三次），分组会变成零成员、请求卡在等待循环里——熔断就升级成了「分组不可用」。宁可白试一次。
 - 24 小时过期是**功能停摆护栏**：探测关掉或崩溃后，最多一天全部成员自动回到可选，不会永久隐身。
+- **手动模式不熔断**（`pickGroupItem` 的手动分支走 `usableGroupItems`，不走 `selectableGroupItems`）。手动模式只有人工钉住的那一个成员，没有"下一个"可换；跳过它只会让请求在等待循环里挂到客户端超时，把"某个成员坏了"升级成"整个分组不可用"。探测报文是 `1+1`，结论可能是假阴性，人工钉住就该照人工的意思试一次。**这是唯一一处刻意不遵守熔断的选路分支，改动选路时勿"顺手统一"。**
 - 探测失败**不写成员冷却**（`recordRouteFailure` 属真实转发路径）。现有 `testGroupMemberWithTimeout` 只在成功时 `clearMemberCooldown`（`keytest.go:394`），失败什么都不做——照抄，勿"补全"。
 
 ## 契约五：调度是随机间隔，不用 `task.Register`
@@ -171,10 +172,15 @@ one-api（`monitor/channel.go`）与 new-api（`model/ability.go`、`model/cache
 
 **为什么不去改库里的 Priority**：改库会永久丢失用户手拖的顺序（恢复后回不到原位），24 小时过期后还会出现「排在末尾却被优先尝试」的自相矛盾，正则分组的下次同步还会整体重写。而它对转发**零增量收益**——跳过已由 `selectableGroupItems` 完成。
 
+**徽标位置**：探测结论徽标放**第二行**（渠道 · 凭据 之后），不放名字那一行。放名字行会把模型名挤成 `deepseek-...`，而同组成员名高度相似，名字一截断整行就认不出是谁（实测 2026-11-10）。第二行本来就是「哪家站的哪把 key」，与探测结论同属"这个成员的来源"信息，读起来更顺。
+
+**只读区不给拖拽手柄**：只读行（探测失败段、已禁用折叠区）不渲染 `GripVertical`，改用等宽占位保持图标列对齐。手柄在等于承诺"可以拖"，悬停还给抓取光标，实际拖不动比不给手柄更糟。
+
 ## 测试锚点
 
 - `internal/op/grant_probe_test.go`：判据白名单（含「token 计数里的 410 不算 410 Gone」反例）；状态机（抖动→未定型→第 3 次判死→成功清零→确定性一次判死）；不可用/取消不落库；未知 item 不误伤。
 - `internal/relay/route_probe_test.go`：判死且未过期 → 跳过；判死但超 24h → 不跳过；全员判死 → 回退不过滤；凭据禁用时任何探测结论都不放行；**`GroupItem.probe_blocking` 与选路跳过逐成员一致**（界面排序的地基）。
+- `internal/relay/route_probe_manual_test.go`：手动模式钉住一个已判死成员时仍要选出它（否则请求挂到客户端超时）。
 - `internal/task/probe_test.go`：随机周期落在 6–12 小时；空库跑一轮不 panic 且不留运行标记。
 - `internal/server/handlers/group_stream_test.go`：`/probe/run` 路由已注册（拼错只在此暴露，空库下异步任务是空转）。
 - 前端：`item_id → 原始序号` 映射的纯函数单测（过滤 + 重排 + 提交全量三条断言）。**当前仓库无前端测试框架，此项欠账。**

@@ -146,19 +146,17 @@ function MemberTestBadge({ result, unavailable }: { result: GroupMemberTestResul
     );
 }
 
-// probeDeadTtl 判死结论的选路有效期, 与后端 op.ProbeDeadTTLSeconds 同值。
-// 超过它结论仍在库里(界面照旧展示), 但选路不再跳过, 因此标签要弱化成"已过期"。
-const probeDeadTtl = 24 * 60 * 60 * 1000;
-
 // ProbeBadge 是持久探测结论的标签, 与"本次测试结果"徽标(MemberTestBadge)是两回事:
 // 前者来自库里的 probe_*, 关掉页面再进仍在; 后者只是本次测试的即时结果。
 // 三种状态都要可分辨: ok 绿勾、dead 红禁止、未探测不显示——"没探测"绝不能长得像"已验证可用"。
-function ProbeBadge({ member, now }: { member: SelectedMember; now: number }) {
+function ProbeBadge({ member }: { member: SelectedMember }) {
     const t = useTranslations('group.card');
     if (member.probe_status !== 'dead' && member.probe_status !== 'ok') return null;
     const dead = member.probe_status === 'dead';
     const at = (member.probe_at ?? 0) * 1000;
-    const expired = dead && at > 0 && now > 0 && now - at > probeDeadTtl;
+    // "过期"直接取后端判定: probe_blocking 为假就说明选路不再跳过它, 标签必须同步弱化。
+    // 前端不自己算 24 小时窗口——两套窗口一旦分叉, 界面就会说"已过期"而选路仍在跳过(或反之)。
+    const expired = dead && !member.probe_blocking;
     const time = at ? new Date(at).toLocaleString() : '';
     const label = dead ? t('probeDead') : t('probeOk');
     return (
@@ -219,6 +217,8 @@ function MemberItem({
     const { Icon, className: iconClassName } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const isDisabled = member.enabled === false;
+    // 拖拽手柄由 dnd 提供：可拖行有，只读区传的是 staticDnd（dragHandleProps 为 null）。
+    const canDrag = dnd.dragHandleProps != null;
     const tProbe = useTranslations('group.probe');
 
     return (
@@ -253,19 +253,23 @@ function MemberItem({
                 role={onActivate && member.item_id !== undefined ? 'button' : undefined}
                 tabIndex={onActivate && member.item_id !== undefined ? 0 : undefined}
             >
-                <div
-                    className={cn(
-                        'p-0.5 rounded touch-none transition-colors',
-                        isDisabled
-                            ? 'cursor-grab active:cursor-grabbing hover:bg-muted/60'
-                            : 'cursor-grab active:cursor-grabbing hover:bg-muted'
-                    )}
-                    // eslint-disable-next-line react-hooks/refs
-                    {...dnd.dragHandleProps}
-                    onClick={(event) => event.stopPropagation()}
-                >
-                    <GripVertical className="size-3.5 text-muted-foreground" />
-                </div>
+                {canDrag ? (
+                    <div
+                        className={cn(
+                            'p-0.5 rounded touch-none transition-colors cursor-grab active:cursor-grabbing',
+                            isDisabled ? 'hover:bg-muted/60' : 'hover:bg-muted'
+                        )}
+                        // eslint-disable-next-line react-hooks/refs
+                        {...dnd.dragHandleProps}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <GripVertical className="size-3.5 text-muted-foreground" />
+                    </div>
+                ) : (
+                    /* 只读区（探测失败段、已禁用折叠区）不放拖拽手柄：留着等于承诺"可以拖"，
+                       悬停还给抓取光标，实际拖不动比不给手柄更糟。等宽占位让模型图标与上方可拖行对齐。 */
+                    <span aria-hidden="true" className="w-[18px] shrink-0" />
+                )}
 
                 <span className={cn(isDisabled && 'opacity-70')}>
                     <Icon aria-hidden="true" className={iconClassName} width={18} height={18} />
@@ -286,10 +290,15 @@ function MemberItem({
                                 {member.name}
                             </TooltipContent>
                         </Tooltip>
-                        <ProbeBadge member={member} now={now} />
                     </span>
-                    <span className="text-[10px] text-muted-foreground truncate leading-tight">
-                        {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
+                    {/* 探测徽标放第二行: 放名字那一行会把模型名挤成 "deepseek-..."。
+                        同一组里成员名高度相似, 名字被截断后整行就认不出是哪个成员了;
+                        而"哪家站的哪把 key + 探测结论"本来就是一回事, 排一起读起来更顺。 */}
+                    <span className="flex items-center gap-1.5 min-w-0 text-[10px] text-muted-foreground leading-tight">
+                        <span className="truncate">
+                            {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
+                        </span>
+                        <ProbeBadge member={member} />
                     </span>
                 </div>
 
@@ -581,7 +590,8 @@ export function MemberList({
                     所以不能像禁用成员那样藏起来，否则界面上就看不出"它只是暂时被跳过"。 */}
                 {blockedMembers.length > 0 && (
                     <div className="px-2 pb-2">
-                        <div className="flex items-center gap-1.5 px-1 pb-1 text-[11px] text-muted-foreground">
+                        {/* 虚线分隔与下方"已禁用"按钮同款：两段都是"不参与选路的成员"，样式一致才读得出这是同一层信息。 */}
+                        <div className="ml-1 mr-1 flex items-center gap-1.5 border-t border-dashed border-border/60 px-1 pb-1 pt-2 text-[11px] text-muted-foreground">
                             <Ban className="size-3 shrink-0" />
                             {t('card.probeBlocked', { count: blockedMembers.length })}
                         </div>
