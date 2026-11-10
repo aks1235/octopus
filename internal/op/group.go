@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -722,6 +723,7 @@ func sortGroupItems(items []model.GroupItem) {
 func groupSnapshot(group model.Group) model.Group {
 	// 成员恒为数组: 读取侧承诺该字段不为 null, 空分组也要给出空数组。
 	group.Items = append(make([]model.GroupItem, 0, len(group.Items)), group.Items...)
+	now := time.Now().Unix()
 	for i := range group.Items {
 		grant, ok := channelGrantCache.Get(group.Items[i].ChannelGrantID)
 		if !ok {
@@ -732,6 +734,8 @@ func groupSnapshot(group model.Group) model.Group {
 		group.Items[i].ProbeStatus = grant.ProbeStatus
 		group.Items[i].ProbeReason = grant.ProbeReason
 		group.Items[i].ProbeAt = grant.ProbeAt
+		// 与选路共用同一个判定: 界面据此把"当前会被跳过"的成员排到列表末尾, 过期结论自动回原位。
+		group.Items[i].ProbeBlocking = GrantProbeDead(grant, now)
 		channelModel, modelOK := channelModelCache.Get(grant.ChannelModelID)
 		channelKey, keyOK := channelKeyCache.Get(grant.ChannelKeyID)
 		if !modelOK || !keyOK {

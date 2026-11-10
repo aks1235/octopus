@@ -128,3 +128,41 @@ func TestSelectableGroupItems_forceDisabledStillFiltered(t *testing.T) {
 		t.Fatalf("selectable items = %d, want 0 (凭据禁用时任何探测结论都不放行)", len(items))
 	}
 }
+
+// TestGroupSnapshot_probeBlockingMatchesRouting 守住界面排序所依赖的唯一口径:
+// GroupItem.probe_blocking 必须与选路实际跳过完全一致, 否则列表承诺的顺序会与实际尝试顺序分叉。
+//
+// 这条不变式是本功能的地基——界面只读 probe_blocking 决定"谁排到末尾", 一旦后端换了窗口
+// 或忘了同步, 这里先炸, 而不是等用户发现"排在最后的成员被优先请求了"。
+func TestGroupSnapshot_probeBlockingMatchesRouting(t *testing.T) {
+	seedProbeRoutingDB(t)
+	group, err := op.GroupGet(1)
+	if err != nil {
+		t.Fatalf("GroupGet() error = %v", err)
+	}
+
+	blocking := map[int]bool{}
+	for _, item := range group.Items {
+		blocking[item.ChannelGrantID] = item.ProbeBlocking
+	}
+	// 授权 1: 刚判死 → 跳过; 授权 2: 判死但结论过期 → 不跳过; 授权 3: 通过 → 不跳过。
+	wantBlocking := map[int]bool{1: true, 2: false, 3: false}
+	for grantID, want := range wantBlocking {
+		if blocking[grantID] != want {
+			t.Fatalf("grant %d probe_blocking = %v, want %v", grantID, blocking[grantID], want)
+		}
+	}
+
+	// 与选路逐成员对齐: 被标 blocking 的恰好就是不进候选的那些。
+	// 仅在本轮不触发"全员判死回退"时成立——本用例只判死 1/3, 回退分支见上一条测试。
+	selected := map[int]bool{}
+	for _, item := range selectableGroupItems(group) {
+		selected[item.ChannelGrantID] = true
+	}
+	for _, item := range group.Items {
+		if blocking[item.ChannelGrantID] == selected[item.ChannelGrantID] {
+			t.Fatalf("grant %d probe_blocking = %v 但 selected = %v, 判定分叉",
+				item.ChannelGrantID, blocking[item.ChannelGrantID], selected[item.ChannelGrantID])
+		}
+	}
+}

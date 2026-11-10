@@ -405,6 +405,7 @@
             "probeExpired": "verdict expired, no longer skipped",
             "probeDeadTime": "probed {time}",
             "disabledMembers": "{count} disabled members",
+            "probeBlocked": "{count} probe-failed members · skipped for routing",
             "collapseDisabled": "Collapse disabled members",
             "quickTest": "Quick check",
             "fullTest": "Test all members",

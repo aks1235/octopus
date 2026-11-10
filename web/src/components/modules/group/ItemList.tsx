@@ -30,6 +30,9 @@ export interface SelectedMember {
     probe_status?: string;
     probe_reason?: string;
     probe_at?: number;
+    // 后端判定的"当前真的会被跳过": 已判死且结论未过期。界面只读这个布尔值排序,
+    // 不自己拿 probe_at 减 24 小时——两套窗口迟早会分叉。
+    probe_blocking?: boolean;
 }
 
 // reorderVisible 在"渲染列表被过滤"的前提下重排完整成员数组。
@@ -428,7 +431,13 @@ export function MemberList({
     // 已禁用成员默认收在底部的只读折叠区：它们的数量常远超可用成员，平铺会把可用项挤到屏幕外
     //（用户原话：要往下翻才能找到）。顺序即选路优先级，故收起只影响渲染，提交始终是全量成员。
     const [showDisabledMembers, setShowDisabledMembers] = useState(false);
-    const draggableMembers = members.filter((member) => member.enabled !== false || removingIds.has(member.id));
+    // 已探测判死（且结论未过期）的成员默认落到主列表下方：它们当前根本不参与选路，
+    // 占着列表最上面只会让人以为"优先级最高的全是坏的"。顺序即优先级，这里只改渲染，
+    // 提交始终是全量成员、顺序不变——一旦把重排结果提交，选路优先级就被显示顺序篡改了。
+    const draggableMembers = members.filter(
+        (member) => (member.enabled !== false && !member.probe_blocking) || removingIds.has(member.id)
+    );
+    const blockedMembers = members.filter((member) => member.enabled !== false && member.probe_blocking);
     const disabledMembers = members.filter((member) => member.enabled === false && !removingIds.has(member.id));
 
     useEffect(() => {
@@ -566,6 +575,37 @@ export function MemberList({
                         )}
                     </Droppable>
                 </DragDropContext>
+
+                {/* 探测失败段：只读、不折叠。它与下方"已禁用"折叠区的区别在于——这些成员是启用的、
+                    能转发、只是最近一次探测判死且尚未过期（24 小时后自动回到主列表原位），
+                    所以不能像禁用成员那样藏起来，否则界面上就看不出"它只是暂时被跳过"。 */}
+                {blockedMembers.length > 0 && (
+                    <div className="px-2 pb-2">
+                        <div className="flex items-center gap-1.5 px-1 pb-1 text-[11px] text-muted-foreground">
+                            <Ban className="size-3 shrink-0" />
+                            {t('card.probeBlocked', { count: blockedMembers.length })}
+                        </div>
+                        <div className="flex flex-col space-y-1.5">
+                            {blockedMembers.map((member) => (
+                                <MemberItem
+                                    key={member.id}
+                                    member={member}
+                                    onRemove={onRemove}
+                                    onActivate={onActivate}
+                                    onShowProbeHistory={onShowProbeHistory}
+                                    isActive={member.item_id === activeItemId}
+                                    group={group}
+                                    now={now}
+                                    testResult={member.item_id !== undefined ? testResults?.[member.item_id] : undefined}
+                                    isRemoving={false}
+                                    showConfirmDelete={showConfirmDelete}
+                                    layoutScope={layoutScope}
+                                    dnd={staticDnd}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {disabledMembers.length > 0 && (
                     <div className="px-2 pb-2">

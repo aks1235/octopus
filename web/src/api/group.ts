@@ -33,6 +33,7 @@ export interface GroupItem {
     probe_status: string; // 探测结论：空=未探测，ok=最近一次探测通过，dead=已判死（选路跳过，24 小时后自动失效）。
     probe_reason: string; // 判死或最近一次失败的原因摘要，已由后端截断。
     probe_at: number; // 最近一次探测完成的时间（unix 秒），0 表示从未探测。
+    probe_blocking: boolean; // 为真表示该成员当前真的会被选路跳过（已判死且结论未过期）；界面据此把它排到列表末尾，不要自行比较 24 小时窗口。
 }
 
 // GroupRuntime 是分组的实时路由状态。

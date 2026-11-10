@@ -405,6 +405,7 @@
             "probeExpired": "結論已過期，選路不再跳過",
             "probeDeadTime": "探測時間 {time}",
             "disabledMembers": "已禁用成員 {count} 個",
+            "probeBlocked": "探測失敗成員 {count} 個 · 目前不參與選路",
             "collapseDisabled": "收起已禁用成員",
             "quickTest": "快速體檢",
             "fullTest": "完整測試全部成員",

@@ -99,6 +99,10 @@ type GroupItem struct {
 	ProbeStatus string `json:"probe_status" gorm:"-"` // 空=未探测, ok=最近一次探测通过, dead=已判死。
 	ProbeReason string `json:"probe_reason" gorm:"-"` // 判死或最近一次失败的原因摘要, 已截断。
 	ProbeAt     int64  `json:"probe_at" gorm:"-"`     // 最近一次探测完成时间(unix 秒), 0 表示从未探测。
+	// ProbeBlocking 表示该成员当前真的会被选路跳过: 已判死且结论未过期。
+	// 与选路共用 GrantProbeDead 一个判定, 界面不得自行比较 probe_at 与 24 小时窗口——
+	// 前后端各判一套必然分叉, 而这里判错的后果是界面承诺的顺序与实际尝试顺序不一致。
+	ProbeBlocking bool `json:"probe_blocking" gorm:"-"`
 }
 
 // 创建分组请求; 成员顺序即优先级顺序。
