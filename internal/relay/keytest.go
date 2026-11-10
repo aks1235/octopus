@@ -138,6 +138,14 @@ func testChannelKeyModelWithTimeout(ctx context.Context, channel model.Channel, 
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
 		requestBody, responseBody, sendErr := sendKeyTestRequest(attemptCtx, channel, outbound, modelName)
 		err = sendErr
+		if err == nil {
+			// 探测口径比转发更严: 200 但正文为空(含命中输出上限)算这一协议没答出来。
+			// 转发链容忍截断是因为"客户端要长输出被截断"是正常语义; 探测问的是"能不能答出 1+1",
+			// 8192 上限还没吐正文就说明它在思考里空转, 标成可用就是假绿。
+			if reason := emptyAnswerReasonWith(keyTestFormat(protocol), responseBody, false); reason != "" {
+				err = fmt.Errorf("upstream returned no answer: %s", reason)
+			}
+		}
 		if len(requestBody) > 0 {
 			requestBodies = append(requestBodies, loggedTestRequest{Protocol: keyTestProtocolName(protocol), Body: requestBody})
 		}
@@ -458,4 +466,17 @@ func truncateKeyTestError(message string) string {
 		return message
 	}
 	return message[:keyTestMaxErrorLength]
+}
+
+// keyTestFormat 把协议位折成响应解析用的 APIFormat。
+// 只有探测侧需要它(要按协议读响应正文判空), 转发链的 format 来自客户端请求本身。
+func keyTestFormat(protocol model.Protocol) llm.APIFormat {
+	switch protocol {
+	case model.ProtocolAnthropicMessage:
+		return llm.APIFormatAnthropicMessage
+	case model.ProtocolOpenAIResponse:
+		return llm.APIFormatOpenAIResponse
+	default:
+		return llm.APIFormatOpenAIChatCompletion
+	}
 }

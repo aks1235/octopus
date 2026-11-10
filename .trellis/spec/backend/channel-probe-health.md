@@ -25,7 +25,14 @@ one-api（`monitor/channel.go`）与 new-api（`model/ability.go`、`model/cache
 
 ## 契约一：探测单元 = 复用 `relay.TestGroupMembers`
 
-**What**：定时探测直接调用既有 `relay.TestGroupMembers(ctx, group)`（`internal/relay/keytest.go:276`），即「用户手点全部测试」的同一实现。逐成员直连该成员的（渠道, 凭据, 模型），**不走分组选路**；报文 `1+1等于几？`、`max_tokens 8192`、超时 15s、2xx 且可按协议解析且非空正文才算通（`sendKeyTestRequest`，`keytest.go:400`）。
+**What**：定时探测直接调用既有 `relay.TestGroupMembers(ctx, group)`（`internal/relay/keytest.go:276`），即「用户手点全部测试」的同一实现。逐成员直连该成员的（渠道, 凭据, 模型），**不走分组选路**；报文 `1+1等于几？`、`max_tokens 8192`、超时 15s。
+
+**判据（三层，缺一不可）**：
+1. 2xx；
+2. 响应可按所测协议解析；
+3. **有正文或工具调用**——`emptyAnswerReasonWith(format, body, false)`。
+
+第 3 条是探测**特有**的严格口径：转发链走 `emptyAnswerReason(..., true)`，把「命中输出上限 / 未完成 / 内容过滤」都视为正常截断；探测不容忍，因为探测问的是「能不能给出答案」，8192 上限还没吐正文说明它在思考里空转，标成可用就是假绿（2026-11-10 实测该形态真实存在：content 空 + `reasoning_content` 满 + `finish_reason=length` 的 200）。空正文的错误文本是 `upstream returned no answer: ...`，不命中判死白名单，故走**计数类**失败（连续 3 次才判死），避免偶发截断直接毙掉成员。
 
 **Why**：端到端探测（发 `model=<分组名>` 走真实选路）一轮只发 15 次请求，但 prio1 成功即停，**后段成员全程未被测到**——而降权需要的恰恰是「每个成员各自死活」。成员粒度一轮 268 次请求，换来每个成员都有确定结论；并发 4 + 每渠道限 2 的保护是现成的。
 

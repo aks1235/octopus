@@ -273,7 +273,18 @@ const emptyAnswerMessage = "upstream returned empty answer (reasoning-only stop)
 //   - 拒答 (refusal 非空, 是合法回答)。
 //
 // 结构无法识别、或本身是错误响应时返回空串: 本函数只负责识别空回答, 不改动既有的错误判定口径。
+// emptyAnswerReason 是转发链的口径: 命中输出上限 / 内容过滤 / 未完成时**不算**失败——
+// 客户端要了长输出被截断是正常服务语义, 判失败会错误地换成员重试。
 func emptyAnswerReason(format llm.APIFormat, body []byte) string {
+	return emptyAnswerReasonWith(format, body, true)
+}
+
+// emptyAnswerReasonWith 是空正文判定的唯一实现, tolerateTruncation 决定"被上限截断算不算答出"。
+//
+// 转发链传 true(见 emptyAnswerReason); 探测传 false: 探测问的是"这个成员能不能给出答案",
+// 命中 8192 上限却连一个字都没吐, 说明它在思考里空转——对探测而言这就是答不出, 不能标成可用
+// (2026-11-10 实测: max_tokens 偏小时思考模型会返回 content 为空 + finish_reason=length 的 200)。
+func emptyAnswerReasonWith(format llm.APIFormat, body []byte, tolerateTruncation bool) string {
 	if len(body) == 0 {
 		return "upstream returned empty response body"
 	}
@@ -300,7 +311,12 @@ func emptyAnswerReason(format llm.APIFormat, body []byte) string {
 			}
 		}
 		switch gjson.GetBytes(body, "stop_reason").String() {
-		case "max_tokens", "refusal":
+		case "max_tokens":
+			if tolerateTruncation {
+				return ""
+			}
+		case "refusal":
+			// 拒答是模型的真实回应, 两种口径下都不算空正文。
 			return ""
 		}
 		if hasText || hasTool {
@@ -330,8 +346,8 @@ func emptyAnswerReason(format llm.APIFormat, body []byte) string {
 				hasTool = true
 			}
 		}
-		// incomplete 涵盖命中输出上限与内容过滤两类终态。
-		if hasText || hasTool || gjson.GetBytes(body, "status").String() == "incomplete" {
+		// incomplete 涵盖命中输出上限与内容过滤两类终态: 转发链容忍(截断是正常语义), 探测不容忍。
+		if hasText || hasTool || (tolerateTruncation && gjson.GetBytes(body, "status").String() == "incomplete") {
 			return ""
 		}
 		return emptyAnswerMessage
@@ -366,7 +382,7 @@ func emptyAnswerReason(format llm.APIFormat, body []byte) string {
 				limited = true
 			}
 		}
-		if hasText || hasTool || hasRefusal || limited {
+		if hasText || hasTool || hasRefusal || (tolerateTruncation && limited) {
 			return ""
 		}
 		return emptyAnswerMessage
