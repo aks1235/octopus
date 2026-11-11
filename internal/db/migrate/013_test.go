@@ -52,13 +52,15 @@ func TestMigrateStatsHourlyDateKey_preservesRows(t *testing.T) {
 	db := openMigrationTestDB(t)
 	createLegacyStatsHourlies(t, db)
 
-	legacy := []model.StatsHourly{
-		{Hour: 5, Date: "20260916", StatsMetrics: model.StatsMetrics{RequestSuccess: 2, InputToken: 20}},
-		{Hour: 6, Date: "20260917", StatsMetrics: model.StatsMetrics{RequestFailed: 1}},
-		{Hour: 23, Date: "20260917", StatsMetrics: model.StatsMetrics{RequestSuccess: 7, OutputToken: 70}},
-	}
-	if err := db.Create(&legacy).Error; err != nil {
-		t.Fatalf("seed legacy rows: %v", err)
+	// 用原始 SQL 灌老形状数据: 老表没有新增列(如缓存拆分), 走 GORM Create 会带上全列而报 no such column。
+	for _, stmt := range []string{
+		`INSERT INTO stats_hourlies (hour, date, request_success, input_token) VALUES (5, '20260916', 2, 20)`,
+		`INSERT INTO stats_hourlies (hour, date, request_failed) VALUES (6, '20260917', 1)`,
+		`INSERT INTO stats_hourlies (hour, date, request_success, output_token) VALUES (23, '20260917', 7, 70)`,
+	} {
+		if err := db.Exec(stmt).Error; err != nil {
+			t.Fatalf("seed legacy rows: %v", err)
+		}
 	}
 
 	if err := migrateStatsHourlyDateKey(db); err != nil {
@@ -96,8 +98,8 @@ func TestMigrateStatsHourlyDateKey_preservesRows(t *testing.T) {
 func TestMigrateStatsHourlyDateKey_idempotentAndSkipsFresh(t *testing.T) {
 	db := openMigrationTestDB(t)
 	createLegacyStatsHourlies(t, db)
-	seed := model.StatsHourly{Hour: 9, Date: "20260917", StatsMetrics: model.StatsMetrics{RequestSuccess: 4}}
-	if err := db.Create(&seed).Error; err != nil {
+	// 同上: 老形状表只插它有的列。
+	if err := db.Exec(`INSERT INTO stats_hourlies (hour, date, request_success) VALUES (9, '20260917', 4)`).Error; err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 

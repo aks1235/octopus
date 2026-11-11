@@ -17,8 +17,9 @@ interface ChartPoint {
     stat: StatsMetricsFormatted;
 }
 
-// 柱子的取值维度。字段名固定为这四个, 由指标类型决定填入哪一套口径。
-type SeriesKey = 'input' | 'output' | 'success' | 'failed';
+// 柱子的取值维度。字段名固定为这几个, 由指标类型决定填入哪一套口径。
+// 词元维度拆成缓存命中/新增输入/输出/缓存写入四段, 与总览的构成口径一致。
+type SeriesKey = 'input' | 'output' | 'success' | 'failed' | 'cacheRead' | 'newInput' | 'cacheWrite';
 
 // 图表数据点: 柱子按指标填充, calls 恒为请求次数, 供右轴折线使用。
 interface TrendDatum {
@@ -27,6 +28,9 @@ interface TrendDatum {
     output: number;
     success: number;
     failed: number;
+    cacheRead: number;
+    newInput: number;
+    cacheWrite: number;
     calls: number;
 }
 
@@ -53,6 +57,7 @@ function TrendTooltip({
     payload,
     series,
     showCalls,
+    showShare,
     isCost,
     callsLabel,
     totalLabel,
@@ -61,6 +66,7 @@ function TrendTooltip({
     payload?: Array<{ payload?: TrendDatum }>;
     series: TrendSeries[];
     showCalls: boolean;
+    showShare: boolean;
     isCost: boolean;
     callsLabel: string;
     totalLabel: string;
@@ -89,6 +95,11 @@ function TrendTooltip({
                             <span className="font-mono font-medium tabular-nums text-foreground">
                                 {metric.value}{metric.unit}
                             </span>
+                            {showShare && (
+                                <span className="w-11 text-right text-muted-foreground tabular-nums">
+                                    {total > 0 ? `${((datum[item.key] / total) * 100).toFixed(1)}%` : '—'}
+                                </span>
+                            )}
                         </div>
                     );
                 })}
@@ -157,7 +168,17 @@ export function StatsChart() {
             ? { input: t('inputCost'), output: t('outputCost') }
             : { input: t('inputToken'), output: t('outputToken') };
 
-        // 同一色相的两个明度档: 相邻堆叠段靠明度区分, 比换色相更容易读成"同一根柱子"。
+        if (!isCost) {
+            // 词元维度按输入构成拆四段: 缓存命中 -> 新增输入 -> 输出 -> 缓存写入, 顺序与总览占比条一致。
+            return [
+                { key: 'cacheRead', label: t('cacheRead'), color: cssVar('--chart-1') },
+                { key: 'newInput', label: t('newInput'), color: cssVar('--chart-2') },
+                { key: 'output', label: t('outputToken'), color: cssVar('--chart-4') },
+                { key: 'cacheWrite', label: t('cacheWrite'), color: cssVar('--chart-5') },
+            ];
+        }
+
+        // 金额维度只有输入/输出两个总量(成本拆不出缓存分量), 沿用同一色相的两个明度档。
         return [
             { key: 'input', label: labels.input, color: cssVar('--chart-1') },
             { key: 'output', label: labels.output, color: cssVar('--chart-3') },
@@ -170,6 +191,9 @@ export function StatsChart() {
         output: (isCost ? item.stat.output_cost : item.stat.output_token).raw,
         success: item.stat.request_success.raw,
         failed: item.stat.request_failed.raw,
+        cacheRead: item.stat.cache_read_token.raw,
+        newInput: item.stat.new_input_token.raw,
+        cacheWrite: item.stat.cache_write_token.raw,
         calls: item.stat.request_count.raw,
     }));
 
@@ -294,6 +318,7 @@ export function StatsChart() {
                                     <TrendTooltip
                                         series={series}
                                         showCalls={showCalls}
+                                        showShare={metricType === 'tokens'}
                                         isCost={isCost}
                                         callsLabel={t('totalRequests')}
                                         totalLabel={t('total')}

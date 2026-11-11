@@ -104,6 +104,12 @@
             "noData": "No Data"
         },
         "total": {
+            "composition": "Token Breakdown",
+            "cacheRead": "Cached Input",
+            "newInput": "New Input",
+            "cacheWrite": "Cache Write",
+            "cacheHitRate": "Cache Hit Rate",
+            "cacheUnavailable": "Upstream returned no cache details",
             "requestStats": "Request Stats",
             "totalStats": "Total Stats",
             "inputStats": "Input Stats",
@@ -118,6 +124,9 @@
             "outputCost": "Output Cost"
         },
         "chart": {
+            "cacheRead": "Cached",
+            "newInput": "New Input",
+            "cacheWrite": "Cache Write",
             "inputToken": "Input Tokens",
             "outputToken": "Output Tokens",
             "inputCost": "Input Cost",

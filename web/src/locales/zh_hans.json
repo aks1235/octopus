@@ -104,6 +104,12 @@
             "noData": "无数据"
         },
         "total": {
+            "composition": "词元构成",
+            "cacheRead": "缓存命中",
+            "newInput": "新增输入",
+            "cacheWrite": "缓存写入",
+            "cacheHitRate": "缓存命中率",
+            "cacheUnavailable": "上游未返回缓存明细",
             "requestStats": "请求统计",
             "totalStats": "全部统计",
             "inputStats": "输入统计",
@@ -118,6 +124,9 @@
             "outputCost": "输出费用"
         },
         "chart": {
+            "cacheRead": "缓存命中",
+            "newInput": "新增输入",
+            "cacheWrite": "缓存写入",
             "inputToken": "输入词元",
             "outputToken": "输出词元",
             "inputCost": "输入费用",

@@ -48,17 +48,17 @@ var channelImportColumns = []string{
 	"name", "dialect", "enabled", "base_url",
 	"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
 	"proxy", "channel_proxy", "custom_header", "param_override", "match_regex", "health_check_skip",
-	"input_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed",
+	"input_token", "cache_read_token", "cache_write_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed",
 }
 
 var channelKeyImportColumns = []string{
 	"name", "key", "enabled",
-	"input_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed",
+	"input_token", "cache_read_token", "cache_write_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed",
 }
 
 var channelModelImportColumns = []string{
 	"name",
-	"input_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed",
+	"input_token", "cache_read_token", "cache_write_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed",
 }
 
 var groupImportColumns = []string{"name", "mode", "member_regex", "active_item_id", "relay_config"}

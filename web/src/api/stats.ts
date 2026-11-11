@@ -8,6 +8,9 @@ import { formatCount, formatMoney, formatTime } from '@/lib/utils';
  */
 export interface StatsMetrics {
     input_token: number;
+    // 缓存命中/写入是 input_token 的拆分项, 不是额外增量; 老数据或上游未返回时为 0。
+    cache_read_token?: number;
+    cache_write_token?: number;
     output_token: number;
     input_cost: number;
     output_cost: number;
@@ -18,6 +21,10 @@ export interface StatsMetrics {
 
 export interface StatsMetricsFormatted {
     input_token: ReturnType<typeof formatCount>;
+    cache_read_token: ReturnType<typeof formatCount>;
+    cache_write_token: ReturnType<typeof formatCount>;
+    // 新增输入 = 输入 - 缓存命中 - 缓存写入, 仅用于展示构成; 合计仍走 input_token, 不重复计算。
+    new_input_token: ReturnType<typeof formatCount>;
     output_token: ReturnType<typeof formatCount>;
     input_cost: ReturnType<typeof formatMoney>;
     output_cost: ReturnType<typeof formatMoney>;
@@ -33,8 +40,14 @@ export interface StatsMetricsFormatted {
 // formatStatsMetrics 把一组累计统计格式化为界面展示字段，并补齐合计项。
 // 渠道、渠道模型和渠道凭据各自维护独立计数，均按同一口径展示。
 export function formatStatsMetrics(metrics: StatsMetrics): StatsMetricsFormatted {
+    // 老备份与老版本响应没有缓存两列, 缺省按 0 处理: 此时新增输入等于全部输入, 与升级前口径一致。
+    const cacheRead = metrics.cache_read_token ?? 0;
+    const cacheWrite = metrics.cache_write_token ?? 0;
     return {
         input_token: formatCount(metrics.input_token),
+        cache_read_token: formatCount(cacheRead),
+        cache_write_token: formatCount(cacheWrite),
+        new_input_token: formatCount(Math.max(0, metrics.input_token - cacheRead - cacheWrite)),
         output_token: formatCount(metrics.output_token),
         total_token: formatCount(metrics.input_token + metrics.output_token),
         input_cost: formatMoney(metrics.input_cost),

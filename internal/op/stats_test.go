@@ -452,3 +452,60 @@ func TestStatsRankDaily_todayRealtimeHistoricalSummary(t *testing.T) {
 		t.Fatalf("历史日应读永久汇总(beta/200), got %+v", histRank.Channels)
 	}
 }
+
+// TestStatsSaveDB_carriesCacheTokens 锁定缓存拆分随聚合一起落盘:
+// 累计/每日行走 Save(全列), 渠道/渠道模型/凭据行走显式 Select 列表, 后者最容易漏列。
+func TestStatsSaveDB_carriesCacheTokens(t *testing.T) {
+	setupStatsTestDB(t)
+	ctx := context.Background()
+
+	if err := db.GetDB().Create(&model.Channel{
+		ID:            1,
+		ChannelConfig: model.ChannelConfig{Name: "ch-cache", BaseURL: "http://upstream"},
+	}).Error; err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	if err := InitCache(); err != nil {
+		t.Fatalf("InitCache() error = %v", err)
+	}
+
+	metrics := model.StatsMetrics{
+		InputToken: 1000, CacheReadToken: 600, CacheWriteToken: 100, OutputToken: 200,
+		InputCost: 1.5, OutputCost: 0.5, WaitTime: 800, RequestSuccess: 1,
+	}
+	if err := StatsTotalUpdate(metrics); err != nil {
+		t.Fatalf("StatsTotalUpdate: %v", err)
+	}
+	if err := StatsDailyUpdate(ctx, metrics); err != nil {
+		t.Fatalf("StatsDailyUpdate: %v", err)
+	}
+	if err := ChannelStatsUpdate(1, metrics); err != nil {
+		t.Fatalf("ChannelStatsUpdate: %v", err)
+	}
+	if err := StatsSaveDB(ctx); err != nil {
+		t.Fatalf("StatsSaveDB() error = %v", err)
+	}
+
+	if total := StatsTotalGet(); total.CacheReadToken != 600 || total.CacheWriteToken != 100 {
+		t.Fatalf("total cache = %d/%d, want 600/100", total.CacheReadToken, total.CacheWriteToken)
+	}
+	daily, err := StatsGetDaily(ctx, at(0, 0).Format("20060102"))
+	if err != nil {
+		t.Fatalf("StatsGetDaily() error = %v", err)
+	}
+	if len(daily) != 1 || daily[0].CacheReadToken != 600 || daily[0].CacheWriteToken != 100 {
+		t.Fatalf("daily cache = %+v, want 600/100", daily)
+	}
+
+	// 渠道行走的是显式列清单: 漏列时这里会读回 0。
+	var channel model.Channel
+	if err := db.GetDB().First(&channel, 1).Error; err != nil {
+		t.Fatalf("load channel: %v", err)
+	}
+	if channel.CacheReadToken != 600 || channel.CacheWriteToken != 100 {
+		t.Fatalf("channel cache = %d/%d, want 600/100", channel.CacheReadToken, channel.CacheWriteToken)
+	}
+	if channel.InputToken != 1000 {
+		t.Fatalf("channel input = %d, want 1000", channel.InputToken)
+	}
+}
