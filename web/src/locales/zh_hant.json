@@ -118,6 +118,13 @@
             "outputCost": "輸出費用"
         },
         "chart": {
+            "inputToken": "輸入詞元",
+            "outputToken": "輸出詞元",
+            "inputCost": "輸入費用",
+            "outputCost": "輸出費用",
+            "success": "成功",
+            "failed": "失敗",
+            "total": "合計",
             "title": "趨勢",
             "totalRequests": "請求次數",
             "totalCost": "消費金額",

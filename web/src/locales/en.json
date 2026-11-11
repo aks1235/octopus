@@ -118,6 +118,13 @@
             "outputCost": "Output Cost"
         },
         "chart": {
+            "inputToken": "Input Tokens",
+            "outputToken": "Output Tokens",
+            "inputCost": "Input Cost",
+            "outputCost": "Output Cost",
+            "success": "Success",
+            "failed": "Failed",
+            "total": "Total",
             "title": "Trend",
             "totalRequests": "Total Requests",
             "totalCost": "Total Cost",

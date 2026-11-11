@@ -118,6 +118,13 @@
             "outputCost": "输出费用"
         },
         "chart": {
+            "inputToken": "输入词元",
+            "outputToken": "输出词元",
+            "inputCost": "输入费用",
+            "outputCost": "输出费用",
+            "success": "成功",
+            "failed": "失败",
+            "total": "合计",
             "title": "趋势",
             "totalRequests": "请求次数",
             "totalCost": "消费金额",
