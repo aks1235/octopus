@@ -4,9 +4,12 @@ import { animate } from 'motion/react';
 interface AnimatedNumberProps {
     value: string | number | undefined;
     duration?: number;
+    // 小数位。缺省沿用旧行为: 字符串带小数点显示两位, 纯整数不显示小数。
+    // 百分比、单价这类需要一位或三位小数, 由调用方显式指定, 否则会出现 95.90%、2.00 这种写法。
+    digits?: number;
 }
 
-export function AnimatedNumber({ value, duration = 800 }: AnimatedNumberProps) {
+export function AnimatedNumber({ value, duration = 800, digits }: AnimatedNumberProps) {
     const [displayValue, setDisplayValue] = useState(0);
     const prevValueRef = useRef(0);
 
@@ -41,7 +44,7 @@ export function AnimatedNumber({ value, duration = 800 }: AnimatedNumberProps) {
     }
 
     const shouldShowDecimals = typeof value === 'string' && value.includes('.');
-    const decimalPlaces = shouldShowDecimals ? 2 : 0;
+    const decimalPlaces = digits ?? (shouldShowDecimals ? 2 : 0);
 
     const formattedValue = displayValue.toLocaleString('en-US', {
         minimumFractionDigits: decimalPlaces,
