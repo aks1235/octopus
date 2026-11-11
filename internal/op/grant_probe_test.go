@@ -22,6 +22,10 @@ func TestProbeFailureIsFatal(t *testing.T) {
 		{"503 model_not_found", `upstream responded 503 Service Unavailable: {"error":{"code":"model_not_found"}}`, true},
 		{"400 unknown provider", `upstream responded 400 Bad Request: {"error":{"message":"unknown provider for model deepseek-v4-pro"}}`, true},
 		{"429 insufficient_credits", `upstream responded 429 Too Many Requests: {"error":{"message":"insufficient_credits: Your account"}}`, true},
+		// 429 只是限流的通用外层码, 语义要看 body: 付费解锁/账号锁定是确定性的, 不能按抖动计数。
+		{"429 model_requires_purchase", `upstream 429 Too Many Requests: {"error":{"message":"model_requires_purchase: deepseek-v4-flash-latest is locked on your account until you make a purchase. Buy credits or a plan at https://platform.example"}}`, true},
+		{"429 requires_purchase", `upstream responded 429 Too Many Requests: {"error":{"code":"requires_purchase"}}`, true},
+		{"纯限流 429 不误判", `upstream responded 429 Too Many Requests: {"error":{"message":"rate limit exceeded, retry after 20s"}}`, false},
 		{"401 unauthorized", `upstream responded 401 Unauthorized: invalid api key`, true},
 		{"403 keyword", `upstream responded 403 Forbidden: permission_error`, true},
 		{"额度中文", `上游返回：余额不足`, true},

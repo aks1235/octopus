@@ -55,6 +55,13 @@ var probeDeadKeywords = []string{
 	"no credit",
 	"余额不足",
 	"额度已用尽",
+	// 需要付费解锁/账号锁定: 上层状态码常是 429(限流的通用码), 但语义是确定性的——
+	// 生产实测 429 + "model_requires_purchase: <model> is locked on your account until you
+	// make a purchase. Buy credits or a plan" 重试不会自愈, 按限流只计数会一直留在选路里。
+	"requires_purchase",
+	"locked on your account",
+	"make a purchase",
+	"buy credits",
 }
 
 // probeDeadStatusCodes 确定性失败的 HTTP 状态码。
