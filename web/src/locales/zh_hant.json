@@ -207,9 +207,15 @@
             "tip": "對每個分組的全部成員發一次「1+1等於幾？」的真實請求，結論用於成員標註與選路跳過。會產生真實上游請求與配額消耗，建議先手動跑一輪觀察。關閉只停定時輪次；手動「測試全部成員」仍會更新結論並可能觸發跳過。",
             "runNow": "立即探測一輪",
             "running": "已提交...",
-            "started": "探測已開始，稍後重新整理查看結果",
+            "started": "探測已開始，進度會自動更新",
             "busy": "已有一輪在跑，請稍後",
-            "failed": "觸發探測失敗"
+            "failed": "觸發探測失敗",
+            "progress": "正在探測 {done}/{total} 組",
+            "lastRun": "上次完成 {time} · {groups} 組 · 耗時 {duration}",
+            "neverRun": "啟動後還沒跑過完整一輪",
+            "busyWithProgress": "已有一輪在跑（{done}/{total} 組），跑完會更新成員標記",
+            "starting": "正在探測…",
+            "runningNow": "探測中…"
         },
         "grantProbeKeepDays": {
             "label": "探測歷史保留（天）",

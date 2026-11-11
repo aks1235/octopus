@@ -77,6 +77,10 @@ func init() {
 				Handle(runGroupProbe),
 		).
 		AddRoute(
+			router.NewRoute("/probe/status", http.MethodGet).
+				Handle(getGroupProbeStatus),
+		).
+		AddRoute(
 			router.NewRoute("/probe/history/:grant_id", http.MethodGet).
 				Handle(getGrantProbeHistory),
 		).
@@ -473,7 +477,15 @@ func streamGroupMemberTests(c *gin.Context, group model.Group) {
 // 已在跑时返回 started=false 而不是 409: 这是幂等的"请跑一轮", 撞车不算错误。
 func runGroupProbe(c *gin.Context) {
 	started := task.RunGroupProbeRoundAsync()
-	resp.Success(c, gin.H{"started": started})
+	// 连同当前轮次状态一起返回: 前端撞车时要能说清"已经跑到第几组", 否则"启动了没有"这件事
+	// 在界面上就是一个说不清的二值。
+	resp.Success(c, gin.H{"started": started, "status": task.ProbeRoundStatusSnapshot()})
+}
+
+// getGroupProbeStatus 返回当前轮次进度与上次完成时间, 供设置页展示。
+// 纯内存读, 不查库: 这个接口会被前端在探测期间轮询。
+func getGroupProbeStatus(c *gin.Context) {
+	resp.Success(c, task.ProbeRoundStatusSnapshot())
 }
 
 // probeHistoryDays 解析窗口天数, 缺省用 fallback, 上限一年(再长也没有意义: 探测是稀疏采样)。

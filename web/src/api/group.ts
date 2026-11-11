@@ -311,10 +311,31 @@ export function useResetGroupCooldown() {
     });
 }
 
+// GroupProbeStatus 是一轮定时探测的实时快照：running 为真时 done/total 表示进度，
+// 否则 last_* 描述上一轮何时结束、跑了几组、耗时多久。
+export interface GroupProbeStatus {
+    running: boolean;
+    started_at: number; // unix 秒
+    groups_total: number;
+    groups_done: number;
+    last_finished_at: number; // unix 秒；0 表示进程启动后还没跑过
+    last_groups: number;
+    last_duration_ms: number;
+}
+
+// getGroupProbeStatus 读当前轮次进度与上次完成时间（后端纯内存，可安全轮询）。
+export async function getGroupProbeStatus(): Promise<GroupProbeStatus> {
+    return apiRequest<GroupProbeStatus>('/api/v1/group/probe/status');
+}
+
 // runGroupProbe 立即触发一轮分组成员探测（后台执行，立即返回是否真的启动）。
 // 用于首次开启前先手动打一轮观察上游反应，以及不必等 6–12 小时的日常巡检。
-export async function runGroupProbe(): Promise<{ started: boolean }> {
-    return apiRequest<{ started: boolean }>('/api/v1/group/probe/run', { method: 'POST', body: {} });
+// 撞车时 started=false，但 status 里带着正在跑那一轮的进度。
+export async function runGroupProbe(): Promise<{ started: boolean; status: GroupProbeStatus }> {
+    return apiRequest<{ started: boolean; status: GroupProbeStatus }>('/api/v1/group/probe/run', {
+        method: 'POST',
+        body: {},
+    });
 }
 
 // GrantProbeRecord 是一次真实探测的审计行，用于回看历史。

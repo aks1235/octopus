@@ -207,9 +207,15 @@
             "tip": "Sends one real \"1+1=?\" request to every member of every group; the verdict marks members and can be skipped during routing. This costs real upstream quota, so run one round manually first. Turning this off only stops the scheduled rounds — a manual \"test all members\" still writes verdicts and can skip members.",
             "runNow": "Run a round now",
             "running": "Submitted...",
-            "started": "Probe started, refresh later to see results",
+            "started": "Probe started; progress updates automatically",
             "busy": "A round is already running, try later",
-            "failed": "Failed to start probe"
+            "failed": "Failed to start probe",
+            "progress": "Probing {done}/{total} groups",
+            "lastRun": "Last run {time} · {groups} groups · {duration}",
+            "neverRun": "No full round since startup",
+            "busyWithProgress": "A round is already running ({done}/{total} groups); member badges update when it ends",
+            "starting": "Probing…",
+            "runningNow": "Probing…"
         },
         "grantProbeKeepDays": {
             "label": "Probe history retention (days)",

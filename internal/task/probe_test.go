@@ -30,4 +30,16 @@ func TestRunGroupProbeRound_emptyDB(t *testing.T) {
 	if probeRoundRunning.Load() {
 		t.Fatal("probeRoundRunning still true after round")
 	}
+
+	// 轮次收尾后状态必须可读: 没在跑, 且记下了完成时间, 否则设置页永远显示"还没跑过"。
+	status := ProbeRoundStatusSnapshot()
+	if status.Running {
+		t.Fatal("status.Running still true after round")
+	}
+	if status.LastFinishedAt == 0 {
+		t.Fatal("status.LastFinishedAt not set after round")
+	}
+	if status.GroupsTotal != 0 || status.GroupsDone != 0 {
+		t.Fatalf("empty round progress = %d/%d, want 0/0", status.GroupsDone, status.GroupsTotal)
+	}
 }

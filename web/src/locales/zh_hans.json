@@ -207,9 +207,15 @@
             "tip": "对每个分组的全部成员发一次「1+1等于几？」的真实请求，结论用于成员标注与选路跳过。会产生真实上游请求与配额消耗，建议先手动跑一轮观察。关闭只停定时轮次；手动「测试全部成员」仍会更新结论并可能触发跳过。",
             "runNow": "立即探测一轮",
             "running": "已提交...",
-            "started": "探测已开始，稍后刷新查看结果",
+            "started": "探测已开始，进度会自动更新",
             "busy": "已有一轮在跑，请稍后",
-            "failed": "触发探测失败"
+            "failed": "触发探测失败",
+            "progress": "正在探测 {done}/{total} 组",
+            "lastRun": "上次完成 {time} · {groups} 组 · 耗时 {duration}",
+            "neverRun": "启动后还没跑过完整一轮",
+            "busyWithProgress": "已有一轮在跑（{done}/{total} 组），跑完会更新成员标记",
+            "starting": "正在探测…",
+            "runningNow": "探测中…"
         },
         "grantProbeKeepDays": {
             "label": "探测历史保留（天）",

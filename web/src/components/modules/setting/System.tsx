@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
-import { runGroupProbe } from '@/api/group';
+import { getGroupProbeStatus, runGroupProbe, type GroupProbeStatus } from '@/api/group';
 import { compileMemberRegex } from '@/lib/member-regex';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -26,6 +26,7 @@ export function SettingSystem() {
     const [groupProbeEnabled, setGroupProbeEnabled] = useState(false);
     const [grantProbeKeepDays, setGrantProbeKeepDays] = useState('90');
     const [probeRunning, setProbeRunning] = useState(false);
+    const [probeStatus, setProbeStatus] = useState<GroupProbeStatus | null>(null);
 
     const initialProxyUrl = useRef('');
     const initialStatsSaveInterval = useRef('');
@@ -101,6 +102,57 @@ export function SettingSystem() {
         });
     };
 
+    // 进页面先取一次轮次状态; 轮次在跑时每 4 秒轮询一次, 停下即止。
+    // 一轮要跑几分钟且后端不推送进度, 没有这个轮询, 界面上就只剩"点了没反应"。
+    useEffect(() => {
+        let cancelled = false;
+        void getGroupProbeStatus()
+            .then((next) => {
+                if (!cancelled) setProbeStatus(next);
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!probeStatus?.running) return;
+        let cancelled = false;
+        const timer = window.setInterval(() => {
+            void getGroupProbeStatus()
+                .then((next) => {
+                    if (!cancelled) setProbeStatus(next);
+                })
+                .catch(() => undefined);
+        }, 4000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [probeStatus?.running]);
+
+    // probeStatusText 把轮次状态说成人话: 在跑就给进度, 跑完给上次的完成时间/组数/耗时。
+    const probeStatusText = useMemo(() => {
+        if (!probeStatus) return '';
+        if (probeStatus.running) {
+            // 刚起跑的一瞬 groups_total 还是 0(分组清单尚未定下), 这时只说"正在探测"。
+            if (probeStatus.groups_total === 0) return t('groupProbe.starting');
+            return t('groupProbe.progress', { done: probeStatus.groups_done, total: probeStatus.groups_total });
+        }
+        if (!probeStatus.last_finished_at) return t('groupProbe.neverRun');
+        const seconds = Math.max(1, Math.round(probeStatus.last_duration_ms / 1000));
+        const duration = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
+        return t('groupProbe.lastRun', {
+            time: new Date(probeStatus.last_finished_at * 1000).toLocaleString(),
+            groups: probeStatus.last_groups,
+            duration,
+        });
+    }, [probeStatus, t]);
+
+    // 运行中按钮直接显示进度, 而不是只写"进行中": 一轮几分钟, 用户需要知道还剩多少。
+    const probeButtonLabel = probeStatus?.running ? t('groupProbe.runningNow') : t('groupProbe.runNow');
+
     // 定时探测开关: 只有开着才会每 6–12 小时自动跑一轮; 关掉后已落库的判死结论最多一天自动失效。
     const handleGroupProbeToggle = (next: boolean) => {
         setGroupProbeEnabled(next);
@@ -121,8 +173,14 @@ export function SettingSystem() {
     const handleRunProbe = async () => {
         setProbeRunning(true);
         try {
-            const { started } = await runGroupProbe();
-            toast.success(started ? t('groupProbe.started') : t('groupProbe.busy'));
+            const { started, status } = await runGroupProbe();
+            setProbeStatus(status);
+            // 撞车不是错误: 说清"已经在跑、跑到第几组", 比一句"请稍后"有用得多。
+            if (!started && status.running) {
+                toast.info(t('groupProbe.busyWithProgress', { done: status.groups_done, total: status.groups_total }));
+            } else {
+                toast.success(t('groupProbe.started'));
+            }
         } catch (error) {
             toast.error(error instanceof Error ? error.message : t('groupProbe.failed'));
         } finally {
@@ -261,6 +319,10 @@ export function SettingSystem() {
                     <div className="flex flex-col">
                         <span className="text-sm font-medium">{t('groupProbe.label')}</span>
                         <span className="text-xs text-muted-foreground">{t('groupProbe.hint')}</span>
+                        {/* 轮次状态: 在跑给进度, 跑完给上次完成时间。没有它, 探测就是黑盒。 */}
+                        {probeStatusText && (
+                            <span className="text-xs text-muted-foreground/70 tabular-nums">{probeStatusText}</span>
+                        )}
                     </div>
                     <Tooltip>
                         <TooltipTrigger asChild>
@@ -277,9 +339,9 @@ export function SettingSystem() {
                         size="sm"
                         className="rounded-xl"
                         onClick={handleRunProbe}
-                        disabled={probeRunning}
+                        disabled={probeRunning || probeStatus?.running}
                     >
-                        {probeRunning ? t('groupProbe.running') : t('groupProbe.runNow')}
+                        {probeRunning ? t('groupProbe.running') : probeButtonLabel}
                     </Button>
                     <Switch checked={groupProbeEnabled} onCheckedChange={handleGroupProbeToggle} />
                 </div>

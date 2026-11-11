@@ -401,12 +401,12 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 	result.ModelName = channelModel.Name
 	result.KeyName = channelKey.Name
 	if ctx.Err() != nil {
-		// 客户端已断开, 该成员不再发往上游, 按取消摘要记失败, 日志与结果行一一对应。
+		// 请求还没发出就结束了: 客户端断开, 或本轮预算(分组级 10 分钟)已耗尽。
+		// 两种都不代表上游状态, 一律记 canceled —— 探测结论侧会整条跳过它。
+		// 曾经把 DeadlineExceeded 记成 timeout, 于是大组里排在后面的成员一次请求都没发,
+		// 却背了一次失败计数, 连续几轮就足以被误判死。
 		result.Error = ctx.Err().Error()
 		result.Status = "canceled"
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			result.Status = "timeout"
-		}
 		clientName, userAgent := testClientNameOf(ctx)
 		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, nil, "", "", 0)
 		return result
