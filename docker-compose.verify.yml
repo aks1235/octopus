@@ -4,6 +4,6 @@
 # 用法: docker compose -f docker-compose.smoke.yml -f docker-compose.verify.yml up -d --build
 services:
   octopus:
-    image: raynmy/octopus:verify-model-reconcile
+    image: raynmy/octopus:verify-ui18
     volumes:
       - './data-verify:/app/data'

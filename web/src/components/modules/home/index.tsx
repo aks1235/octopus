@@ -21,7 +21,7 @@ function DateNav() {
     const isToday = selectedDate === todayDateStr();
 
     return (
-        <div className="flex items-center justify-end gap-2 text-sm">
+        <div className="flex items-center justify-end gap-2 pt-1 pr-4 text-sm">
             <span className="text-muted-foreground">{t('current')}</span>
             <span className="font-medium">
                 {`${selectedDate.slice(0, 4)}-${selectedDate.slice(4, 6)}-${selectedDate.slice(6, 8)}`}
