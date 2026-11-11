@@ -16,6 +16,8 @@ import { AnimatedNumber } from '@/components/common/AnimatedNumber';
 import { formatCount } from '@/lib/utils';
 
 // TokenComposition 展示词元总量里 缓存命中 / 新增输入 / 输出 / 缓存写入 的占比。
+// 不套卡片: 单独一张宽卡里只有一条细线, 视觉上是一块空白色块; 这里做成统计区上方的一行说明,
+// 四列数值把宽度占满, 也不与下方四张指标卡抢层级。
 // 上游没返回缓存明细时只给一句说明, 不画一条"全是新增输入"的假分布。
 function TokenComposition({ stats }: { stats: StatsMetricsFormatted }) {
     const t = useTranslations('home.total');
@@ -30,40 +32,44 @@ function TokenComposition({ stats }: { stats: StatsMetricsFormatted }) {
     const inputTotal = stats.input_token.raw;
     const hitRate = inputTotal > 0 ? (stats.cache_read_token.raw / inputTotal) * 100 : 0;
     const share = (value: number) => (total > 0 ? ((value / total) * 100).toFixed(1) : '0.0');
+    const amount = (value: number) => {
+        const formatted = formatCount(value).formatted;
+        return `${formatted.value}${formatted.unit}`;
+    };
 
     return (
-        <section className="rounded-3xl bg-card border-border border p-5 text-card-foreground">
-            <div className="mb-3 flex items-center justify-between gap-3 text-sm">
-                <h3 className="font-medium">{t('composition')}</h3>
-                <span className="text-xs text-muted-foreground">
+        <section className="px-1">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                <h3 className="font-medium text-foreground">{t('composition')}</h3>
+                <span className="text-muted-foreground">
                     {hasCache ? `${t('cacheHitRate')} ${hitRate.toFixed(1)}%` : t('cacheUnavailable')}
                 </span>
             </div>
 
             <div
-                className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
+                className="flex h-3 w-full overflow-hidden rounded-full bg-border/60"
                 role="img"
-                aria-label={rows
-                    .map((row) => `${row.label} ${formatCount(row.value).formatted.value}${formatCount(row.value).formatted.unit}`)
-                    .join('，')}
+                aria-label={rows.map((row) => `${row.label} ${amount(row.value)}`).join('，')}
             >
                 {rows.map((row) => (
                     <span
                         key={row.key}
                         className={`h-full ${row.color}`}
                         style={{ width: `${share(row.value)}%` }}
-                        title={`${row.label} ${formatCount(row.value).formatted.value}${formatCount(row.value).formatted.unit} · ${share(row.value)}%`}
+                        title={`${row.label} ${amount(row.value)} · ${share(row.value)}%`}
                     />
                 ))}
             </div>
 
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {/* 四列铺满整行: 色块 - 名称 - 绝对值 - 占比, 不再是一条悬在空处的图例。 */}
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 @xl/home:grid-cols-4">
                 {rows.map((row) => (
-                    <span key={row.key} className="inline-flex items-center gap-1.5">
-                        <span className={`size-2 rounded-[2px] ${row.color}`} aria-hidden="true" />
-                        {row.label}
-                        <span className="font-medium text-foreground tabular-nums">{share(row.value)}%</span>
-                    </span>
+                    <div key={row.key} className="flex min-w-0 items-baseline gap-1.5 text-xs">
+                        <span className={`mt-1 size-2 shrink-0 self-start rounded-[2px] ${row.color}`} aria-hidden="true" />
+                        <span className="truncate text-muted-foreground">{row.label}</span>
+                        <span className="ml-auto shrink-0 font-medium text-foreground tabular-nums">{amount(row.value)}</span>
+                        <span className="shrink-0 text-muted-foreground tabular-nums">{share(row.value)}%</span>
+                    </div>
                 ))}
             </div>
         </section>
