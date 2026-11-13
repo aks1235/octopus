@@ -445,6 +445,14 @@ func RelayLogAttemptsByChannel(ctx context.Context, channelID int, page, pageSiz
 		return nil, 0, false, nil
 	}
 
+	// 与 RelayLogList 同口径: 查前先落盘。日志平时攒在内存缓冲(满 20 条或每分钟兜底才落库),
+	// 而渠道调用明细只读 relay_log_attempts, 不落盘就查不到刚发生的那几次调用。
+	// 落盘失败不阻断查询: 明细页的首要目标是能打开, 给旧数据也比整页报错有用。
+	// 缓冲里的日志会在下一次落盘(满 20 条或每分钟兜底)时补上, 与 RelayLogList 的严格口径刻意不同。
+	if eerr = relayLogFlushToDB(ctx); eerr != nil {
+		log.Warnf("channel attempts: flush pending relay logs before query: %v", eerr)
+	}
+
 	// step 1:读保留期算 cutoff(照 relayLogCleanup 写法)。keep_period<=0 表示无期限, 不按时间过滤。
 	keepPeriod, perr := SettingGetInt(model.SettingKeyRelayLogKeepPeriod)
 	if perr != nil {

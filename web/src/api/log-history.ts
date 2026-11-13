@@ -155,7 +155,7 @@ export function useChannelAttempts(channelID: number | null, pageSize = 50) {
             if (fetched >= lastPage.total) return undefined;
             return allPages.length + 1;
         },
-        staleTime: 30_000,
+        staleTime: 0, // 调用明细会随请求持续新增, 复用缓存会让弹窗停在旧快照
     });
 }
 

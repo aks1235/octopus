@@ -1194,3 +1194,37 @@ func TestRelayLogAttemptsByChannel_usesIndexAndScalesWithChannelRows(t *testing.
 		t.Logf("channel-attempts query: %v (背景 %d 日志 / %d 条尝试)", elapsed, logRows, logRows*3)
 	}
 }
+
+// TestRelayLogAttemptsByChannel_flushesPendingCache 锁定「查渠道明细前先落盘」这条口径:
+// 刚完成的调用还在内存缓冲里(未满 relayLogMaxSize 条), 不先落盘就查不到,
+// 用户在界面上会以为那次调用压根没发生。缓冲的清理顺带验证落盘确实执行了。
+func TestRelayLogAttemptsByChannel_flushesPendingCache(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	// 只塞缓冲区, 不走 RelayLogAdd 的满页落库路径。
+	relayLogCacheLock.Lock()
+	relayLogCache = []model.RelayLog{{
+		ID:   7001,
+		Time: time.Now().Unix(), // 必须落在保留期内(keep_period 默认 7 天), 否则会被 cutoff 过滤
+		Attempts: []model.ChannelAttempt{
+			{ChannelID: 42, AttemptNum: 1, ChannelName: "c-42", ModelName: "m-42", Status: model.AttemptFailed},
+		},
+	}}
+	relayLogCacheLock.Unlock()
+
+	list, total, _, err := RelayLogAttemptsByChannel(ctx, 42, 1, 50)
+	if err != nil {
+		t.Fatalf("RelayLogAttemptsByChannel() error = %v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("查询前未落盘: total = %d, len = %d, want 1/1", total, len(list))
+	}
+
+	relayLogCacheLock.Lock()
+	pending := len(relayLogCache)
+	relayLogCacheLock.Unlock()
+	if pending != 0 {
+		t.Fatalf("落盘后缓冲应清空, 实际剩 %d 条", pending)
+	}
+}

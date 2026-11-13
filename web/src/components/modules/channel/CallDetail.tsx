@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'use-intl';
-import { Loader2, ArrowLeft, Pin, ExternalLink, History } from 'lucide-react';
+import { Loader2, ArrowLeft, Pin, ExternalLink, History, RefreshCw } from 'lucide-react';
 import {
     useChannelAttempts,
     type ChannelAttemptDetail,
@@ -74,6 +74,18 @@ export function ChannelCallDetail({ channelID, channelName }: ChannelCallDetailP
                 <History className="size-4 text-muted-foreground" />
                 <span className="text-sm font-medium truncate">{channelName}</span>
                 <span className="text-xs text-muted-foreground">{tChannel('title')}</span>
+                {/* 明细只读已落库的尝试行, 弹窗开着不会自己变新; 留一个手动入口, 免得每次都关掉重开。 */}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto gap-1"
+                    disabled={query.isFetching}
+                    onClick={() => query.refetch()}
+                    title={t('refreshHint')}
+                >
+                    {query.isFetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                    {t('refresh')}
+                </Button>
             </div>
 
             {/* 概览统计 */}

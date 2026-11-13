@@ -484,6 +484,8 @@
             "clear": "Clear",
             "memberRegex": "Member Regex",
             "memberRegexHint": "When set, members are auto-matched from all channel models by this regex and kept in sync; manual changes are overwritten on resync",
+            "contextLength": "Context window",
+            "contextLengthHint": "Context window in tokens advertised to clients; leave empty to not advertise",
             "memberRegexInvalid": "Invalid regex",
             "absorb": "Match Now",
             "regexMembersHint": "Members are maintained by the regex",
@@ -617,7 +619,9 @@
             "loadMore": "Load more",
             "noMore": "{loaded} entries loaded",
             "requestTitle": "Request Detail",
-            "debugInfo": "Debug Info"
+            "debugInfo": "Debug Info",
+            "refresh": "Refresh",
+            "refreshHint": "Reload the latest calls"
         },
         "client": {
             "claudeCode": "Claude Code",

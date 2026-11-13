@@ -484,6 +484,8 @@
             "clear": "清空",
             "memberRegex": "成员正则",
             "memberRegexHint": "非空时自动匹配全部渠道中模型名命中该正则的授权并保持同步，手动增删会被重算覆盖",
+            "contextLength": "上下文窗口",
+            "contextLengthHint": "对外声明的上下文长度（tokens），留空则不声明；客户端据此决定何时压缩历史",
             "memberRegexInvalid": "正则表达式无效",
             "absorb": "按正则吸纳",
             "regexMembersHint": "成员由正则自动维护",
@@ -617,7 +619,9 @@
             "loadMore": "加载更多",
             "noMore": "已加载 {loaded} 条",
             "requestTitle": "请求详情",
-            "debugInfo": "调试信息"
+            "debugInfo": "调试信息",
+            "refresh": "刷新",
+            "refreshHint": "重新拉取最新调用记录"
         },
         "client": {
             "claudeCode": "Claude Code",
