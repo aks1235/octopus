@@ -59,6 +59,10 @@
             "nameDesc": "Name Desc",
             "timeAsc": "Time Asc",
             "timeDesc": "Time Desc",
+            "rateDesc": "Success Rate High to Low",
+            "rateAsc": "Success Rate Low to High",
+            "requestDesc": "Requests High to Low",
+            "requestAsc": "Requests Low to High",
             "filter": {
                 "title": "Filter",
                 "channel": {
@@ -408,6 +412,10 @@
         },
         "card": {
             "empty": "No rules",
+            "expand": "Expand members",
+            "collapse": "Collapse members",
+            "availableOf": "{available}/{total} members healthy",
+            "probeDeadTried": "{count} failed the last probe, still retried",
             "activate": "Set as active",
             "cooling": "Cooling {seconds}s",
             "affinity": "Affinity {seconds}s",

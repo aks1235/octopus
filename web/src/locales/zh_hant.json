@@ -59,6 +59,10 @@
             "nameDesc": "名稱倒序",
             "timeAsc": "新增時間正序",
             "timeDesc": "新增時間倒序",
+            "rateDesc": "成功率由高到低",
+            "rateAsc": "成功率由低到高",
+            "requestDesc": "請求次數由多到少",
+            "requestAsc": "請求次數由少到多",
             "filter": {
                 "title": "篩選",
                 "channel": {
@@ -408,6 +412,10 @@
         },
         "card": {
             "empty": "暫無規則",
+            "expand": "展開成員",
+            "collapse": "收起成員",
+            "availableOf": "{available}/{total} 個成員健康可用",
+            "probeDeadTried": "{count} 個上次探測失敗，選路仍會嘗試",
             "activate": "設為活動項",
             "cooling": "冷卻 {seconds}s",
             "affinity": "親和 {seconds}s",

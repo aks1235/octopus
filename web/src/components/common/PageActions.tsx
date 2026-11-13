@@ -22,8 +22,17 @@ interface PageActionOption {
 
 type PageActionPage = 'channel' | 'group' | 'model';
 type PageActionLayout = 'grid' | 'list';
-// 排序方向: asc/desc 按名称, timeAsc/timeDesc 按添加时间(目前仅渠道页使用); 各页读取时把未知值回落到 asc。
-type PageActionSortOrder = 'asc' | 'desc' | 'timeAsc' | 'timeDesc';
+// 排序方向: asc/desc 按名称, timeAsc/timeDesc 按添加时间, rate*/request* 按成功率与请求次数(均仅渠道页使用);
+// 各页读取时把未知值回落到 asc。
+type PageActionSortOrder =
+    | 'asc'
+    | 'desc'
+    | 'timeAsc'
+    | 'timeDesc'
+    | 'rateDesc'
+    | 'rateAsc'
+    | 'requestDesc'
+    | 'requestAsc';
 type ChannelFilter = 'all' | 'enabled' | 'disabled';
 type GroupFilter = 'all' | 'with-members' | 'empty';
 type ModelFilter = 'all' | 'priced' | 'free';
