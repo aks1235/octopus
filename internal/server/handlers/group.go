@@ -89,6 +89,12 @@ func init() {
 				Handle(getGroupProbeSummary),
 		).
 		AddRoute(
+			// /calls 是分组成员维度的历史调用明细(渠道 × 凭据 × 模型), 与渠道页的
+			// /log/channel-attempts 同源同形, 只是过滤维度不同。
+			router.NewRoute("/calls/:grant_id", http.MethodGet).
+				Handle(getGrantCalls),
+		).
+		AddRoute(
 			router.NewRoute("/cooldown-reset/:id", http.MethodPost).
 				Handle(resetGroupCooldown),
 		)
@@ -554,4 +560,30 @@ func resetGroupCooldown(c *gin.Context) {
 	}
 	relay.ClearGroupCooldowns(id)
 	resp.Success(c, groupResponse{Group: group, Runtime: relay.RouteStateOf(group)})
+}
+
+// getGrantCalls 返回某个分组成员(授权)在保留期内的每次调用尝试。
+func getGrantCalls(c *gin.Context) {
+	grantID, err := strconv.Atoi(c.Param("grant_id"))
+	if err != nil || grantID <= 0 {
+		resp.Error(c, http.StatusBadRequest, "invalid grant_id")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+
+	list, total, truncated, err := op.RelayLogAttemptsByGrant(c.Request.Context(), grantID, page, pageSize)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		// 返回非 null 的空数组, 前端解构更稳
+		list = []model.ChannelAttemptDetail{}
+	}
+	resp.Success(c, channelAttemptsResponse{
+		List:      list,
+		Total:     total,
+		Truncated: truncated,
+	})
 }

@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { apiRequest, apiStreamRequest, queryClient } from './client';
 import { groupListQueryOptions } from './queries';
+import type { ChannelAttemptsResponse } from './log-history';
 
 // GroupMode 表示分组的路由模式: 手动固定成员, 故障转移按顺序失败切换, 轮询按请求轮流起步。
 export type GroupMode = 'manual' | 'failover' | 'roundrobin';
@@ -385,6 +386,20 @@ export function useGrantProbeTimeline(grantId: number | null, days = 90) {
         enabled: grantId != null && grantId > 0,
         queryFn: () => apiRequest<GrantProbeTimeline>(`/api/v1/group/probe/history/${grantId}?days=${days}`),
         staleTime: 30_000,
+    });
+}
+
+// useGrantCalls 拉取单个成员(渠道 × 凭据 × 模型)最近的历史调用。
+// staleTime 为 0: 刚发生的调用要能立刻看到, 与渠道页调用明细同一口径。
+export function useGrantCalls(grantId: number | null, pageSize = 50) {
+    return useQuery({
+        queryKey: ['group-grant-calls', grantId, pageSize],
+        enabled: grantId != null && grantId > 0,
+        queryFn: () =>
+            apiRequest<ChannelAttemptsResponse>(
+                `/api/v1/group/calls/${grantId}?page=1&page_size=${pageSize}`,
+            ),
+        staleTime: 0,
     });
 }
 

@@ -808,6 +808,7 @@ export function GroupEditor({
 
             {groupId !== undefined && (
                 <ProbeHistoryDialog
+            key={historyGrantId ?? 'none'}
                     grantId={historyGrantId}
                     onOpenChange={(open) => {
                         if (!open) setHistoryGrantId(null);

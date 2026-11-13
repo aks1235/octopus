@@ -30,18 +30,18 @@ const keyTestMaxLogBodyLength = 16 * 1024
 
 // keyTestClientName / keyTestUserAgent 测试请求在转发日志里的固定标识:
 // 与 claude-code 等客户端标识同字段同位置, 日志页由此一眼区分人工测试与真实转发。
-const keyTestClientName = "面板测试"
+const keyTestClientName = model.ClientNamePanelTest
 
 const keyTestUserAgent = "octopus-key-test"
 
 // groupTestClientName / groupTestUserAgent 分组成员测试在转发日志里的固定标识:
 // 与渠道面板测试、真实转发在 client_name 与 user_agent 两个维度均可区分。
-const groupTestClientName = "分组测试"
+const groupTestClientName = model.ClientNameGroupTest
 
 // ProbeClientName / ProbeUserAgent 定时探测的固定标识: 与人工"分组测试"区分开,
 // 否则日志里分不出这条请求是人点的还是定时跑出来的, 统计排除也会漏掉一类。
 const (
-	ProbeClientName = "定时探测"
+	ProbeClientName = model.ClientNameScheduledProbe
 	ProbeUserAgent  = "octopus-probe"
 )
 

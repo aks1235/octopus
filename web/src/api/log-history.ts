@@ -82,6 +82,13 @@ export interface RelayLog {
     total_attempts?: number;
     user_agent?: string;
     client_name?: string;
+    /** 关键词命中处的上下文片段; 只有带 keyword 查询时才返回, 全文不会进列表响应。 */
+    match_snippet?: string;
+    /**
+     * 命中归属: new = 本轮新增或本次响应; history = 历史消息里带过来的。
+     * agent loop 每轮重发完整历史, 靠它区分"这句话是这轮说的"还是"又被重复带了一遍"。
+     */
+    match_scope?: 'new' | 'history';
 }
 
 /**
@@ -91,11 +98,23 @@ export async function getLogDetail(id: number): Promise<RelayLog> {
     return apiRequest<RelayLog>(`/api/v1/log/${id}`);
 }
 
+/**
+ * 历史日志来源。
+ * relay = 真实客户端转发; probe = 面板测试/分组测试/定时探测(探测噪声大, 不应混进排查视角);
+ * all = 不限来源。
+ */
+export type LogHistorySource = 'relay' | 'probe' | 'all';
+
 /** 历史列表筛选条件 */
 export interface LogHistoryFilter {
     hasError: boolean;
     apiKeyNames: string[];
     modelNames: string[];
+    source: LogHistorySource;
+    /** 按渠道名精确筛选; 空数组表示不限渠道。 */
+    channelNames: string[];
+    /** 在请求/响应正文里模糊匹配的关键词; 空串表示不搜内容。 */
+    keyword: string;
 }
 
 /**
@@ -104,7 +123,7 @@ export interface LogHistoryFilter {
  */
 export function useLogHistory(pageSize: number, filter: LogHistoryFilter) {
     return useInfiniteQuery({
-        queryKey: ['log-history', 'list', pageSize, filter.hasError, filter.apiKeyNames, filter.modelNames],
+        queryKey: ['log-history', 'list', pageSize, filter.hasError, filter.apiKeyNames, filter.modelNames, filter.source, filter.channelNames, filter.keyword],
         initialPageParam: 1,
         queryFn: async ({ pageParam }: { pageParam: number }) => {
             const params = new URLSearchParams();
@@ -119,6 +138,14 @@ export function useLogHistory(pageSize: number, filter: LogHistoryFilter) {
             if (filter.modelNames.length > 0) {
                 params.set('model_names', filter.modelNames.join(','));
             }
+            if (filter.channelNames.length > 0) {
+                params.set('channel_names', filter.channelNames.join(','));
+            }
+            if (filter.keyword !== '') {
+                params.set('keyword', filter.keyword);
+            }
+            // 始终显式带上来源: 服务端默认 relay, 'all' 由服务端按"不限来源"处理。
+            params.set('source', filter.source);
             const result = await apiRequest<RelayLog[] | null>(`/api/v1/log/list?${params.toString()}`);
             return result ?? [];
         },

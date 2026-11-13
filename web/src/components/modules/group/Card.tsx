@@ -356,6 +356,7 @@ export const GroupCard = memo(function GroupCard({ group, now, isList = false }:
 
     const historyDialog = (
         <ProbeHistoryDialog
+            key={historyGrantId ?? 'none'}
             grantId={historyGrantId}
             onOpenChange={(open) => {
                 if (!open) setHistoryGrantId(null);

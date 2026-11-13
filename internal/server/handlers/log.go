@@ -75,6 +75,21 @@ func listLog(c *gin.Context) {
 	if modelNamesStr != "" {
 		modelNames = strings.Split(modelNamesStr, ",")
 	}
+	// 来源: 默认只看真实转发。探测(面板测试/分组测试/定时探测)噪声大, 要看得显式切过去;
+	// 未知取值按"不限来源"处理, 前端拼错不至于把列表打空。
+	source := c.DefaultQuery("source", model.RelayLogSourceRelay)
+	switch source {
+	case model.RelayLogSourceRelay, model.RelayLogSourceProbe:
+	default:
+		source = ""
+	}
+	channelNamesStr := c.Query("channel_names")
+	var channelNames []string
+	if channelNamesStr != "" {
+		channelNames = strings.Split(channelNamesStr, ",")
+	}
+	// 关键词在请求/响应正文里模糊匹配; 首尾空白没有意义, 先裁掉。
+	keyword := strings.TrimSpace(c.Query("keyword"))
 
 	if page < 1 {
 		page = 1
@@ -99,7 +114,7 @@ func listLog(c *gin.Context) {
 		endTime = &et
 	}
 
-	logs, err := op.RelayLogList(c.Request.Context(), startTime, endTime, page, pageSize, hasError, apiKeyNames, modelNames)
+	logs, err := op.RelayLogList(c.Request.Context(), startTime, endTime, page, pageSize, hasError, apiKeyNames, modelNames, source, channelNames, keyword)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return

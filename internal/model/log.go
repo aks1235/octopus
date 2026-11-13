@@ -110,4 +110,53 @@ type RelayLog struct {
 	TotalAttempts       int              `json:"total_attempts"`                         // 总尝试次数
 	UserAgent           string           `json:"user_agent"`                             // 原始 User-Agent 头
 	ClientName          string           `json:"client_name"`                            // 解析后的客户端标识（如 claude-code, cline 等）
+	// MatchSnippet 是关键词搜索命中处的上下文片段, 仅列表接口在带关键词时填充。
+	// 不落库: 它由 request_content/response_content 现算, 存了只会多一份可漂移的副本。
+	MatchSnippet string `json:"match_snippet,omitempty" gorm:"-"`
+	// MatchScope 说明命中落在"本轮新增的消息"还是"历史携带的消息"。
+	// agent loop 每轮都重发完整历史, 同一句话会在后续每条请求里再出现一次;
+	// 没有这个标记, 搜一句话会被整段会话的重复携带刷屏。
+	MatchScope string `json:"match_scope,omitempty" gorm:"-"`
+}
+
+// 关键词命中的归属: 本轮新增 vs 历史携带。
+const (
+	RelayLogScopeNew     = "new"     // 命中在本轮新增的消息或本次响应里。
+	RelayLogScopeHistory = "history" // 命中在历史消息里(上一轮甚至更早说过, 这轮又原样带上)。
+)
+
+// 日志来源: 真实客户端转发, 还是面板/定时探测。
+//
+// 探测请求走的是同一条 relay 链路, 落库也只是普通转发日志, 唯一可分辨的痕迹就是
+// client_name。排查线上问题时这些记录只会干扰(它们的 tokens/cost 恒为 0, 模型名是
+// 被试模型而不是真实调用), 因此日志列表按来源分段, 默认只看真实转发。
+const (
+	RelayLogSourceRelay = "relay" // 真实客户端转发
+	RelayLogSourceProbe = "probe" // 面板测试/分组测试/定时探测
+)
+
+// 探测类测试请求在 relay_logs.client_name 上的固定标识。
+// 这里是唯一口径: relay 包写日志时引用本组常量, 日志列表按来源过滤时读同一组,
+// 两边各自硬编码会让"新加一类测试却漏掉过滤"这种问题悄无声息地出现。
+const (
+	ClientNamePanelTest      = "面板测试" // 渠道面板上点「测试」
+	ClientNameGroupTest      = "分组测试" // 分组上点「测试全部成员」
+	ClientNameScheduledProbe = "定时探测" // 定时任务 6-12 小时一轮
+)
+
+// RelayLogProbeClientNames 返回全部探测类 client_name, 供 SQL IN 过滤与单值判定共用。
+// 每次返回新切片: 调用方(含 SQL 参数拼装)改动不会污染全局。
+func RelayLogProbeClientNames() []string {
+	return []string{ClientNamePanelTest, ClientNameGroupTest, ClientNameScheduledProbe}
+}
+
+// IsRelayLogProbeClient 判断一条日志的 client_name 是否属于探测类测试请求。
+// 空值(历史日志、未知客户端)一律按真实转发处理: 宁可让它留在排查视角里, 也不能把真实流量藏起来。
+func IsRelayLogProbeClient(clientName string) bool {
+	switch clientName {
+	case ClientNamePanelTest, ClientNameGroupTest, ClientNameScheduledProbe:
+		return true
+	default:
+		return false
+	}
 }

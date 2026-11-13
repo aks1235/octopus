@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -266,11 +267,15 @@ func relayLogDistinctDatesBefore(ctx context.Context, cutoff int64) ([]string, e
 	return dates, nil
 }
 
-// RelayLogList 查询日志列表，支持可选的时间范围过滤和错误筛选
+// RelayLogList 查询日志列表，支持可选的时间范围过滤、错误筛选与来源筛选
 // startTime 和 endTime 为 nil 时表示不限制时间范围
 // hasError 为 true 时只返回有错误信息的日志
+// source 取 model.RelayLogSourceRelay / RelayLogSourceProbe, 其它值(含空)表示不限来源。
+// 面板测试、分组测试、定时探测都会在 client_name 上留痕, 排查时不应与真实流量混在一起。
+// channelNames 按渠道名精确筛选; keyword 在请求体与响应体正文里模糊匹配(大小写不敏感),
+// 命中时给每条日志填 MatchSnippet, 便于列表直接看出命中位置。
 // 不返回 request_content 和 response_content 以提升性能
-func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize int, hasError bool, apiKeyNames []string, modelNames []string) ([]model.RelayLog, error) {
+func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize int, hasError bool, apiKeyNames []string, modelNames []string, source string, channelNames []string, keyword string) ([]model.RelayLog, error) {
 	enabled, err := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
 	if err != nil {
 		return nil, err
@@ -288,6 +293,17 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 	relayLogCacheLock.Lock()
 	var cachedLogs []model.RelayLog
 	for _, log := range relayLogCache {
+		// 来源筛选: 与数据库路径共用同一个判定, 否则前几屏(缓存)与后面(库)口径会不一致。
+		if !relayLogMatchSource(log.ClientName, source) {
+			continue
+		}
+		if len(channelNames) > 0 && !containsString(channelNames, log.ChannelName) {
+			continue
+		}
+		// 关键词在缓存路径上直接比对正文: 此时大字段还没被清空(清理发生在循环末尾)。
+		if keyword != "" && !relayLogContentContains(&log, keyword) {
+			continue
+		}
 		if hasTimeFilter {
 			if log.Time < int64(*startTime) || log.Time > int64(*endTime) {
 				continue
@@ -322,6 +338,9 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 			if !matched {
 				continue
 			}
+		}
+		if keyword != "" {
+			relayLogFillMatchSnippet(&log, keyword)
 		}
 		log.RequestContent = ""
 		log.ResponseContent = ""
@@ -358,7 +377,11 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 				dbOffset = offset - cacheCount
 			}
 
-			query := db.GetDB().WithContext(ctx).Omit("request_content", "response_content", "debug_content")
+			query := db.GetDB().WithContext(ctx)
+			// 有关键词时必须把正文取回来: 片段要现算。取回后在返回前统一清空, 不让大字段进响应。
+			if keyword == "" {
+				query = query.Omit("request_content", "response_content", "debug_content")
+			}
 			if hasTimeFilter {
 				query = query.Where("time >= ? AND time <= ?", *startTime, *endTime)
 			}
@@ -372,16 +395,143 @@ func RelayLogList(ctx context.Context, startTime, endTime *int, page, pageSize i
 			if len(modelNames) > 0 {
 				query = query.Where("request_model_name IN ?", modelNames)
 			}
+			if len(channelNames) > 0 {
+				query = query.Where("channel_name IN ?", channelNames)
+			}
+			if keyword != "" {
+				// 两端通配 + ESCAPE: 用户输入的 % 和 _ 按字面量处理, 不让它们变成通配符。
+				pattern := "%" + relayLogEscapeLike(keyword) + "%"
+				query = query.Where("(request_content LIKE ? ESCAPE '\\' OR response_content LIKE ? ESCAPE '\\')", pattern, pattern)
+			}
+			if source == model.RelayLogSourceProbe {
+				query = query.Where("client_name IN ?", model.RelayLogProbeClientNames())
+			} else if source == model.RelayLogSourceRelay {
+				// 空 client_name(历史行、未知客户端)按真实流量处理: 宁可多留, 不可漏掉真实请求。
+				query = query.Where("client_name NOT IN ?", model.RelayLogProbeClientNames())
+			}
 
 			var dbLogs []model.RelayLog
 			if err := query.Order("id DESC").Offset(dbOffset).Limit(remaining).Find(&dbLogs).Error; err != nil {
 				return nil, err
+			}
+			if keyword != "" {
+				for i := range dbLogs {
+					relayLogFillMatchSnippet(&dbLogs[i], keyword)
+					dbLogs[i].RequestContent = ""
+					dbLogs[i].ResponseContent = ""
+					dbLogs[i].DebugContent = ""
+				}
 			}
 			result = append(result, dbLogs...)
 		}
 	}
 
 	return result, nil
+}
+
+// relayLogEscapeLike 转义 LIKE 通配符, 让用户输入的 % 与 _ 按字面量匹配。
+func relayLogEscapeLike(keyword string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(keyword)
+}
+
+// containsString 判断切片是否含目标值(渠道名筛选用它, 集合规模是个位数)。
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+// relayLogContentContains 判断一条日志的请求体或响应体是否含关键词(大小写不敏感)。
+func relayLogContentContains(relayLog *model.RelayLog, keyword string) bool {
+	lower := strings.ToLower(keyword)
+	return strings.Contains(strings.ToLower(relayLog.RequestContent), lower) ||
+		strings.Contains(strings.ToLower(relayLog.ResponseContent), lower)
+}
+
+// matchSnippetRadius 命中片段前后各取多少个字符: 一眼能看出上下文, 又不至于把整条正文搬上列表。
+const matchSnippetRadius = 60
+
+// relayLogLastAssistantBoundary 返回"最后一条 assistant 消息之后"的位置, 即本轮新增消息的起点。
+//
+// 刻意不解析 JSON: 命中判断只需要一个文本边界, 而 messages 在 JSON 里本就按顺序排列,
+// 取最后一个 `"role":"assistant"` 之后再找下一个 `"role"` 即可。解析整棵树在 50 条/页的量级
+// 也不慢, 但多一份解析失败的分支, 而这条路径对畸形请求体必须永远可用。
+// 返回 -1 表示没有 assistant(首轮请求), 此时全部消息都算本轮新增。
+func relayLogLastAssistantBoundary(request string) int {
+	bestPos, bestLen := -1, 0
+	for _, pattern := range []string{`"role":"assistant"`, `"role": "assistant"`} {
+		if index := strings.LastIndex(request, pattern); index > bestPos {
+			bestPos, bestLen = index, len(pattern)
+		}
+	}
+	if bestPos < 0 {
+		return -1
+	}
+	rest := bestPos + bestLen
+	if next := strings.Index(request[rest:], `"role"`); next >= 0 {
+		return rest + next
+	}
+	return len(request)
+}
+
+// relayLogMatchScope 判断关键词命中属于"本轮新增"还是"历史携带"。
+// 命中在响应体里一律算新增: 那是本次生成的。
+func relayLogMatchScope(relayLog *model.RelayLog, keyword string) string {
+	lowerKeyword := strings.ToLower(keyword)
+	request := strings.ToLower(relayLog.RequestContent)
+	if index := strings.Index(request, lowerKeyword); index >= 0 {
+		boundary := relayLogLastAssistantBoundary(request)
+		if boundary < 0 || index >= boundary {
+			return model.RelayLogScopeNew
+		}
+		return model.RelayLogScopeHistory
+	}
+	if strings.Contains(strings.ToLower(relayLog.ResponseContent), lowerKeyword) {
+		return model.RelayLogScopeNew
+	}
+	return ""
+}
+
+// relayLogFillMatchSnippet 生成命中片段(请求体优先, 其次响应体)。
+// 按 rune 截取, 避免把多字节汉字切成乱码。
+func relayLogFillMatchSnippet(relayLog *model.RelayLog, keyword string) {
+	lowerKeyword := strings.ToLower(keyword)
+	for _, text := range []string{relayLog.RequestContent, relayLog.ResponseContent} {
+		byteIndex := strings.Index(strings.ToLower(text), lowerKeyword)
+		if byteIndex < 0 {
+			continue
+		}
+		runes := []rune(text)
+		// byte 下标转 rune 下标, 之后按字符数前后各取 radius 个。
+		start := len([]rune(text[:byteIndex])) - matchSnippetRadius
+		if start < 0 {
+			start = 0
+		}
+		end := start + matchSnippetRadius*2 + len([]rune(keyword))
+		if end > len(runes) {
+			end = len(runes)
+		}
+		relayLog.MatchSnippet = strings.TrimSpace(string(runes[start:end]))
+		relayLog.MatchScope = relayLogMatchScope(relayLog, keyword)
+		return
+	}
+}
+
+// relayLogMatchSource 判断一条日志是否属于指定来源; source 为空或未知值时一律通过(不限来源)。
+// 只认探测类 client_name, 其余(含空)都算真实转发。
+func relayLogMatchSource(clientName, source string) bool {
+	switch source {
+	case model.RelayLogSourceProbe:
+		return model.IsRelayLogProbeClient(clientName)
+	case model.RelayLogSourceRelay:
+		return !model.IsRelayLogProbeClient(clientName)
+	default:
+		return true
+	}
 }
 
 // RelayLogClear 清空日志: 内存缓冲、数据库日志行与其 attempts 规范化行一并清空(同事务, 不留孤儿)。
@@ -436,6 +586,36 @@ func RelayLogGet(ctx context.Context, id int64) (*model.RelayLog, error) {
 //
 // 未启用日志保存(RelayLogKeepEnabled=false)时 DB 无历史数据, 直接返回空。
 func RelayLogAttemptsByChannel(ctx context.Context, channelID int, page, pageSize int) (list []model.ChannelAttemptDetail, total int, truncated bool, err error) {
+	return relayLogAttemptsQuery(ctx, channelID, 0, "", page, pageSize)
+}
+
+// RelayLogAttemptsByGrant 按分组成员的维度(渠道 × 凭据 × 模型)返回其被尝试的每次调用。
+//
+// 与 RelayLogAttemptsByChannel 的关系: 同一张规范化表、同一套分页与排序, 只是多两个过滤维度。
+// 分组成员就是"某个渠道的某个模型配某把凭据", 因此必须三列同时限定 —— 只按渠道查会把同渠道
+// 其他模型、其他凭据的调用一起算进来, 那不是这个成员的调用情况。
+//
+// 刻意不走 ChannelGrantGet: 那个函数会拒绝禁用渠道/禁用凭据(它是给选路用的),
+// 而分组页看历史时, 恰恰最需要看"已经坏掉的那个成员"最近发生过什么。
+func RelayLogAttemptsByGrant(ctx context.Context, grantID int, page, pageSize int) (list []model.ChannelAttemptDetail, total int, truncated bool, err error) {
+	grant, ok := channelGrantCache.Get(grantID)
+	if !ok {
+		return nil, 0, false, fmt.Errorf("channel grant %d not found", grantID)
+	}
+	channelModel, ok := channelModelCache.Get(grant.ChannelModelID)
+	if !ok {
+		return nil, 0, false, fmt.Errorf("channel model %d not found", grant.ChannelModelID)
+	}
+	channelKey, ok := channelKeyCache.Get(grant.ChannelKeyID)
+	if !ok {
+		return nil, 0, false, fmt.Errorf("channel key %d not found", grant.ChannelKeyID)
+	}
+	return relayLogAttemptsQuery(ctx, channelModel.ChannelID, channelKey.ID, channelModel.Name, page, pageSize)
+}
+
+// relayLogAttemptsQuery 是渠道维度与成员维度两个入口的共用实现。
+// channelKeyID=0、modelName="" 表示该维度不限(渠道维度查看时就是这种组合)。
+func relayLogAttemptsQuery(ctx context.Context, channelID, channelKeyID int, modelName string, page, pageSize int) (list []model.ChannelAttemptDetail, total int, truncated bool, err error) {
 	enabled, eerr := SettingGetBool(model.SettingKeyRelayLogKeepEnabled)
 	if eerr != nil {
 		return nil, 0, false, eerr
@@ -468,6 +648,12 @@ func RelayLogAttemptsByChannel(ctx context.Context, channelID int, page, pageSiz
 		query := db.GetDB().WithContext(ctx).
 			Model(&model.RelayLogAttempt{}).
 			Where("channel_id = ?", channelID)
+		if channelKeyID > 0 {
+			query = query.Where("channel_key_id = ?", channelKeyID)
+		}
+		if modelName != "" {
+			query = query.Where("model_name = ?", modelName)
+		}
 		if cutoff > 0 {
 			query = query.Where("time >= ?", cutoff)
 		}

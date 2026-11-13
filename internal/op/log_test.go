@@ -86,7 +86,7 @@ func TestRelayLogList_apiKeyNamesFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logs, err := RelayLogList(ctx, nil, nil, 1, 100, tt.hasError, tt.apiKeyNames, tt.modelNames)
+			logs, err := RelayLogList(ctx, nil, nil, 1, 100, tt.hasError, tt.apiKeyNames, tt.modelNames, "", nil, "")
 			if err != nil {
 				t.Fatalf("RelayLogList() error = %v", err)
 			}
@@ -141,7 +141,7 @@ func TestRelayLogList_modelNamesFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logs, err := RelayLogList(ctx, nil, nil, 1, 100, false, nil, tt.modelNames)
+			logs, err := RelayLogList(ctx, nil, nil, 1, 100, false, nil, tt.modelNames, "", nil, "")
 			if err != nil {
 				t.Fatalf("RelayLogList() error = %v", err)
 			}
@@ -174,7 +174,7 @@ func TestRelayLogList_combinedFilter(t *testing.T) {
 	relayLogCacheLock.Unlock()
 
 	// admin key + error only → ID 21
-	logs, err := RelayLogList(ctx, nil, nil, 1, 100, true, []string{"admin"}, nil)
+	logs, err := RelayLogList(ctx, nil, nil, 1, 100, true, []string{"admin"}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("RelayLogList() error = %v", err)
 	}
@@ -183,7 +183,7 @@ func TestRelayLogList_combinedFilter(t *testing.T) {
 	}
 
 	// admin key + gpt-4 model → ID 21, 20 (reversed cache order)
-	logs, err = RelayLogList(ctx, nil, nil, 1, 100, false, []string{"admin"}, []string{"gpt-4"})
+	logs, err = RelayLogList(ctx, nil, nil, 1, 100, false, []string{"admin"}, []string{"gpt-4"}, "", nil, "")
 	if err != nil {
 		t.Fatalf("RelayLogList() error = %v", err)
 	}
@@ -192,7 +192,7 @@ func TestRelayLogList_combinedFilter(t *testing.T) {
 	}
 
 	// user key + claude-3 model + error → ID 24
-	logs, err = RelayLogList(ctx, nil, nil, 1, 100, true, []string{"user"}, []string{"claude-3"})
+	logs, err = RelayLogList(ctx, nil, nil, 1, 100, true, []string{"user"}, []string{"claude-3"}, "", nil, "")
 	if err != nil {
 		t.Fatalf("RelayLogList() error = %v", err)
 	}
@@ -218,7 +218,7 @@ func TestRelayLogList_pagination(t *testing.T) {
 	relayLogCacheLock.Unlock()
 
 	// 不筛选，page=1, pageSize=2
-	logs, err := RelayLogList(ctx, nil, nil, 1, 2, false, nil, nil)
+	logs, err := RelayLogList(ctx, nil, nil, 1, 2, false, nil, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("RelayLogList() error = %v", err)
 	}
@@ -227,7 +227,7 @@ func TestRelayLogList_pagination(t *testing.T) {
 	}
 
 	// 筛选 api key，page=1, pageSize=2
-	logs, err = RelayLogList(ctx, nil, nil, 1, 2, false, []string{"key-a"}, nil)
+	logs, err = RelayLogList(ctx, nil, nil, 1, 2, false, []string{"key-a"}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("RelayLogList() error = %v", err)
 	}
@@ -236,7 +236,7 @@ func TestRelayLogList_pagination(t *testing.T) {
 	}
 
 	// 筛选不匹配的 api key，应返回 0 条
-	logs, err = RelayLogList(ctx, nil, nil, 1, 2, false, []string{"nonexistent"}, nil)
+	logs, err = RelayLogList(ctx, nil, nil, 1, 2, false, []string{"nonexistent"}, nil, "", nil, "")
 	if err != nil {
 		t.Fatalf("RelayLogList() error = %v", err)
 	}
@@ -254,7 +254,7 @@ func TestRelayLogList_requestMetadataSurvivesPersistence(t *testing.T) {
 		{ID: 3, Time: time.Now().Unix(), RequestModelName: "non-stream", Streaming: &nonStreaming, Protocol: model.ProtocolOpenAIResponse, TargetProtocol: model.ProtocolOpenAIResponse, Status: "canceled", Error: "context canceled"},
 	}
 	seedFlushedLogs(t, rows)
-	logs, err := RelayLogList(context.Background(), nil, nil, 1, 20, false, nil, nil)
+	logs, err := RelayLogList(context.Background(), nil, nil, 1, 20, false, nil, nil, "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +675,7 @@ func TestRelayLogList_mergesCacheAndDB(t *testing.T) {
 
 	assertIDs := func(page int, want []int64) {
 		t.Helper()
-		logs, err := RelayLogList(ctx, nil, nil, page, 4, false, nil, nil)
+		logs, err := RelayLogList(ctx, nil, nil, page, 4, false, nil, nil, "", nil, "")
 		if err != nil {
 			t.Fatalf("page %d: %v", page, err)
 		}
@@ -1226,5 +1226,237 @@ func TestRelayLogAttemptsByChannel_flushesPendingCache(t *testing.T) {
 	relayLogCacheLock.Unlock()
 	if pending != 0 {
 		t.Fatalf("落盘后缓冲应清空, 实际剩 %d 条", pending)
+	}
+}
+// 来源筛选: 面板测试/分组测试/定时探测属于探测, 其余(含空 client_name)属于真实转发。
+// 缓存与落库是两条独立的过滤路径, 必须各自断言, 否则会出现"前几屏干净、翻页又混进来"。
+func TestRelayLogList_sourceFilter(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	rows := []model.RelayLog{
+		{ID: 1, Time: 106, RequestModelName: "gpt-4", ClientName: "claude-code"},
+		{ID: 2, Time: 105, RequestModelName: "gpt-4", ClientName: model.ClientNameScheduledProbe},
+		{ID: 3, Time: 104, RequestModelName: "gpt-4", ClientName: model.ClientNameGroupTest},
+		{ID: 4, Time: 103, RequestModelName: "gpt-4", ClientName: model.ClientNamePanelTest},
+		// 空 client_name(历史行/未知客户端)必须留在真实转发一侧: 宁可多留, 不可漏真实请求。
+		{ID: 5, Time: 102, RequestModelName: "gpt-4", ClientName: ""},
+	}
+
+	cases := []struct {
+		name        string
+		source      string
+		expectedIDs []int64
+	}{
+		{name: "relay excludes probes", source: model.RelayLogSourceRelay, expectedIDs: []int64{5, 1}},
+		{name: "probe only", source: model.RelayLogSourceProbe, expectedIDs: []int64{4, 3, 2}},
+		{name: "empty source keeps all", source: "", expectedIDs: []int64{5, 4, 3, 2, 1}},
+	}
+
+	assertSource := func(scope string) {
+		t.Helper()
+		for _, tc := range cases {
+			logs, err := RelayLogList(ctx, nil, nil, 1, 50, false, nil, nil, tc.source, nil, "")
+			if err != nil {
+				t.Fatalf("%s %s: RelayLogList() error = %v", scope, tc.name, err)
+			}
+			if got := idsOf(logs); !reflect.DeepEqual(got, tc.expectedIDs) {
+				t.Errorf("%s %s: ids = %v, want %v", scope, tc.name, got, tc.expectedIDs)
+			}
+		}
+	}
+
+	// 缓存路径: 关闭日志落库后列表只读内存缓冲, 这条分支的过滤同样要生效。
+	if err := SettingSetString(model.SettingKeyRelayLogKeepEnabled, "false"); err != nil {
+		t.Fatalf("disable relay log persistence: %v", err)
+	}
+	relayLogCacheLock.Lock()
+	relayLogCache = append(relayLogCache[:0], rows...)
+	relayLogCacheLock.Unlock()
+	assertSource("cache")
+
+	// 落库路径: 恢复落库并 flush 后缓存清空, 覆盖 SQL 的 IN(探测) / NOT IN(真实转发)。
+	if err := SettingSetString(model.SettingKeyRelayLogKeepEnabled, "true"); err != nil {
+		t.Fatalf("enable relay log persistence: %v", err)
+	}
+	seedFlushedLogs(t, rows)
+	assertSource("db")
+}
+
+// 渠道筛选与正文关键词: 关键词要能搜到请求体与响应体, 且命中时给出片段。
+// 缓存与落库两条路径的过滤条件不同(内存比对 vs SQL LIKE), 都要断言。
+func TestRelayLogList_channelAndKeyword(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+
+	rows := []model.RelayLog{
+		{ID: 1, Time: 106, RequestModelName: "gpt-4", ChannelName: "渠道A",
+			RequestContent:  `{"messages":[{"role":"user","content":"帮我查一下订单 12345"}]}`,
+			ResponseContent: `{"choices":[{"message":{"content":"已查到"}}]}`},
+		{ID: 2, Time: 105, RequestModelName: "gpt-4", ChannelName: "渠道B",
+			RequestContent:  `{"messages":[{"role":"user","content":"翻译这段话"}]}`,
+			ResponseContent: `{"choices":[{"message":{"content":"订单处理完成"}}]}`},
+		{ID: 3, Time: 104, RequestModelName: "gpt-4", ChannelName: "渠道A",
+			RequestContent:  `{"messages":[{"role":"user","content":"写首诗"}]}`,
+			ResponseContent: `{"choices":[{"message":{"content":"床前明月光"}}]}`},
+	}
+
+	cases := []struct {
+		name         string
+		channelNames []string
+		keyword      string
+		expectedIDs  []int64
+	}{
+		{name: "channel filter", channelNames: []string{"渠道A"}, expectedIDs: []int64{3, 1}},
+		{name: "keyword in request body", keyword: "订单", expectedIDs: []int64{2, 1}},
+		{name: "keyword in response body", keyword: "明月光", expectedIDs: []int64{3}},
+		{name: "channel and keyword", channelNames: []string{"渠道A"}, keyword: "订单", expectedIDs: []int64{1}},
+		{name: "no match", keyword: "不存在的词", expectedIDs: []int64{}},
+	}
+
+	assertQuery := func(scope string) {
+		t.Helper()
+		for _, tc := range cases {
+			logs, err := RelayLogList(ctx, nil, nil, 1, 50, false, nil, nil, "", tc.channelNames, tc.keyword)
+			if err != nil {
+				t.Fatalf("%s %s: RelayLogList() error = %v", scope, tc.name, err)
+			}
+			if got := idsOf(logs); !reflect.DeepEqual(got, tc.expectedIDs) {
+				t.Errorf("%s %s: ids = %v, want %v", scope, tc.name, got, tc.expectedIDs)
+			}
+			// 命中关键词时, 每条结果都要有片段, 且片段里确实含关键词。
+			if tc.keyword != "" {
+				for _, relayLog := range logs {
+					if relayLog.MatchSnippet == "" {
+						t.Errorf("%s %s: log %d has empty snippet", scope, tc.name, relayLog.ID)
+						continue
+					}
+					if !strings.Contains(relayLog.MatchSnippet, tc.keyword) {
+						t.Errorf("%s %s: snippet %q does not contain keyword", scope, tc.name, relayLog.MatchSnippet)
+					}
+					// 大字段不允许进响应(片段已经单独给出)。
+					if relayLog.RequestContent != "" || relayLog.ResponseContent != "" {
+						t.Errorf("%s %s: log %d leaked full content", scope, tc.name, relayLog.ID)
+					}
+				}
+			}
+		}
+	}
+
+	// 缓存路径(关闭落库, 只读内存缓冲)
+	if err := SettingSetString(model.SettingKeyRelayLogKeepEnabled, "false"); err != nil {
+		t.Fatalf("disable relay log persistence: %v", err)
+	}
+	relayLogCacheLock.Lock()
+	relayLogCache = append(relayLogCache[:0], rows...)
+	relayLogCacheLock.Unlock()
+	assertQuery("cache")
+
+	// 落库路径(SQL LIKE + 片段回填)
+	if err := SettingSetString(model.SettingKeyRelayLogKeepEnabled, "true"); err != nil {
+		t.Fatalf("enable relay log persistence: %v", err)
+	}
+	seedFlushedLogs(t, rows)
+	assertQuery("db")
+}
+
+// 分组成员的调用明细要按「渠道 × 凭据 × 模型」三列同时过滤:
+// 只按渠道查会把同渠道其他模型、其他凭据的调用一起算进来, 那不是这个成员的调用情况。
+func TestRelayLogAttemptsQuery_memberScope(t *testing.T) {
+	ctx := context.Background()
+	setupLogTestDB(t)
+	now := time.Now().Unix()
+
+	rows := []model.RelayLog{
+		{ID: 1, Time: now, ChannelId: 1, ChannelName: "渠道A", RequestModelName: "gpt-4",
+			Attempts: []model.ChannelAttempt{{ChannelID: 1, ChannelKeyID: 10, ModelName: "gpt-4", AttemptNum: 1, Status: model.AttemptSuccess, Duration: 100}}},
+		{ID: 2, Time: now, ChannelId: 1, ChannelName: "渠道A", RequestModelName: "gpt-4",
+			Attempts: []model.ChannelAttempt{{ChannelID: 1, ChannelKeyID: 11, ModelName: "gpt-4", AttemptNum: 1, Status: model.AttemptSuccess, Duration: 200}}},
+		{ID: 3, Time: now, ChannelId: 1, ChannelName: "渠道A", RequestModelName: "gpt-3.5",
+			Attempts: []model.ChannelAttempt{{ChannelID: 1, ChannelKeyID: 10, ModelName: "gpt-3.5", AttemptNum: 1, Status: model.AttemptFailed, Duration: 300, Msg: "boom"}}},
+	}
+	seedFlushedLogs(t, rows)
+
+	// 成员维度: 渠道 1 + 凭据 10 + 模型 gpt-4 → 只有第 1 条。
+	list, total, _, err := relayLogAttemptsQuery(ctx, 1, 10, "gpt-4", 1, 50)
+	if err != nil {
+		t.Fatalf("member scope: %v", err)
+	}
+	if total != 1 || len(list) != 1 || list[0].RequestID != 1 {
+		t.Fatalf("member scope: total=%d list=%+v", total, list)
+	}
+	if list[0].ChannelKeyRem != "" {
+		// 凭据备注为空是正常的, 这里只确认没有越权取到别的凭据
+		t.Logf("key remark: %q", list[0].ChannelKeyRem)
+	}
+
+	// 渠道维度(不限凭据与模型): 三条都该在, 这是渠道页的既有口径。
+	list, total, _, err = relayLogAttemptsQuery(ctx, 1, 0, "", 1, 50)
+	if err != nil {
+		t.Fatalf("channel scope: %v", err)
+	}
+	if total != 3 || len(list) != 3 {
+		t.Fatalf("channel scope: total=%d len=%d", total, len(list))
+	}
+}
+
+// 命中归属: agent loop 每轮重发完整历史, 同一句话会反复命中。
+// 只有落在"最后一条 assistant 之后"或响应体里的, 才算这一轮新说的。
+func TestRelayLogMatchScope(t *testing.T) {
+	cases := []struct {
+		name     string
+		request  string
+		response string
+		keyword  string
+		want     string
+	}{
+		{
+			name:    "首轮请求没有 assistant, 全部算新增",
+			request: `{"messages":[{"role":"user","content":"帮我查订单"}]}`,
+			keyword: "订单",
+			want:    model.RelayLogScopeNew,
+		},
+		{
+			name:    "命中在最后一条 assistant 之后的新消息",
+			request: `{"messages":[{"role":"user","content":"旧问题"},{"role":"assistant","content":"旧回答"},{"role":"user","content":"新问题里有订单"}]}`,
+			keyword: "订单",
+			want:    model.RelayLogScopeNew,
+		},
+		{
+			name:    "命中在历史 user 消息里",
+			request: `{"messages":[{"role":"user","content":"历史里提过订单"},{"role":"assistant","content":"好"},{"role":"user","content":"继续"}]}`,
+			keyword: "订单",
+			want:    model.RelayLogScopeHistory,
+		},
+		{
+			name:    "命中在最后一条 assistant 自己的话里(也是历史携带)",
+			request: `{"messages":[{"role":"user","content":"你好"},{"role":"assistant","content":"这里也有订单"}]}`,
+			keyword: "订单",
+			want:    model.RelayLogScopeHistory,
+		},
+		{
+			name:     "只在响应体命中, 算本次生成",
+			request:  `{"messages":[{"role":"user","content":"随便聊聊"}]}`,
+			response: `{"choices":[{"message":{"content":"订单已发出"}}]}`,
+			keyword:  "订单",
+			want:     model.RelayLogScopeNew,
+		},
+		{
+			name:    "带空格的 JSON 同样能识别 assistant 边界",
+			request: `{"messages": [{"role": "user", "content": "旧"}, {"role": "assistant", "content": "答"}, {"role": "user", "content": "含订单的新话"}]}`,
+			keyword: "订单",
+			want:    model.RelayLogScopeNew,
+		},
+	}
+
+	for _, tc := range cases {
+		relayLog := model.RelayLog{RequestContent: tc.request, ResponseContent: tc.response}
+		relayLogFillMatchSnippet(&relayLog, tc.keyword)
+		if relayLog.MatchScope != tc.want {
+			t.Errorf("%s: scope = %q, want %q", tc.name, relayLog.MatchScope, tc.want)
+		}
+		if relayLog.MatchSnippet == "" {
+			t.Errorf("%s: empty snippet", tc.name)
+		}
 	}
 }
