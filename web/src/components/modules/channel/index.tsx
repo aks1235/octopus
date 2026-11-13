@@ -105,8 +105,9 @@ export function Channel() {
         <VirtualizedGrid
             items={visibleChannels}
             layout={layout}
-            columns={{ default: 1, sm: 2, md: 3, lg: 4, xl: 5, '2xl': 6 }}
-            estimateItemHeight={232}
+            columns={{ default: 1, sm: 2, md: 2, lg: 3, xl: 4, '2xl': 5 }}
+            estimateItemHeight={layout === 'list' ? 40 : 118}
+            gap={layout === 'list' ? 6 : 16}
             getItemKey={(channel) => `channel-${channel.channel_id}`}
             renderItem={(channel) => (
                 <Card channel={channel} />

@@ -673,11 +673,14 @@
     "channel": {
         "card": {
             "requestCount": "Requests",
+            "requestShort": "Req",
+            "costShort": "Cost",
             "successRate": "Success rate",
             "totalCost": "Total Cost",
             "model": "Model",
             "successRequests": "Successful Requests",
             "failedRequests": "Failed Requests",
+            "noTraffic": "No traffic yet",
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"

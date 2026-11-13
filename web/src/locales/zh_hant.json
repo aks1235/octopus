@@ -673,11 +673,14 @@
     "channel": {
         "card": {
             "requestCount": "請求次數",
+            "requestShort": "請求",
+            "costShort": "成本",
             "successRate": "成功率",
             "totalCost": "總成本",
             "model": "模型",
             "successRequests": "成功請求",
             "failedRequests": "失敗請求",
+            "noTraffic": "暫無呼叫",
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"

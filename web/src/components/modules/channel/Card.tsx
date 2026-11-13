@@ -21,38 +21,63 @@ import { toast } from 'sonner';
 import { useState } from 'react';
 
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
+//
+// 两种布局的形态差别不小, 按布局分别排:
+//   网格 —— 竖向紧凑卡片, 名称两行 + 三项统计;
+//   列表 —— 单行条目, 名称一行 + 统计内联, 一屏能扫过几十个渠道。
 export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     const t = useTranslations('channel.card');
     const tCallDetail = useTranslations('channel.callDetail');
     const setView = useChannelViewStore((s) => s.setView);
     // 布局是渠道页共享的视图选项, 直接取用而不由列表层层传入。
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
+    const isList = layout === 'list';
     const enableChannel = useEnableChannel();
     // 弹窗默认展示统计, 编辑入口在统计视图的头部; 关闭后下次打开仍回到统计, 故点卡片时复位。
     const [openInEditing, setOpenInEditing] = useState(false);
     const metrics = channel.formatted;
 
-    // 成功率由成功与失败计数现算; 一次请求都没有时显示破折号, 而不是误导性的 0%。
+    // 状态四态: 自动禁用 > 手动禁用 > 探测失败中 > 正常。色点标状态, 异常态只换边框色不铺底色:
+    // 整页几十张卡片时, 大面积浅红会把页面压得很脏, 真正不能用的渠道反而被淹没。
+    const statusTone = channel.auto_disabled
+        ? 'bg-destructive'
+        : !channel.enabled
+            ? 'bg-muted-foreground/40'
+            : channel.health_fail_count > 0
+                ? 'bg-orange-500'
+                : 'bg-emerald-500';
+    // 列表布局用左侧一道红色竖条标自动禁用, 不用整圈红边: 几十行连续红框会让整页像报错列表。
+    const cardTone = isList
+        ? channel.auto_disabled
+            ? 'border-border/60 border-l-2 border-l-destructive'
+            : !channel.enabled
+                ? 'border-border/60 bg-muted/40'
+                : 'border-border/60'
+        : channel.auto_disabled
+            ? 'border-destructive/50'
+            : !channel.enabled
+                ? 'border-border/60 bg-muted/40'
+                : 'border-border';
+    const statusLabel = channel.auto_disabled
+        ? t('health.autoDisabled')
+        : !channel.enabled
+            ? t('health.manualDisabled')
+            : channel.health_fail_count > 0
+                ? t('health.failing', { count: channel.health_fail_count })
+                : t('health.ok');
+
     const successRate =
         metrics.request_count.raw > 0
             ? { value: ((metrics.request_success.raw / metrics.request_count.raw) * 100).toFixed(1), unit: '%' }
-            : { value: '—', unit: '' };
+            : null;
+    const hasTraffic = metrics.request_count.raw > 0;
 
-    // 统计项统一成"数值 + 单位 + 小标签": 网格布局三项一行, 列表布局按列摊开。
-    type MetricItem = { label: string; value: string; unit?: string };
-    const gridMetrics: MetricItem[] = [
-        { label: t('requestCount'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
-        { label: t('successRate'), value: successRate.value, unit: successRate.unit },
-        { label: t('totalCost'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
+    type StatItem = { label: string; value: string; unit?: string };
+    const stats: StatItem[] = [
+        { label: t('requestShort'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
+        { label: t('successRate'), value: successRate?.value ?? '—', unit: successRate ? '%' : '' },
+        { label: t('costShort'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
     ];
-    const listMetrics: MetricItem[] = [
-        { label: t('requestCount'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
-        { label: t('model'), value: String(channel.models.length) },
-        { label: t('successRequests'), value: metrics.request_success.formatted.value },
-        { label: t('failedRequests'), value: metrics.request_failed.formatted.value },
-        { label: t('totalCost'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
-    ];
-    const metricItems = layout === 'list' ? listMetrics : gridMetrics;
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -68,26 +93,10 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
         );
     };
 
-    // 状态收成一个色点: 文案徽标会把标题挤成省略号, 而卡片最窄时只有六列宽。
-    // 四态优先级: 自动禁用 > 手动禁用 > 探测失败中 > 正常。详情进 tooltip, 不占版面。
-    const statusTone = channel.auto_disabled
-        ? 'bg-destructive'
-        : !channel.enabled
-            ? 'bg-muted-foreground/40'
-            : channel.health_fail_count > 0
-                ? 'bg-orange-500'
-                : 'bg-emerald-500';
-    const statusLabel = channel.auto_disabled
-        ? t('health.autoDisabled')
-        : !channel.enabled
-            ? t('health.manualDisabled')
-            : channel.health_fail_count > 0
-                ? t('health.failing', { count: channel.health_fail_count })
-                : t('health.ok');
     const statusDot = (
         <Tooltip>
             <TooltipTrigger asChild>
-                <span className={`mt-2 size-[7px] shrink-0 rounded-full ${statusTone}`} />
+                <span className={`${isList ? '' : 'mt-1.5'} size-2 shrink-0 rounded-full ${statusTone}`} />
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={8} align="start">
                 <div className="max-w-64 space-y-1 text-xs">
@@ -103,74 +112,103 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
         </Tooltip>
     );
 
+    const actions = (
+        <div className="-mr-1 flex shrink-0 items-center gap-0.5">
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 text-muted-foreground"
+                        aria-label={tCallDetail('open')}
+                        onClick={(e) => {
+                            // 阻止冒泡到 MorphingDialogTrigger, 避免同时打开渠道编辑弹窗。
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setView({
+                                mode: 'detail',
+                                channelID: channel.channel_id,
+                                channelName: channel.channel_name,
+                            });
+                        }}
+                    >
+                        <History className="size-3.5" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={10} align="center">
+                    {tCallDetail('open')}
+                </TooltipContent>
+            </Tooltip>
+            <Switch
+                checked={channel.enabled}
+                onCheckedChange={handleEnableChange}
+                disabled={enableChannel.isPending}
+                onClick={(e) => e.stopPropagation()}
+            />
+        </div>
+    );
+
     return (
         <MorphingDialog>
             <MorphingDialogTrigger className="w-full">
                 <article
                     onClickCapture={() => setOpenInEditing(false)}
-                    className="flex h-full flex-col gap-4 rounded-3xl border border-border bg-card p-4 text-card-foreground"
+                    className={
+                        isList
+                            ? `flex h-full items-center gap-3 rounded-xl border px-3 py-2 transition-colors hover:border-muted-foreground/30 ${cardTone}`
+                            : `flex h-full flex-col justify-between gap-2.5 rounded-2xl border p-3 transition-colors hover:border-muted-foreground/30 ${cardTone}`
+                    }
                 >
-                    <header className="flex items-start gap-2">
+                    <header className={isList ? 'flex min-w-0 flex-1 items-center gap-2' : 'flex items-start gap-2'}>
                         {statusDot}
                         <h3
-                            className="line-clamp-2 min-w-0 flex-1 break-words text-base font-bold leading-snug"
+                            className={
+                                isList
+                                    ? 'min-w-0 flex-1 truncate text-[13px] font-semibold'
+                                    : 'line-clamp-2 min-w-0 flex-1 break-words text-[13px] font-semibold leading-[1.45]'
+                            }
                             title={channel.channel_name}
                         >
                             {channel.channel_name}
                         </h3>
-                        <div className="flex shrink-0 items-center gap-0.5">
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="size-7"
-                                        aria-label={tCallDetail('open')}
-                                        onClick={(e) => {
-                                            // 阻止冒泡到 MorphingDialogTrigger, 避免同时打开渠道编辑弹窗。
-                                            e.stopPropagation();
-                                            e.preventDefault();
-                                            setView({
-                                                mode: 'detail',
-                                                channelID: channel.channel_id,
-                                                channelName: channel.channel_name,
-                                            });
-                                        }}
-                                    >
-                                        <History className="size-3.5" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={10} align="center">
-                                    {tCallDetail('open')}
-                                </TooltipContent>
-                            </Tooltip>
-                            <Switch
-                                checked={channel.enabled}
-                                onCheckedChange={handleEnableChange}
-                                disabled={enableChannel.isPending}
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        </div>
+                        {!isList && actions}
                     </header>
 
-                    <dl
-                        className={
-                            layout === 'list'
-                                ? 'mt-auto grid grid-cols-2 gap-3 border-t border-border/60 pt-3 sm:grid-cols-3 lg:grid-cols-5'
-                                : 'mt-auto grid grid-cols-3 gap-3 border-t border-border/60 pt-3'
-                        }
-                    >
-                        {metricItems.map(({ label, value, unit }) => (
-                            <div key={label} className="flex min-w-0 flex-col-reverse">
-                                <dt className="mt-0.5 truncate text-[11px] text-muted-foreground">{label}</dt>
-                                <dd className="truncate text-lg font-bold tabular-nums leading-tight">
-                                    {value}
-                                    {unit && <span className="ml-0.5 text-xs font-normal text-muted-foreground">{unit}</span>}
-                                </dd>
+                    {isList ? (
+                        <>
+                            <div className="flex shrink-0 items-baseline gap-4 text-[11px] leading-5 text-muted-foreground">
+                                {hasTraffic ? (
+                                    stats.map(({ label, value, unit }) => (
+                                        <span key={label} className="w-[76px] whitespace-nowrap text-right">
+                                            <span className="text-xs font-medium tabular-nums text-foreground">
+                                                {value}
+                                                {unit}
+                                            </span>
+                                            <span className="ml-1">{label}</span>
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="text-muted-foreground/70">{t('noTraffic')}</span>
+                                )}
                             </div>
-                        ))}
-                    </dl>
-
+                            {actions}
+                        </>
+                    ) : hasTraffic ? (
+                        <dl className="grid grid-cols-3 gap-2">
+                            {stats.map(({ label, value, unit }) => (
+                                <div key={label} className="flex min-w-0 flex-col-reverse">
+                                    <dt className="truncate text-[10px] leading-4 text-muted-foreground">{label}</dt>
+                                    <dd className="truncate text-[13px] font-semibold leading-5 tabular-nums">
+                                        {value}
+                                        {unit && <span className="text-[10px] font-normal text-muted-foreground">{unit}</span>}
+                                    </dd>
+                                </div>
+                            ))}
+                        </dl>
+                    ) : (
+                        // 没有调用记录时不摆一排 0.00 / — / 0.00$, 只说一句没跑过。
+                        <p className="text-[11px] leading-5 text-muted-foreground/70">{t('noTraffic')}</p>
+                    )}
                 </article>
             </MorphingDialogTrigger>
 

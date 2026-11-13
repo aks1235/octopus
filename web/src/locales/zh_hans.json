@@ -673,11 +673,14 @@
     "channel": {
         "card": {
             "requestCount": "请求次数",
+            "requestShort": "请求",
+            "costShort": "成本",
             "successRate": "成功率",
             "totalCost": "总成本",
             "model": "模型",
             "successRequests": "成功请求",
             "failedRequests": "失败请求",
+            "noTraffic": "暂无调用",
             "toast": {
                 "enabled": "渠道已启用",
                 "disabled": "渠道已禁用"
