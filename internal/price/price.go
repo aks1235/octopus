@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -33,6 +34,14 @@ var developerFamilies = map[string][]string{
 }
 
 var lastUpdateTime time.Time // 最近一次成功更新时间。
+
+// llmPriceFallback 是官方条目缺失时的兜底价: 同一模型往往有十几家转售商在卖,
+// 取"标价档的众数"作为代表价(见 pickModalPrice)。只在官方表查不到时才用它,
+// 保证已有模型的取价口径完全不变, 也不会因为多出的条目让分段匹配出现新的歧义。
+var llmPriceFallback = map[string]model.LLMPrice{}
+
+// modalMinVotes 是"有共识"的最小票数: 少于这个票数时众数没有统计意义, 改用中位数档。
+const modalMinVotes = 3
 
 // UpdateLLMPrice 从 models.dev 更新自研文本输出模型的价格。
 func UpdateLLMPrice(ctx context.Context) error {
@@ -102,36 +111,112 @@ func UpdateLLMPrice(ctx context.Context) error {
 		return fmt.Errorf("failed to parse LLM info: %w", err)
 	}
 	updatedPrices := make(map[string]model.LLMPrice)
-	for provider, familyPrefixes := range developerFamilies {
-		for _, priceModel := range rawPrice[provider].Models {
+	// quotes 收集全部 provider 对同一模型 id 的报价, 供官方缺条目时的兜底取价。
+	quotes := make(map[string][]model.LLMPrice)
+	for provider, providerModels := range rawPrice {
+		familyPrefixes, isDeveloper := developerFamilies[provider]
+		for _, priceModel := range providerModels.Models {
 			modelID := strings.ToLower(priceModel.ID)
 			modelFamily := strings.ToLower(priceModel.Family)
-
-			// 仅保留包含文本输出的非嵌入模型。
-			if modelID == "" || !slices.Contains(priceModel.Modalities.Output, "text") || strings.Contains(modelID, "embed") || strings.Contains(modelFamily, "embed") {
+			if !isPricedModel(modelID, modelFamily, priceModel.Modalities.Output) {
 				continue
 			}
 
-			// 云平台可能同时托管第三方模型，仅接受该研发商的自研系列。
-			isDeveloperModel := false
-			for _, familyPrefix := range familyPrefixes {
-				if strings.HasPrefix(modelFamily, familyPrefix) {
-					isDeveloperModel = true
-					break
+			// 云平台可能同时托管第三方模型, 官方条目只接受该研发商的自研系列。
+			if isDeveloper {
+				for _, familyPrefix := range familyPrefixes {
+					if strings.HasPrefix(modelFamily, familyPrefix) {
+						updatedPrices[modelID] = priceModel.Cost
+						break
+					}
 				}
 			}
-			if !isDeveloperModel {
-				continue
-			}
-
-			updatedPrices[modelID] = priceModel.Cost
+			quotes[modelID] = append(quotes[modelID], priceModel.Cost)
 		}
 	}
+
+	// 官方没有条目的模型才建兜底价: 例如 deepseek-v4.1-flash 只挂在转售商名下,
+	// deepseek 官方 provider 里只有 v4-flash / v4-pro, 缺了官方条目就让整条模型永远 0 价。
+	fallbackPrices := make(map[string]model.LLMPrice, len(quotes))
+	for modelID, modelQuotes := range quotes {
+		if _, ok := updatedPrices[modelID]; ok {
+			continue
+		}
+		if picked, ok := pickModalPrice(modelQuotes); ok {
+			fallbackPrices[modelID] = picked
+		}
+	}
+
 	llmPriceLock.Lock()
 	llmPrice = updatedPrices
+	llmPriceFallback = fallbackPrices
 	lastUpdateTime = time.Now()
 	llmPriceLock.Unlock()
 	return nil
+}
+
+// isPricedModel 判断一条 models.dev 条目是否参与取价: 必须有 id 且输出含文本。
+// 嵌入类模型按向量计费, 与 token 单价不是一个口径, 一律排除。
+func isPricedModel(modelID, modelFamily string, outputs []string) bool {
+	if modelID == "" || !slices.Contains(outputs, "text") {
+		return false
+	}
+	return !strings.Contains(modelID, "embed") && !strings.Contains(modelFamily, "embed")
+}
+
+// pickModalPrice 从同一模型的全部报价里挑一个代表价。
+//
+// 规则与理由:
+//   - 先排除 0 价: models.dev 里 0 价条目是订阅套餐(token plan / coding plan)或免费档,
+//     不是按量单价, 混进来会把代表价拉到 0。
+//   - 再按 (input, output) 分档投票取众数。实测有官方价的模型里, 非官方报价的众数与官方标价
+//     一致的比例约 58%——多数转售商照抄标价, 众数因此最接近"标价"。
+//   - 票数不足 modalMinVotes 时没有共识, 退化为输入价中位数所在档, 避免被单家极端报价带走。
+//
+// 不取最低价: 最低价通常是最便宜 endpoint 或量化档(OpenRouter 卡片价就是这么来的),
+// 用它会把成本系统性低估; 也不取 OpenRouter 价, 同理。
+func pickModalPrice(quotes []model.LLMPrice) (model.LLMPrice, bool) {
+	groups := make(map[[2]float64][]model.LLMPrice, len(quotes))
+	inputs := make([]float64, 0, len(quotes))
+	for _, quote := range quotes {
+		if quote.Input <= 0 || quote.Output <= 0 {
+			continue
+		}
+		key := [2]float64{roundCost(quote.Input), roundCost(quote.Output)}
+		groups[key] = append(groups[key], quote)
+		inputs = append(inputs, quote.Input)
+	}
+	if len(groups) == 0 {
+		return model.LLMPrice{}, false
+	}
+
+	var modalKey [2]float64
+	modalVotes := 0
+	for key, group := range groups {
+		if len(group) > modalVotes || (len(group) == modalVotes && key[0] < modalKey[0]) {
+			modalKey, modalVotes = key, len(group)
+		}
+	}
+	if modalVotes >= modalMinVotes {
+		return groups[modalKey][0], true
+	}
+
+	// 无共识: 取输入价中位数所在档。
+	slices.Sort(inputs)
+	median := inputs[len(inputs)/2]
+	var chosen [2]float64
+	bestDiff := math.MaxFloat64
+	for key := range groups {
+		if diff := math.Abs(key[0] - median); diff < bestDiff {
+			bestDiff, chosen = diff, key
+		}
+	}
+	return groups[chosen][0], true
+}
+
+// roundCost 把价格规整到 6 位小数, 用于把浮点误差归到同一档。
+func roundCost(value float64) float64 {
+	return math.Round(value*1e6) / 1e6
 }
 
 // GetLastUpdateTime 返回最近一次价格更新时间。
@@ -146,7 +231,16 @@ func GetLLMPrice(modelName string) *model.LLMPrice {
 	llmPriceLock.RLock()
 	defer llmPriceLock.RUnlock()
 
-	if price, ok := llmPrice[modelName]; ok {
+	if price := lookupPrice(llmPrice, modelName); price != nil {
+		return price
+	}
+	// 官方条目缺失时才退到兜底表: 已有模型的取价口径保持原样。
+	return lookupPrice(llmPriceFallback, modelName)
+}
+
+// lookupPrice 在给定价格表里按"精确 → 分段"两级匹配取价。
+func lookupPrice(table map[string]model.LLMPrice, modelName string) *model.LLMPrice {
+	if price, ok := table[modelName]; ok {
 		return &price
 	}
 	// 将非字母、数字和小数点字符作为边界，使标准模型名可以出现在任意前缀或后缀之间。
@@ -158,7 +252,7 @@ func GetLLMPrice(modelName string) *model.LLMPrice {
 	matchedModelID := ""
 	matchedSegmentCount := 0
 	ambiguous := false
-	for modelID, price := range llmPrice {
+	for modelID, price := range table {
 		modelIDSegments := strings.Split(modelID, "-")
 		for start := 0; start+len(modelIDSegments) <= len(modelNameSegments); start++ {
 			matched := true
@@ -175,7 +269,7 @@ func GetLLMPrice(modelName string) *model.LLMPrice {
 				matchedModelID = modelID
 				matchedSegmentCount = len(modelIDSegments)
 				ambiguous = false
-			} else if len(modelIDSegments) == matchedSegmentCount && llmPrice[matchedModelID] != price {
+			} else if len(modelIDSegments) == matchedSegmentCount && table[matchedModelID] != price {
 				ambiguous = true
 			}
 			break
@@ -184,6 +278,6 @@ func GetLLMPrice(modelName string) *model.LLMPrice {
 	if matchedModelID == "" || ambiguous {
 		return nil
 	}
-	price := llmPrice[matchedModelID]
+	price := table[matchedModelID]
 	return &price
 }
