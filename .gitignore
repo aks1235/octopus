@@ -18,3 +18,7 @@ web/.pnpm-store/
 data-verify
 data-backup-*/
 data-verify.bak-0911/
+
+# 数据目录的备份快照: data-verify.bak-0911/ 之外的新命名, 体积可达数 GB, 一律不入库
+data.bak-*/
+data-verify.bak-*/
