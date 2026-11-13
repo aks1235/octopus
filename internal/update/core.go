@@ -75,8 +75,20 @@ func UpdateCore() error {
 	_ = os.RemoveAll(oldPath)
 
 	log.Infof("update core success")
-	go restartExecutable(execPath)
 	return nil
+}
+
+// Restart 关闭服务并把进程交给刚下载的新二进制。
+//
+// 只能由调用方在 HTTP 响应已经写出之后调用: 关闭流程会关停 HTTP 服务器并掐断在途连接,
+// 若在响应写完之前重启, 客户端收到的是网络错误而不是 "update success"。
+func Restart() {
+	execPath, err := os.Executable()
+	if err != nil {
+		log.Errorf("get executable path failed: %v", err)
+		return
+	}
+	restartExecutable(execPath)
 }
 
 func copyFile(src, dst string) error {

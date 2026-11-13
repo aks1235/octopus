@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/conf"
 	_ "github.com/bestruirui/octopus/internal/server/handlers"
@@ -49,6 +51,15 @@ func Start() error {
 	return nil
 }
 
+// Close 优雅关闭 HTTP 服务器: 先停止接受新连接, 等正在处理的请求把响应写完再退出。
+//
+// 直接 Close 会立刻掐断在途连接, 升级接口的成功响应正是这样丢掉的。
+// 长连接(如流式转发)不会无限等待, 超时后退回强制关闭。
 func Close() error {
-	return httpSrv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpSrv.Shutdown(ctx); err != nil {
+		return httpSrv.Close()
+	}
+	return nil
 }
