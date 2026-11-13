@@ -198,7 +198,11 @@
             "label": "Global Model Filter",
             "placeholder": "Enter filter regex",
             "hint": "When fetching channel models, models matching this regex are excluded (blacklist, e.g. to block embedding/rerank junk models); combined with the channel's own match regex (whitelist, matches are kept), empty means no filter",
-            "invalid": "Invalid filter regex"
+            "invalid": "Invalid filter regex",
+            "prune": "Prune stored",
+            "pruning": "Pruning",
+            "pruneSuccess": "Removed {count} models",
+            "pruneFailed": "Prune failed"
         },
         "saved": "Saved",
         "groupProbe": {

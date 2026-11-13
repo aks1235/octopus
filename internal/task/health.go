@@ -21,6 +21,39 @@ const healthRecordTimeout = 10 * time.Second
 // 与兜底任务的 30 秒预算同量级; 对账逐凭据串行进行, 不与探测抢时限。
 const healthReconcileTimeout = 30 * time.Second
 
+// fetchMissThreshold 连续多少轮拉不到模型清单后清空该凭据名下的模型与授权。
+//
+// "拉不到"指上游 200 但空列表, 或两侧都报错: 两者都说明这个凭据已经拿不到任何模型, 而不是
+// 上游偶发下架。取两轮(按默认 30 分钟周期约一小时)是为了挡住单次抖动——清空会级联删掉授权
+// 与分组成员, 一次误判的代价远大于多留一小时脏数据。
+const fetchMissThreshold = 2
+
+// fetchMissKey 标识"某个渠道的某个凭据"这一路探测。
+type fetchMissKey struct {
+	channelID int
+	keyName   string
+}
+
+var (
+	fetchMissMu sync.Mutex
+	fetchMiss   = make(map[fetchMissKey]int)
+)
+
+// noteFetchMiss 记一次"拉不到清单", 返回连续次数。
+func noteFetchMiss(key fetchMissKey) int {
+	fetchMissMu.Lock()
+	defer fetchMissMu.Unlock()
+	fetchMiss[key]++
+	return fetchMiss[key]
+}
+
+// clearFetchMiss 在拉到清单后归零, 连续计数只看紧邻的轮次。
+func clearFetchMiss(key fetchMissKey) {
+	fetchMissMu.Lock()
+	delete(fetchMiss, key)
+	fetchMissMu.Unlock()
+}
+
 // ChannelHealthCheckTask 探测候选渠道的健康并自动禁用/解禁。
 // 候选为启用中或已被自动禁用的渠道: 前者连续失败达阈值自动禁用, 后者恢复后自动解禁;
 // 人工禁用的渠道不在候选之列, 不会被误翻。阈值每轮实时读设置, 修改后对下一轮即生效。
@@ -83,11 +116,28 @@ func checkChannelHealth(roundCtx context.Context, candidate model.ChannelHealthC
 // 单个凭据对账失败只记日志, 不中断其余凭据; BUSY 类错误经 runWithBusyRetry 退避重试。
 func reconcileChannelModels(candidate model.ChannelHealthCandidate, results []probe.KeyProbeResult) {
 	for _, result := range results {
+		keyName := result.KeyName
+		ref := fetchMissKey{channelID: candidate.ID, keyName: keyName}
 		fetched, ok := keyFetchModels(result)
 		if !ok {
+			// 拉不到清单: 上游 200 但空列表, 或两侧都报错。连续够轮数就按空清单清掉,
+			// 免得账户失效的渠道把一堆调不动的模型长期留在清单与分组里。
+			if noteFetchMiss(ref) < fetchMissThreshold {
+				continue
+			}
+			if err := runWithBusyRetry(func() error {
+				ctx, cancel := context.WithTimeout(context.Background(), healthReconcileTimeout)
+				defer cancel()
+				return op.ChannelModelClear(ctx, candidate.ID, keyName)
+			}); err != nil {
+				log.Warnf("health check: failed to clear models of channel %d key %q: %v", candidate.ID, keyName, err)
+			} else {
+				log.Infof("health check: cleared models of channel %d key %q after %d rounds without model list",
+					candidate.ID, keyName, fetchMissThreshold)
+			}
 			continue
 		}
-		keyName := result.KeyName
+		clearFetchMiss(ref)
 		if err := runWithBusyRetry(func() error {
 			ctx, cancel := context.WithTimeout(context.Background(), healthReconcileTimeout)
 			defer cancel()
@@ -99,8 +149,9 @@ func reconcileChannelModels(candidate model.ChannelHealthCandidate, results []pr
 }
 
 // keyFetchModels 把单个凭据的探测结果折成对账清单: 协议位的推导口径在 op.ChannelFetchModels
-// (与手动拉取共用同一份), 本函数只负责判定本轮该不该对账。
-// ok 为假表示本轮不该对账: 两侧都失败, 或任一侧 2xx 却返回空列表。
+// (与手动拉取共用同一份), 本函数只负责判定本轮拉没拉到清单。
+// ok 为假表示本轮拉不到清单: 两侧都失败, 或任一侧 2xx 却返回空列表。此时不做增量对账(空清单
+// 会删掉该凭据名下全部模型), 由调用方累计连续次数, 够轮数后再按空清单清理。
 func keyFetchModels(result probe.KeyProbeResult) ([]model.ChannelFetchModel, bool) {
 	if result.OpenAIErr == nil && len(result.OpenAI) == 0 {
 		return nil, false

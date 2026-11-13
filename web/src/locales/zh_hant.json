@@ -198,7 +198,11 @@
             "label": "全域模型過濾",
             "placeholder": "請輸入過濾表達式",
             "hint": "拉取通道模型時，命中表達式的模型將被排除（黑名單，常用於攔截 embedding/rerank 等垃圾模型）；與通道自身的匹配正則（命中保留，白名單）疊加生效，留空不過濾",
-            "invalid": "過濾表達式無效"
+            "invalid": "過濾表達式無效",
+            "prune": "清理存量",
+            "pruning": "清理中",
+            "pruneSuccess": "已清理 {count} 個模型",
+            "pruneFailed": "清理失敗"
         },
         "saved": "已儲存",
         "groupProbe": {

@@ -30,6 +30,10 @@ func init() {
 				Handle(setSetting),
 		).
 		AddRoute(
+			router.NewRoute("/prune-models", http.MethodPost).
+				Handle(pruneModels),
+		).
+		AddRoute(
 			router.NewRoute("/export", http.MethodGet).
 				Handle(exportDB),
 		).
@@ -80,6 +84,18 @@ func setSetting(c *gin.Context) {
 		task.Update(string(setting.Key), time.Duration(minutes)*time.Minute)
 	}
 	resp.Success(c, setting)
+}
+
+// pruneModels 按全局模型过滤表达式清理已入库的模型, 返回删除数量。
+// 过滤表达式平时只在拉取与对账时生效, 清不到存量; 这里供人工一次性收尾,
+// 覆盖健康检查碰不到的停用渠道。
+func pruneModels(c *gin.Context) {
+	count, err := op.ChannelModelsPruneByFilter(c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp.Success(c, count)
 }
 
 func exportDB(c *gin.Context) {

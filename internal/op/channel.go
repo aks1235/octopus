@@ -403,6 +403,23 @@ func ChannelModelReconcile(ctx context.Context, channelID int, keyName string, f
 	if len(fetched) == 0 {
 		return fmt.Errorf("reconcile of channel %d key %q got empty model list", channelID, keyName)
 	}
+	return modelReconcile(ctx, channelID, keyName, fetched, true)
+}
+
+// ChannelModelClear 清空单个凭据名下的模型与授权。
+//
+// 供"连续多轮拉不到模型清单"的渠道收尾: 上游 200 但空列表, 或两侧都报错, 都说明这个凭据已经
+// 拿不到任何模型(账户失效、分组被撤销、权限被收回)。清单留着只会继续向不存在的模型发请求,
+// 并占据分组成员的位置。"本身没有模型列表接口"的渠道由 health_check_skip 排除, 不会走到这里。
+//
+// 与 ChannelModelReconcile 共用同一套事务与收尾, 区别只在于不受"空清单不对账"那道护栏约束
+// —— 护栏保护的正是本函数要清掉的残骸。其他凭据名下的模型与授权原样保留。
+func ChannelModelClear(ctx context.Context, channelID int, keyName string) error {
+	return modelReconcile(ctx, channelID, keyName, nil, false)
+}
+
+// modelReconcile 是单凭据对账的实现; applyFilter 为真时先按渠道与全局过滤表达式收缩清单。
+func modelReconcile(ctx context.Context, channelID int, keyName string, fetched []model.ChannelFetchModel, applyFilter bool) error {
 	keyName = strings.TrimSpace(keyName)
 	if keyName == "" {
 		return fmt.Errorf("reconcile of channel %d got empty key name", channelID)
@@ -411,9 +428,13 @@ func ChannelModelReconcile(ctx context.Context, channelID int, keyName string, f
 	if !ok {
 		return fmt.Errorf("channel not found")
 	}
-	kept, err := filterFetchedModels(channel.MatchRegex, fetched)
-	if err != nil {
-		return err
+	kept := fetched
+	if applyFilter {
+		var err error
+		kept, err = filterFetchedModels(channel.MatchRegex, fetched)
+		if err != nil {
+			return err
+		}
 	}
 
 	changed := false
@@ -565,6 +586,78 @@ func ChannelFetchModels(openaiNames, anthropicNames []string) []model.ChannelFet
 		models = append(models, model.ChannelFetchModel{Name: name, Protocols: protocolsByName[name]})
 	}
 	return models
+}
+
+// ChannelModelsPruneByFilter 按全局过滤表达式删除全库中命中的渠道模型, 返回删除数量。
+//
+// 过滤表达式只在"拉取"与"对账"时收缩清单, 管不到此前已经入库的模型; 而上游常常已经拉不到清单
+// (见 ChannelModelClear), 对账便永远不会删到它们。本函数供人工一次性清理这类存量。
+// 删除走与对账相同的路径: 模型删除级联授权, 分组引用随授权级联消失。
+func ChannelModelsPruneByFilter(ctx context.Context) (int, error) {
+	globalFilter, err := SettingGetString(model.SettingKeyModelFilter)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read global model filter: %w", err)
+	}
+	globalFilter = strings.TrimSpace(globalFilter)
+	if globalFilter == "" {
+		return 0, fmt.Errorf("global model filter is empty")
+	}
+	reGlobal, err := regexp2.Compile(globalFilter, regexp2.ECMAScript)
+	if err != nil {
+		return 0, fmt.Errorf("failed to compile global model filter: %w", err)
+	}
+
+	var channelModels []model.ChannelModel
+	if err := db.GetDB().WithContext(ctx).Find(&channelModels).Error; err != nil {
+		return 0, fmt.Errorf("failed to load channel models: %w", err)
+	}
+	hitIDs := make([]int, 0, len(channelModels))
+	touchedChannels := make(map[int]struct{})
+	for _, channelModel := range channelModels {
+		keep, err := ModelNameKept(nil, reGlobal, channelModel.Name)
+		if err != nil {
+			return 0, fmt.Errorf("failed to match model name %q: %w", channelModel.Name, err)
+		}
+		if keep {
+			continue
+		}
+		hitIDs = append(hitIDs, channelModel.ID)
+		touchedChannels[channelModel.ChannelID] = struct{}{}
+	}
+	if len(hitIDs) == 0 {
+		return 0, nil
+	}
+
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := clearActiveItems(tx, grantsOf(tx, "channel_model_id", hitIDs)); err != nil {
+			return err
+		}
+		if err := tx.Delete(&model.ChannelModel{}, hitIDs).Error; err != nil {
+			return fmt.Errorf("failed to delete channel models: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+
+	// 收尾与对账同款: 删除改变可选路由集合, 逐渠道重载子表并刷新分组。
+	for channelID := range touchedChannels {
+		if err := reloadChannelChildren(ctx, channelID); err != nil {
+			return 0, err
+		}
+	}
+	if err := groupRefreshCache(ctx); err != nil {
+		return 0, fmt.Errorf("failed to refresh groups: %w", err)
+	}
+	if err := GroupRegexSync(ctx); err != nil {
+		return 0, fmt.Errorf("failed to sync regex groups: %w", err)
+	}
+	for channelID := range touchedChannels {
+		if err := GroupManualAbsorb(ctx, channelID); err != nil {
+			return 0, fmt.Errorf("failed to absorb manual group members: %w", err)
+		}
+	}
+	return len(hitIDs), nil
 }
 
 // filterFetchedModels 按两层过滤正则收缩对账清单, 口径与手动探测的后端拉取完全一致:

@@ -44,6 +44,25 @@ export function useSettingList() {
 }
 
 /**
+ * 按全局模型过滤表达式清理已入库的模型 Hook
+ *
+ * 过滤表达式平时只在拉取与对账时生效, 清不到此前入库的存量; 这里触发一次全量清理。
+ * 返回删除的模型数量。
+ */
+export function usePruneModels() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: () => apiRequest<number>('/api/v1/setting/prune-models', { method: 'POST' }),
+        onSuccess: () => {
+            // 模型被删会连带消失授权与分组成员, 渠道与分组两边都要重新拉。
+            queryClient.invalidateQueries({ queryKey: ['channel'] });
+            queryClient.invalidateQueries({ queryKey: ['group'] });
+        },
+    });
+}
+
+/**
  * 设置 Setting Hook
  * 
  * @example

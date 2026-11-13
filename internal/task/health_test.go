@@ -24,6 +24,10 @@ func seedHealthCheckTestDB(t *testing.T) {
 	t.Cleanup(func() {
 		_ = db.Close()
 	})
+	// 连续拉空计数是包级状态, 而各用例的渠道��凭据都从 1 开始编号, 必须逐用例清零。
+	fetchMissMu.Lock()
+	fetchMiss = make(map[fetchMissKey]int)
+	fetchMissMu.Unlock()
 
 	if err := db.GetDB().Create(&model.Channel{
 		ID:            1,
@@ -157,9 +161,9 @@ func TestCheckChannelHealth_reconcilesModelsAcrossRounds(t *testing.T) {
 	}
 }
 
-// TestCheckChannelHealth_failedProbeSkipsReconcile 验证防误删护栏一: 两侧都探测失败的凭据不对账,
-// 名下模型与授权原样保留; 健康判定照旧走失败计数。
-func TestCheckChannelHealth_failedProbeSkipsReconcile(t *testing.T) {
+// TestCheckChannelHealth_failedProbeClearsAfterThreshold 验证两侧都探测失败的凭据要连续两轮
+// 才清空模型: 第一轮只计数, 名下模型与授权原样保留(挡住单次抖动); 第二轮按空清单清理。
+func TestCheckChannelHealth_failedProbeClearsAfterThreshold(t *testing.T) {
 	seedHealthCheckTestDB(t)
 
 	baseURL := startHealthFakeUpstream(t, nil, nil)
@@ -169,13 +173,19 @@ func TestCheckChannelHealth_failedProbeSkipsReconcile(t *testing.T) {
 		t.Fatalf("health row = %+v, want fail count 1 with reason, still enabled", row)
 	}
 	if got, want := channelModelsFromCache(t), []string{"m-a", "m-b"}; !slices.Equal(got, want) {
-		t.Fatalf("models = %v, want unchanged %v", got, want)
+		t.Fatalf("第一轮 models = %v, 期望保持不变 %v", got, want)
+	}
+
+	checkChannelHealth(context.Background(), healthCandidate(baseURL), 3)
+	if got := channelModelsFromCache(t); len(got) != 0 {
+		t.Fatalf("第二轮 models = %v, 期望清空", got)
 	}
 }
 
-// TestCheckChannelHealth_emptyListSkipsReconcile 验证防误删护栏二: 任一侧 2xx 却返回空列表时
-// 该凭据不对账(空列表更可能是上游故障而非全部下架), 健康成功照常落库。
-func TestCheckChannelHealth_emptyListSkipsReconcile(t *testing.T) {
+// TestCheckChannelHealth_emptyListClearsAfterThreshold 验证上游 200 但空列表的处理:
+// 第一轮不清理(单次空列表更可能是上游抖动, 清空会级联删掉授权与分组成员), 连续第二轮才按空清单清理。
+// 健康判定照旧按"200 即成功"落库, 与清理分开。
+func TestCheckChannelHealth_emptyListClearsAfterThreshold(t *testing.T) {
 	seedHealthCheckTestDB(t)
 
 	baseURL := startHealthFakeUpstream(t, []string{}, []string{})
@@ -185,7 +195,12 @@ func TestCheckChannelHealth_emptyListSkipsReconcile(t *testing.T) {
 		t.Fatalf("health row = %+v, want success recorded", row)
 	}
 	if got, want := channelModelsFromCache(t), []string{"m-a", "m-b"}; !slices.Equal(got, want) {
-		t.Fatalf("models = %v, want unchanged %v", got, want)
+		t.Fatalf("第一轮 models = %v, 期望保持不变 %v", got, want)
+	}
+
+	checkChannelHealth(context.Background(), healthCandidate(baseURL), 3)
+	if got := channelModelsFromCache(t); len(got) != 0 {
+		t.Fatalf("第二轮 models = %v, 期望清空", got)
 	}
 }
 

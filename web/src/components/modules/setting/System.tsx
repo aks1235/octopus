@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
+import { useSettingList, useSetSetting, usePruneModels, SettingKey } from '@/api/setting';
 import { getGroupProbeStatus, runGroupProbe, type GroupProbeStatus } from '@/api/group';
 import { compileMemberRegex } from '@/lib/member-regex';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ export function SettingSystem() {
     const t = useTranslations('setting');
     const { data: settings } = useSettingList();
     const setSetting = useSetSetting();
+    const pruneModels = usePruneModels();
 
     const [proxyUrl, setProxyUrl] = useState('');
     const [statsSaveInterval, setStatsSaveInterval] = useState('');
@@ -151,6 +152,14 @@ export function SettingSystem() {
     }, [probeStatus, t]);
 
     // 运行中按钮直接显示进度, 而不是只写"进行中": 一轮几分钟, 用户需要知道还剩多少。
+    // 过滤表达式只在拉取与对账时生效, 清不到已经入库的存量; 这里按当前表达式手动清一次。
+    const handlePruneModels = () => {
+        pruneModels.mutate(undefined, {
+            onSuccess: (count) => toast.success(t('modelFilter.pruneSuccess', { count })),
+            onError: (error) => toast.error(t('modelFilter.pruneFailed'), { description: String(error) }),
+        });
+    };
+
     const probeButtonLabel = probeStatus?.running ? t('groupProbe.runningNow') : t('groupProbe.runNow');
 
     // 定时探测开关: 只有开着才会每 6–12 小时自动跑一轮; 关掉后已落库的判死结论最多一天自动失效。
@@ -377,20 +386,31 @@ export function SettingSystem() {
                         </TooltipContent>
                     </Tooltip>
                 </div>
-                <Input
-                    value={modelFilter}
-                    onChange={(e) => setModelFilter(e.target.value)}
-                    onBlur={() => {
-                        // 与分组成员正则同一口径预检, 后端 Validate 再兜底一道。
-                        if (modelFilter !== '' && compileMemberRegex(modelFilter) === null) {
-                            toast.error(t('modelFilter.invalid'));
-                            return;
-                        }
-                        handleSave(SettingKey.ModelFilter, modelFilter, initialModelFilter.current);
-                    }}
-                    placeholder={t('modelFilter.placeholder')}
-                    className="w-48 rounded-xl"
-                />
+                <div className="flex items-center gap-2">
+                    <Input
+                        value={modelFilter}
+                        onChange={(e) => setModelFilter(e.target.value)}
+                        onBlur={() => {
+                            // 与分组成员正则同一口径预检, 后端 Validate 再兜底一道。
+                            if (modelFilter !== '' && compileMemberRegex(modelFilter) === null) {
+                                toast.error(t('modelFilter.invalid'));
+                                return;
+                            }
+                            handleSave(SettingKey.ModelFilter, modelFilter, initialModelFilter.current);
+                        }}
+                        placeholder={t('modelFilter.placeholder')}
+                        className="w-48 rounded-xl"
+                    />
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={handlePruneModels}
+                        disabled={pruneModels.isPending || modelFilter.trim() === ''}
+                    >
+                        {pruneModels.isPending ? t('modelFilter.pruning') : t('modelFilter.prune')}
+                    </Button>
+                </div>
             </div>
 
             {/* CORS 跨域白名单 */}
