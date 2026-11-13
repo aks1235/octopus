@@ -14,7 +14,9 @@ export function GroupActions() {
     const searchTerm = usePageActionsStore((state) => state.searchTerms.group || '');
     const sortOrder = usePageActionsStore((state) => state.sortOrders.group === 'desc' ? 'desc' : 'asc');
     const filter = usePageActionsStore((state) => state.groupFilter);
+    const layout = usePageActionsStore((state) => state.layouts.group || 'list');
     const setSearchTerm = usePageActionsStore((state) => state.setSearchTerm);
+    const setLayout = usePageActionsStore((state) => state.setLayout);
     const setSort = usePageActionsStore((state) => state.setSort);
     const setFilter = usePageActionsStore((state) => state.setGroupFilter);
 
@@ -22,6 +24,8 @@ export function GroupActions() {
         <PageActions
             searchTerm={searchTerm}
             onSearchTermChange={(value) => setSearchTerm('group', value)}
+            layout={layout}
+            onLayoutChange={(value) => setLayout('group', value)}
             sortOptions={[
                 { value: 'asc', label: t('popover.nameAsc'), icon: ArrowUpAZ },
                 { value: 'desc', label: t('popover.nameDesc'), icon: ArrowUpAZ },
@@ -52,6 +56,9 @@ export function Group() {
     const searchTerm = usePageActionsStore((state) => state.searchTerms.group || '');
     const sortOrder = usePageActionsStore((state) => state.sortOrders.group === 'desc' ? 'desc' : 'asc');
     const filter = usePageActionsStore((state) => state.groupFilter);
+    // 默认列表: 16 个分组平均 20 个成员, 网格一屏只装得下 6 个。要平铺看成员时再切网格。
+    const layout = usePageActionsStore((state) => state.layouts.group || 'list');
+    const isList = layout === 'list';
 
     const sortedGroups = useMemo(() => {
         if (!groups) return [];
@@ -73,15 +80,19 @@ export function Group() {
     return (
         <VirtualizedGrid
             items={visibleGroups}
-            columns={{ default: 1, md: 2, lg: 3 }}
-            estimateItemHeight={520}
+            layout={layout}
+            columns={isList ? { default: 1 } : { default: 1, md: 2, lg: 3 }}
+            // 列表每行折叠态约 44px, 展开后的实际高度由 VirtualizedGrid 的 measureElement 量出来,
+            // 这里的值只影响首帧估算, 给足余量以免展开瞬间抖动。
+            estimateItemHeight={isList ? 48 : 520}
+            gap={isList ? 6 : 16}
             getItemKey={(group) => group.id}
             renderItem={(group) => {
                 let deadline = group.runtime.affinity_until;
                 for (const cooldownUntil of Object.values(group.runtime.cooldowns)) {
                     deadline = Math.max(deadline, cooldownUntil);
                 }
-                return <GroupCard group={group} now={deadline > runtimeNow ? runtimeNow : deadline} />;
+                return <GroupCard group={group} now={deadline > runtimeNow ? runtimeNow : deadline} isList={isList} />;
             }}
         />
     );
