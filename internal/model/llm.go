@@ -17,6 +17,11 @@ type OpenAIModel struct {
 	Object  string `json:"object"`
 	Created int    `json:"created"`
 	OwnedBy string `json:"owned_by"`
+	// ContextLength 是该模型对外声明的上下文窗口, 非 OpenAI 标准字段。
+	// 客户端(如 Hermes)在 /v1/models 里按 context_length 探测窗口, 拿不到就回落到硬编码的
+	// 家族默认值(qwen 系常被当成 128K), 于是压缩阈值远早于模型真实上限。
+	// 未声明时不输出该字段, 维持原有响应形状。
+	ContextLength int `json:"context_length,omitempty"`
 }
 
 type OpenAIModelList struct {

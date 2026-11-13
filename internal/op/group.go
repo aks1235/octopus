@@ -66,6 +66,18 @@ func GroupListModel() []string {
 	return models
 }
 
+// GroupContextLengths 返回分组名到已声明上下文窗口的映射, 未声明的分组不出现在结果里。
+// 供 /v1/models 声明窗口: 客户端据此决定压缩阈值, 拿不到就回落到自己的家族默认值。
+func GroupContextLengths() map[string]int {
+	lengths := make(map[string]int, groupCache.Len())
+	for _, group := range groupCache.GetAll() {
+		if group.ContextLength > 0 {
+			lengths[group.Name] = group.ContextLength
+		}
+	}
+	return lengths
+}
+
 // GroupGetByName 返回客户端模型名称对应的分组配置, 供转发选路使用。
 // 不补齐成员的展示字段: 转发只需成员主键与顺序, 授权详情由 ChannelGrantGet 按主键单独取,
 // 那里会连带校验凭据启用与两侧存在, 使拿到的授权必然可直接转发。
@@ -90,12 +102,18 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 	if name == "" {
 		return nil, fmt.Errorf("group name is required")
 	}
+	// 未填写时按默认值声明: 客户端拿不到声明会回落到家族默认值, 压缩阈值因此偏早。
+	contextLength := req.ContextLength
+	if contextLength <= 0 {
+		contextLength = model.DefaultGroupContextLength
+	}
 	group := model.Group{
-		Name:        name,
-		Mode:        req.Mode,
-		MemberRegex: strings.TrimSpace(req.MemberRegex),
-		RelayConfig: req.RelayConfig,
-		Items:       make([]model.GroupItem, len(req.Items)),
+		Name:          name,
+		Mode:          req.Mode,
+		MemberRegex:   strings.TrimSpace(req.MemberRegex),
+		RelayConfig:   req.RelayConfig,
+		ContextLength: contextLength,
+		Items:         make([]model.GroupItem, len(req.Items)),
 	}
 	if group.Mode == "" {
 		group.Mode = model.GroupModeManual
@@ -170,6 +188,14 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 		model.NormalizeGroupRelayConfig(&config)
 		selectFields = append(selectFields, "relay_config")
 		updates.RelayConfig = config
+	}
+	if req.ContextLength != nil {
+		length := *req.ContextLength
+		if length <= 0 {
+			length = model.DefaultGroupContextLength
+		}
+		selectFields = append(selectFields, "context_length")
+		updates.ContextLength = length
 	}
 
 	var group model.Group

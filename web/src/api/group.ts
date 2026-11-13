@@ -62,6 +62,7 @@ export interface Group {
     mode: GroupMode;
     relay_config: GroupRelayConfig;
     member_regex: string; // 成员匹配正则；空串表示纯手动分组，非空时成员由后端按正则自动同步。
+    context_length: number; // 对外声明的上下文窗口（tokens），0 表示不声明，由客户端自行推断。
     items: GroupItem[]; // 恒为数组，后端读取侧承诺不为 null。
     runtime: GroupRuntime; // 随分组一并返回；当前成员一律读 runtime.current_item_id。
 }
@@ -77,6 +78,7 @@ export interface GroupCreateRequest {
     mode: GroupMode;
     relay_config: GroupRelayConfig;
     member_regex?: string; // 成员匹配正则，可选；非空时创建后立即按正则吸纳成员，提交的 items 被替换。
+    context_length?: number; // 对外声明的上下文窗口（tokens），0 或省略表示不声明。
     items: GroupItemInput[];
 }
 
@@ -88,6 +90,7 @@ export interface GroupUpdateRequest {
     mode?: GroupMode;
     relay_config?: GroupRelayConfig;
     member_regex?: string;
+    context_length?: number;
     items?: GroupItemInput[];
     active_item_id?: number; // 手动模式指定的当前成员，0 表示取消选择。
 }

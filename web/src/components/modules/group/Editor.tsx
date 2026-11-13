@@ -25,9 +25,14 @@ export type GroupEditorValues = {
     mode: GroupMode;
     relay_config: GroupRelayConfig;
     member_regex: string;
+    context_length: number;
     members: SelectedMember[];
     channelOrder?: number[]; // 正则分组编辑后的渠道顺序（去重、按首次出现序）；仅当与初始顺序不同时给出，由提交方先走顺序端点。
 };
+
+// DEFAULT_CONTEXT_LENGTH 与后端 DefaultGroupContextLength 保持一致:
+// 新建分组时表单预填这个值, 用户可改成真实上限。
+const DEFAULT_CONTEXT_LENGTH = 1000000;
 
 // defaultRelayConfig 提供创建分组时的前端初始配置。
 const defaultRelayConfig: GroupRelayConfig = {
@@ -393,6 +398,7 @@ export function GroupEditor({
         mode?: GroupMode;
         relay_config?: Partial<GroupRelayConfig>;
         member_regex?: string;
+        context_length?: number;
         members?: SelectedMember[];
     };
     groupId?: number; // 编辑已有分组时给出: 有主键才能查该组的探测历史, 新建时没有。
@@ -422,6 +428,10 @@ export function GroupEditor({
         ...initial?.relay_config,
     }));
     const [memberRegex, setMemberRegex] = useState(initial?.member_regex ?? '');
+    // 上下文窗口按字符串存: 空串表示不声明, 提交时再折算成数字, 免得 0 与"未填"混在一起。
+    const [contextLength, setContextLength] = useState(
+        initial?.context_length ? String(initial.context_length) : String(DEFAULT_CONTEXT_LENGTH)
+    );
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     // 探测历史弹窗：null 关闭，数字表示看哪个授权（grant）。
     const [historyGrantId, setHistoryGrantId] = useState<number | null>(null);
@@ -511,6 +521,7 @@ export function GroupEditor({
             mode,
             relay_config: relayConfig,
             member_regex: trimmedMemberRegex,
+            context_length: Number(contextLength.trim()) || 0,
             members: selectedMembers,
         };
         if (isRegexGroup) {
@@ -572,6 +583,22 @@ export function GroupEditor({
                         {isRegexGroup && !memberRegexValid && (
                             <p className="text-xs text-destructive">{t('form.memberRegexInvalid')}</p>
                         )}
+                    </Field>
+
+                    {/* 上下文窗口: 对外声明给客户端, 决定它何时压缩历史。留空则不声明。 */}
+                    <Field>
+                        <FieldLabel htmlFor="group-context-length">
+                            {t('form.contextLength')}
+                            <FieldHelp text={t('form.contextLengthHint')} />
+                        </FieldLabel>
+                        <Input
+                            id="group-context-length"
+                            inputMode="numeric"
+                            value={contextLength}
+                            onChange={(e) => setContextLength(e.target.value)}
+                            placeholder="128000"
+                            className="rounded-xl font-mono text-sm"
+                        />
                     </Field>
 
                     <Tabs defaultValue="members" className="flex flex-1 min-h-0">

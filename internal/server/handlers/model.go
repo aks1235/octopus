@@ -84,13 +84,17 @@ func getModelList(c *gin.Context) {
 		}
 		c.JSON(200, response)
 	} else {
+		// 上下文窗口按分组声明输出: 客户端在 /v1/models 里探测不到就会回落到家族硬编码默认值,
+		// 压缩阈值随之偏早。未声明的分组不输出该字段, 行为与之前一致。
+		contextLengths := op.GroupContextLengths()
 		var openAIModels []model.OpenAIModel
 		for _, m := range models {
 			openAIModels = append(openAIModels, model.OpenAIModel{
-				ID:      m,
-				Object:  "model",
-				Created: 1763395200,
-				OwnedBy: "octopus",
+				ID:            m,
+				Object:        "model",
+				Created:       1763395200,
+				OwnedBy:       "octopus",
+				ContextLength: contextLengths[m],
 			})
 		}
 		c.JSON(200, gin.H{

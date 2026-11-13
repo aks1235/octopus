@@ -160,6 +160,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
         if (values.mode !== group.mode) payload.mode = values.mode;
         // 空串是有意义的值(改回手动分组), 与其余可选字段一样只在变化时提交。
         if (values.member_regex !== group.member_regex) payload.member_regex = values.member_regex;
+        if (values.context_length !== (group.context_length ?? 0)) payload.context_length = values.context_length;
         if (
             values.relay_config.member_max_attempts !== group.relay_config.member_max_attempts ||
             values.relay_config.member_retry_interval_seconds !== group.relay_config.member_retry_interval_seconds ||
@@ -216,7 +217,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
         }
 
         updateGroup.mutate(payload, { onSuccess: saveOrderThenFinish, onError });
-    }, [group.id, group.items, group.member_regex, group.mode, group.name, group.relay_config, onSuccess, onError, saveChannelOrder, updateGroup]);
+    }, [group.id, group.items, group.member_regex, group.context_length, group.mode, group.name, group.relay_config, onSuccess, onError, saveChannelOrder, updateGroup]);
 
     return (
         <article className="flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4">
