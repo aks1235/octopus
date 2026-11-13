@@ -673,6 +673,7 @@
     "channel": {
         "card": {
             "requestCount": "请求次数",
+            "successRate": "成功率",
             "totalCost": "总成本",
             "model": "模型",
             "successRequests": "成功请求",
@@ -685,7 +686,9 @@
                 "failing": "失败 {count} 次",
                 "autoDisabled": "已自动禁用",
                 "lastCheck": "最近检查：{time}",
-                "neverChecked": "尚未检查"
+                "neverChecked": "尚未检查",
+                "ok": "正常",
+                "manualDisabled": "手动禁用"
             }
         },
         "stats": {

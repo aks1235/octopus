@@ -673,6 +673,7 @@
     "channel": {
         "card": {
             "requestCount": "Requests",
+            "successRate": "Success rate",
             "totalCost": "Total Cost",
             "model": "Model",
             "successRequests": "Successful Requests",
@@ -685,7 +686,9 @@
                 "failing": "Failing {count}",
                 "autoDisabled": "Auto Disabled",
                 "lastCheck": "Last check: {time}",
-                "neverChecked": "Not checked yet"
+                "neverChecked": "Not checked yet",
+                "ok": "Healthy",
+                "manualDisabled": "Manually disabled"
             }
         },
         "stats": {

@@ -673,6 +673,7 @@
     "channel": {
         "card": {
             "requestCount": "請求次數",
+            "successRate": "成功率",
             "totalCost": "總成本",
             "model": "模型",
             "successRequests": "成功請求",
@@ -685,7 +686,9 @@
                 "failing": "失敗 {count} 次",
                 "autoDisabled": "已自動停用",
                 "lastCheck": "最近檢查：{time}",
-                "neverChecked": "尚未檢查"
+                "neverChecked": "尚未檢查",
+                "ok": "正常",
+                "manualDisabled": "手動停用"
             }
         },
         "stats": {

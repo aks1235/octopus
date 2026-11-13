@@ -6,7 +6,7 @@ import {
     MorphingDialogDescription,
 } from '@/components/ui/morphing-dialog';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, DollarSign, History, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { History } from 'lucide-react';
 import dayjs from 'dayjs';
 import { type ChannelStatsFormatted, useEnableChannel } from '@/api/channel';
 import { usePageActionsStore } from '@/components/common/PageActions';
@@ -32,20 +32,27 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     const [openInEditing, setOpenInEditing] = useState(false);
     const metrics = channel.formatted;
 
-    // 列表布局的统计项, 缺少 unit 时只显示数值
-    const listMetrics: { icon: React.ReactNode; label: string; value: string | number; unit?: string }[] = [
-        { icon: <MessageSquare className="size-4 shrink-0 text-primary" />, label: t('requestCount'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
-        { icon: <Layers className="size-4 shrink-0 text-primary" />, label: t('model'), value: channel.models.length },
-        { icon: <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />, label: t('successRequests'), value: metrics.request_success.formatted.value },
-        { icon: <XCircle className="size-4 shrink-0 text-destructive" />, label: t('failedRequests'), value: metrics.request_failed.formatted.value },
-        { icon: <DollarSign className="size-4 shrink-0 text-primary" />, label: t('totalCost'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
-    ];
+    // 成功率由成功与失败计数现算; 一次请求都没有时显示破折号, 而不是误导性的 0%。
+    const successRate =
+        metrics.request_count.raw > 0
+            ? { value: ((metrics.request_success.raw / metrics.request_count.raw) * 100).toFixed(1), unit: '%' }
+            : { value: '—', unit: '' };
 
-    // 网格布局的统计项
-    const gridMetrics = [
-        { icon: <MessageSquare className="size-4 shrink-0 text-primary" />, label: t('requestCount'), metric: metrics.request_count },
-        { icon: <DollarSign className="size-4 shrink-0 text-primary" />, label: t('totalCost'), metric: metrics.total_cost },
+    // 统计项统一成"数值 + 单位 + 小标签": 网格布局三项一行, 列表布局按列摊开。
+    type MetricItem = { label: string; value: string; unit?: string };
+    const gridMetrics: MetricItem[] = [
+        { label: t('requestCount'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
+        { label: t('successRate'), value: successRate.value, unit: successRate.unit },
+        { label: t('totalCost'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
     ];
+    const listMetrics: MetricItem[] = [
+        { label: t('requestCount'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
+        { label: t('model'), value: String(channel.models.length) },
+        { label: t('successRequests'), value: metrics.request_success.formatted.value },
+        { label: t('failedRequests'), value: metrics.request_failed.formatted.value },
+        { label: t('totalCost'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
+    ];
+    const metricItems = layout === 'list' ? listMetrics : gridMetrics;
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -61,27 +68,31 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
         );
     };
 
-    // 健康徽标三态: 健康渠道不渲染徽标, 失败中显橙色次数, 连续失败达阈值被自动禁用后显红色。
-    // 手动禁用的渠道不再探测, 其失败计数停留在最后一次检查, 徽标照实展示并由 tooltip 的时间说明新鲜度。
-    const showHealthBadge = channel.auto_disabled || channel.health_fail_count > 0;
-    const healthBadge = showHealthBadge && (
+    // 状态收成一个色点: 文案徽标会把标题挤成省略号, 而卡片最窄时只有六列宽。
+    // 四态优先级: 自动禁用 > 手动禁用 > 探测失败中 > 正常。详情进 tooltip, 不占版面。
+    const statusTone = channel.auto_disabled
+        ? 'bg-destructive'
+        : !channel.enabled
+            ? 'bg-muted-foreground/40'
+            : channel.health_fail_count > 0
+                ? 'bg-orange-500'
+                : 'bg-emerald-500';
+    const statusLabel = channel.auto_disabled
+        ? t('health.autoDisabled')
+        : !channel.enabled
+            ? t('health.manualDisabled')
+            : channel.health_fail_count > 0
+                ? t('health.failing', { count: channel.health_fail_count })
+                : t('health.ok');
+    const statusDot = (
         <Tooltip>
             <TooltipTrigger asChild>
-                <span
-                    className={
-                        channel.auto_disabled
-                            ? 'rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive'
-                            : 'rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-600 dark:text-orange-400'
-                    }
-                >
-                    {channel.auto_disabled
-                        ? t('health.autoDisabled')
-                        : t('health.failing', { count: channel.health_fail_count })}
-                </span>
+                <span className={`mt-2 size-[7px] shrink-0 rounded-full ${statusTone}`} />
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={10} align="center">
+            <TooltipContent side="top" sideOffset={8} align="start">
                 <div className="max-w-64 space-y-1 text-xs">
-                    {channel.last_health_error && <p className="break-all">{channel.last_health_error}</p>}
+                    <p className="font-medium">{statusLabel}</p>
+                    {channel.last_health_error && <p className="break-all text-muted-foreground">{channel.last_health_error}</p>}
                     <p className="text-muted-foreground">
                         {channel.last_health_at > 0
                             ? t('health.lastCheck', { time: dayjs.unix(channel.last_health_at).format('YYYY-MM-DD HH:mm:ss') })
@@ -97,19 +108,17 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
             <MorphingDialogTrigger className="w-full">
                 <article
                     onClickCapture={() => setOpenInEditing(false)}
-                    className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4"
+                    className="flex h-full flex-col gap-4 rounded-3xl border border-border bg-card p-4 text-card-foreground"
                 >
-                    <header className="flex items-center justify-between gap-2">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <h3 className="text-lg font-bold truncate min-w-0">{channel.channel_name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={channel.channel_name} side="top" sideOffset={10} align="center">
-                                {channel.channel_name}
-                            </TooltipContent>
-                        </Tooltip>
-                        <div className="flex shrink-0 items-center gap-1">
-                            {healthBadge}
+                    <header className="flex items-start gap-2">
+                        {statusDot}
+                        <h3
+                            className="line-clamp-2 min-w-0 flex-1 break-words text-base font-bold leading-snug"
+                            title={channel.channel_name}
+                        >
+                            {channel.channel_name}
+                        </h3>
+                        <div className="flex shrink-0 items-center gap-0.5">
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
@@ -144,37 +153,23 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                         </div>
                     </header>
 
-                    {layout === 'list' ? (
-                        <dl className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-                            {listMetrics.map(({ icon, label, value, unit }) => (
-                                <div key={label} className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                    <dt className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        {icon}
-                                        <span className="truncate">{label}</span>
-                                    </dt>
-                                    <dd className="text-right text-xl font-bold">
-                                        {value}
-                                        {unit && <span className="ml-1 text-xs font-normal text-muted-foreground">{unit}</span>}
-                                    </dd>
-                                </div>
-                            ))}
-                        </dl>
-                    ) : (
-                        <dl className="grid grid-cols-1 gap-3">
-                            {gridMetrics.map(({ icon, label, metric }) => (
-                                <div key={label} className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                    <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        {icon}
-                                        <span className="truncate">{label}</span>
-                                    </dt>
-                                    <dd className="mt-1 text-right text-xl font-bold">
-                                        {metric.formatted.value}
-                                        <span className="ml-1 text-xs font-normal text-muted-foreground">{metric.formatted.unit}</span>
-                                    </dd>
-                                </div>
-                            ))}
-                        </dl>
-                    )}
+                    <dl
+                        className={
+                            layout === 'list'
+                                ? 'mt-auto grid grid-cols-2 gap-3 border-t border-border/60 pt-3 sm:grid-cols-3 lg:grid-cols-5'
+                                : 'mt-auto grid grid-cols-3 gap-3 border-t border-border/60 pt-3'
+                        }
+                    >
+                        {metricItems.map(({ label, value, unit }) => (
+                            <div key={label} className="flex min-w-0 flex-col-reverse">
+                                <dt className="mt-0.5 truncate text-[11px] text-muted-foreground">{label}</dt>
+                                <dd className="truncate text-lg font-bold tabular-nums leading-tight">
+                                    {value}
+                                    {unit && <span className="ml-0.5 text-xs font-normal text-muted-foreground">{unit}</span>}
+                                </dd>
+                            </div>
+                        ))}
+                    </dl>
 
                 </article>
             </MorphingDialogTrigger>
