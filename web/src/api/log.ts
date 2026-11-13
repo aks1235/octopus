@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { apiRequest } from './client';
+import type { ChannelAttempt } from './log-history';
 
 // RequestState 表示 Relay 请求的实时状态。
 export type RequestState = 'running' | 'committed' | 'success' | 'failed' | 'canceled';
@@ -48,6 +49,11 @@ export interface RelayLogOverview {
     // 思考相位计思考增量、正文相位计正文增量, 相位切换时重新计时; 结束后归零改用用量推导的精确 tok/s。
     phase_chars?: number;
     phase_speed?: number;
+    /**
+     * 已完成的上游尝试(成功与失败都记), 与落库日志的 attempts 同一份内容。
+     * 每次尝试结束即随状态流推送, 前端据此直接展示故障转移过程, 不靠观察轮次号去猜。
+     */
+    attempts?: ChannelAttempt[];
 }
 
 // useClearLogs 清空已完成的内存日志。

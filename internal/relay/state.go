@@ -57,6 +57,9 @@ type RequestState struct {
 	TargetProtocol model.Protocol `json:"target_protocol"`  // 最新一轮实际请求上游的协议, 与 Protocol 不同即本轮做了跨协议转换; 0 表示尚未选出。
 	Sending        bool           `json:"sending"`          // 最新一轮是否仍在等待上游响应。
 	Error          string         `json:"error,omitempty"`  // 最新一轮的失败原因, 请求结束后即为最终错误。
+	// Attempts 是本次请求已经结束的全部上游尝试(成功与失败都记), 与落库日志的 attempts 同一份内容。
+	// 随每次尝试即时推送: 前端据此展示"切了几次、每次错在哪", 不必再靠观察轮次号去猜。
+	Attempts []model.ChannelAttempt `json:"attempts,omitempty"`
 
 	body         string             // 客户端原始请求体, 体积大故不进状态流, 由独立接口按需拉取。
 	responseBody string             // 聚合后的完整最终响应体, 同样按需拉取。
@@ -153,7 +156,19 @@ func Interrupt(id uint64, round int) {
 	cancel()
 }
 
-// wait 在重新选择目标之前退避 seconds 秒; 客户端在退避期间断开时以取消终态定稿并返回 false。
+// appendAttempt 记录一次已经结束的上游尝试, 并立即推送一次状态。
+//
+// 放在状态里而不是只留在 handler 的局部切片: 局部切片只进最终日志, 实时页看不到;
+// 前端此前靠"观察轮次号变化"去猜重试过程, 没观察到某轮的中间快照就会永久丢失,
+// 同一轮内多次失败还会互相覆盖。尝试记录是后端已有的事实, 直接下发最省事也最准。
+func (r *RequestState) appendAttempt(attempt model.ChannelAttempt) {
+	mu.Lock()
+	defer mu.Unlock()
+	r.Attempts = append(r.Attempts, attempt)
+	publishRequestLocked(r)
+}
+
+// wait 等待指定秒数, 期间可被客户端取消。
 func (r *RequestState) wait(ctx context.Context, seconds int) bool {
 	select {
 	case <-ctx.Done():

@@ -239,7 +239,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					request.markCanceled(ctx.Err(), "", nil)
 					return
 				}
-				attempts = append(attempts, model.ChannelAttempt{
+				failedAttempt := model.ChannelAttempt{
 					ChannelID:        channel.ID,
 					ChannelKeyID:     channelKey.ID,
 					ChannelName:      channel.Name,
@@ -249,7 +249,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					Status:           model.AttemptFailed,
 					Duration:         int(time.Since(roundStartedAt).Milliseconds()),
 					Msg:              err.Error(),
-				})
+				}
+				attempts = append(attempts, failedAttempt)
+				// 同步进实时状态: 失败当场就能在界面上看到, 而不是等请求结束才随日志落库。
+				request.appendAttempt(failedAttempt)
 				// 只有能指向渠道的失败才计入排序窗口; 400/404 这类请求本身的问题不计, 否则整组一起背锅。
 				if channelOutcomeCountable(err, emptyAnswer) {
 					recordOutcomeOnce(recordedGrants, item.ChannelGrantID, true)
@@ -298,7 +301,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// 首个有效响应到达即记录首字耗时, 供界面与转发日志的 ftut 用同一数值推导输出速度。
 				request.markFirstToken(firstValidAt)
 			}
-			attempts = append(attempts, model.ChannelAttempt{
+			successAttempt := model.ChannelAttempt{
 				ChannelID:        channel.ID,
 				ChannelKeyID:     channelKey.ID,
 				ChannelName:      channel.Name,
@@ -307,7 +310,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				AttemptNum:       len(attempts) + 1,
 				Status:           model.AttemptSuccess,
 				Duration:         int(roundWaitTime),
-			})
+			}
+			attempts = append(attempts, successAttempt)
+			request.appendAttempt(successAttempt)
 			// 上游成功后解除该成员的冷却与探测占用, 并按路由配置开始亲和。
 			recordRouteSuccess(group, item.ID)
 			// 记一次正面表现: 排序据此把稳定的成员往前放。
