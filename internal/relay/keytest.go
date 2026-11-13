@@ -430,6 +430,11 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 		result.Status = "passed"
 		result.CooldownCleared = clearMemberCooldown(group.ID, item.ID)
 	}
+	// 探测结果同样计入排序窗口: 没有流量的渠道只能靠探测积累表现。
+	// unavailable 与 canceled 不算 —— 前者根本没发请求, 后者是请求被打断, 都不代表上游状态。
+	if result.Status != "unavailable" && result.Status != "canceled" {
+		RecordGrantOutcome(item.ChannelGrantID, !result.Success)
+	}
 	clientName, userAgent := testClientNameOf(ctx)
 	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, attempts, requestContent, responseContent, result.UseTime)
 	return result

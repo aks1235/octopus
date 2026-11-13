@@ -170,6 +170,11 @@ func pickGroupItem(group model.Group, walk *routeWalk) model.GroupItem {
 	if len(items) == 0 {
 		return model.GroupItem{}
 	}
+	// 故障转移按近期失败率重排: 不稳定的成员沉到后面, 不必每次都从队头撞它一遍。
+	// 轮询不排 —— 它本来就均匀轮到每个成员, 排序只改一轮内的次序, 降不了被点到的次数。
+	if group.Mode == model.GroupModeFailover {
+		items = orderByOutcome(items)
+	}
 
 	routeMu.Lock()
 	defer routeMu.Unlock()

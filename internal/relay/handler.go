@@ -89,6 +89,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		// 转发日志的采集与落库: attempts 记录每轮实际发起的上游尝试(等待型轮次不记),
 		// 终态出函数时统一组装落库。闭包捕获变量本身, 终值即为全量。
 		var attempts []model.ChannelAttempt
+		// 本请求已计入排序窗口的授权: 同一请求对同一渠道只记一格, 重试不重复记账。
+		recordedGrants := make(map[int]struct{}, 4)
 		var firstValidAt time.Time // 首次取得可提交响应的时刻, 作为日志的首字时间。
 		defer func() {
 			relayLogFinalize(request, metadata.Model, attempts, apiKeyID, userAgent, reasoningEffort, firstValidAt)
@@ -228,6 +230,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// 父上下文结束说明客户端已经取消, 归还探测占用并以取消终态结束请求。
 				// 取消检查先于 attempts 记账: 客户端中止的轮次不算渠道故障, 不追加失败尝试。
 				if ctx.Err() != nil {
+					// 客户端先走了。跑够久才断的按渠道太慢记一格: 10 秒内断开更像网络抖动或用户手滑。
+					// 这里分不清是客户端超时还是用户点停止, 只用耗时做保守判断, 避免冤枉正常渠道。
+					if time.Since(roundStartedAt) >= outcomeMinElapsed {
+						recordOutcomeOnce(recordedGrants, item.ChannelGrantID, true)
+					}
 					releaseRouteProbe(group, item.ID)
 					request.markCanceled(ctx.Err(), "", nil)
 					return
@@ -243,6 +250,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					Duration:         int(time.Since(roundStartedAt).Milliseconds()),
 					Msg:              err.Error(),
 				})
+				// 只有能指向渠道的失败才计入排序窗口; 400/404 这类请求本身的问题不计, 否则整组一起背锅。
+				if channelOutcomeCountable(err, emptyAnswer) {
+					recordOutcomeOnce(recordedGrants, item.ChannelGrantID, true)
+				}
 				// 仅人工中止本轮时不计失败也不等待; 响应超时属于真实失败并消耗尝试次数。
 				if context.Cause(roundCtx) == context.Canceled {
 					releaseRouteProbe(group, item.ID)
@@ -299,6 +310,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			})
 			// 上游成功后解除该成员的冷却与探测占用, 并按路由配置开始亲和。
 			recordRouteSuccess(group, item.ID)
+			// 记一次正面表现: 排序据此把稳定的成员往前放。
+			recordOutcomeOnce(recordedGrants, item.ChannelGrantID, false)
 			// 同协议透传时原样返回上游响应头; 跨协议响应没有需要透传的响应头。
 			for key, values := range result.header {
 				c.Writer.Header()[key] = values

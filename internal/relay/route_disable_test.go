@@ -15,6 +15,8 @@ import (
 // 故障转移分组 failover-g 的成员把不可用者排在前面(优先级 1), 可用者殿后(优先级 3)。
 func seedDisableTestDB(t *testing.T) {
 	t.Helper()
+	// 排序窗口是包级全局状态, 用例之间必须从干净状态开始, 否则前一个用例的失败记录会改变选路顺序。
+	resetOutcomeWindow()
 	if err := db.InitDB("sqlite", filepath.Join(t.TempDir(), "route-disable-test.db"), false); err != nil {
 		t.Fatalf("InitDB() error = %v", err)
 	}
