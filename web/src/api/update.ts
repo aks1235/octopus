@@ -27,7 +27,10 @@ export function useLatestInfo() {
         queryKey: ['update', 'latest'],
         queryFn: () => apiRequest<LatestInfo>('/api/v1/update'),
         refetchInterval: 3600000, // 1 小时
-        refetchOnMount: 'always',
+        // 与后端缓存同一新鲜期: 反复进出设置页不再回源。GitHub 未认证接口按出口 IP 限流,
+        // 每次挂载都请求会把 60 次/小时的额度耗光, 表现为「最新版本 未知」。
+        // 更新完成时 useUpdateCore 会 invalidate 该 query, 不影响升级后立即看到新版本。
+        staleTime: 10 * 60 * 1000,
     });
 }
 

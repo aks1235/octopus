@@ -104,10 +104,15 @@ export function SettingInfo() {
                     <span className="text-sm font-medium">{t('info.latestVersion')}</span>
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* 检查失败时把原因挂到悬停提示: 最常见的是 GitHub 按 IP 限流(60 次/小时),
+                        不是发布没成功, 光看「未知」会误判。 */}
                     {latestInfoQuery.isLoading ? (
                         <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     ) : (
-                        <code className="text-sm font-mono text-muted-foreground">
+                        <code
+                            className="text-sm font-mono text-muted-foreground"
+                            title={latestInfoQuery.error ? latestInfoQuery.error.message : undefined}
+                        >
                             {latestVersion || t('info.unknown')}
                         </code>
                     )}

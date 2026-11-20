@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/conf"
@@ -84,7 +85,46 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 	return data, nil
 }
 
+// latestCacheTTL 是发布信息的内存缓存时长。
+//
+// GitHub 未认证接口按来源 IP 限流(60 次/小时), 而设置页每次挂载都会查一次版本;
+// 同一出口 IP 下多标签页、多人或多实例共用额度时很容易打满, 打满后接口报错,
+// 页面就显示「最新版本 未知」——看起来像发布没成功, 实际只是被限流。
+// 缓存后单个实例每小时只需几次请求。
+const latestCacheTTL = 10 * time.Minute
+
+var (
+	latestMu        sync.Mutex
+	latestCached    *LatestInfo
+	latestFetchedAt time.Time
+)
+
+// fetchLatestFn 是取发布信息的实际实现, 抽成变量只为测试注入; 生产路径恒为 fetchLatestInfo。
+var fetchLatestFn = fetchLatestInfo
+
+// GetLatestInfo 返回最新发布信息, 命中缓存时不再请求 GitHub。
 func GetLatestInfo() (*LatestInfo, error) {
+	latestMu.Lock()
+	defer latestMu.Unlock()
+
+	if latestCached != nil && time.Since(latestFetchedAt) < latestCacheTTL {
+		cached := *latestCached
+		return &cached, nil
+	}
+
+	latestInfo, err := fetchLatestFn()
+	if err != nil {
+		return staleLatestInfo(err)
+	}
+
+	latestCached = latestInfo
+	latestFetchedAt = time.Now()
+	cached := *latestInfo
+	return &cached, nil
+}
+
+// fetchLatestInfo 真正请求 GitHub 发布接口。
+func fetchLatestInfo() (*LatestInfo, error) {
 	body, err := doRequestWithFallback(updateApiUrl)
 	if err != nil {
 		return nil, err
@@ -99,6 +139,19 @@ func GetLatestInfo() (*LatestInfo, error) {
 		return nil, fmt.Errorf("failed to get latest info: %s", latestInfo.Message)
 	}
 	return &latestInfo, nil
+}
+
+// staleLatestInfo 在拉取失败时退回上一次成功的结果。
+//
+// 版本号本身变化很慢, 展示几分钟前的旧值远好于把「未知」抛给用户;
+// 限流这类瞬时故障恢复后, 下一轮请求会自然刷成最新值。
+func staleLatestInfo(cause error) (*LatestInfo, error) {
+	if latestCached == nil {
+		return nil, cause
+	}
+	log.Warnf("get latest info failed, serving cached result from %s: %v", latestFetchedAt.Format(time.RFC3339), cause)
+	cached := *latestCached
+	return &cached, nil
 }
 
 func unzip(data []byte, dest string) error {
