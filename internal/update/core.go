@@ -1,12 +1,14 @@
 package update
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 
 	"github.com/bestruirui/octopus/internal/utils/shutdown"
@@ -19,7 +21,27 @@ import (
 // os.Executable() 在 Linux 上(读 /proc/self/exe)会跟着 inode 指到那个 .old 路径,
 // 而 .old 随后就被删掉了。重启时若重新取路径, 拿到的就是一个不存在的文件 ——
 // 这正是 v2.1.16 上"更新成功、重启失败"的原因。
+// errUpdateInProgress 表示已有更新在跑。
+var errUpdateInProgress = errors.New("update already in progress")
+
+var (
+	// updateMu 保证同一时刻只有一个更新流程。两个并发请求会交叉 rename/copy 同一份
+	// 可执行文件: 一方刚把文件 rename 成 .old, 另一方就找不到源文件; 更糟的是两次
+	// copy 交替写同一路径, 可能留下半截二进制, 只能外部重装容器才能恢复。
+	updateMu sync.Mutex
+	// updateCoreImpl 指向实际实现, 抽成变量只为测试注入。
+	updateCoreImpl = updateCoreLocked
+)
+
 func UpdateCore() (string, error) {
+	if !updateMu.TryLock() {
+		return "", errUpdateInProgress
+	}
+	defer updateMu.Unlock()
+	return updateCoreImpl()
+}
+
+func updateCoreLocked() (string, error) {
 	log.Infof("start update core")
 
 	filename, err := getDownloadFilename()
