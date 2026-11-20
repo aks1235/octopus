@@ -13,13 +13,19 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-func UpdateCore() error {
+// UpdateCore 下载并替换当前可执行文件, 返回被替换的文件路径。
+//
+// 返回路径而不是让调用方自己再取一次: 替换过程会把原文件 rename 成 .old, 此时
+// os.Executable() 在 Linux 上(读 /proc/self/exe)会跟着 inode 指到那个 .old 路径,
+// 而 .old 随后就被删掉了。重启时若重新取路径, 拿到的就是一个不存在的文件 ——
+// 这正是 v2.1.16 上"更新成功、重启失败"的原因。
+func UpdateCore() (string, error) {
 	log.Infof("start update core")
 
 	filename, err := getDownloadFilename()
 	if err != nil {
 		log.Warnf("update core failed: %v", err)
-		return err
+		return "", err
 	}
 
 	downloadUrl := updateUrl + "/" + filename
@@ -27,46 +33,46 @@ func UpdateCore() error {
 	data, err := doRequestWithFallback(downloadUrl)
 	if err != nil {
 		log.Warnf("download failed: %v", err)
-		return err
+		return "", err
 	}
 
 	execPath, err := os.Executable()
 	if err != nil {
 		log.Warnf("get executable path failed: %v", err)
-		return err
+		return "", err
 	}
 	execName := filepath.Base(execPath)
 
 	tmpDir, err := os.MkdirTemp("", execName+"-update-*")
 	if err != nil {
 		log.Warnf("create temp dir failed: %v", err)
-		return err
+		return "", err
 	}
 	defer os.RemoveAll(tmpDir)
 	log.Infof("using temp dir: %s", tmpDir)
 
 	if err := unzip(data, tmpDir); err != nil {
 		log.Warnf("unzip failed: %v", err)
-		return err
+		return "", err
 	}
 
 	newExec := filepath.Join(tmpDir, execName)
 	if info, err := os.Stat(newExec); err != nil || info.IsDir() {
 		log.Warnf("new executable not found at %s: %v", newExec, err)
-		return fmt.Errorf("new executable not found in archive root: %w", err)
+		return "", fmt.Errorf("new executable not found in archive root: %w", err)
 	}
 	log.Infof("new executable: %s", newExec)
 
 	oldPath := execPath + ".old"
 	if err := os.Rename(execPath, oldPath); err != nil {
 		log.Warnf("rename old executable failed: %v", err)
-		return err
+		return "", err
 	}
 
 	if err := copyFile(newExec, execPath); err != nil {
 		log.Errorf("replace executable failed, try to restore: %v", err)
 		_ = os.Rename(oldPath, execPath)
-		return err
+		return "", err
 	}
 
 	if info, statErr := os.Stat(oldPath); statErr == nil {
@@ -74,18 +80,20 @@ func UpdateCore() error {
 	}
 	_ = os.RemoveAll(oldPath)
 
-	log.Infof("update core success")
-	return nil
+	log.Infof("update core success, restart from %s", execPath)
+	return execPath, nil
 }
 
-// Restart 关闭服务并把进程交给刚下载的新二进制。
+// Restart 关闭服务并把进程交给 execPath 上的二进制。
+//
+// execPath 必须由 UpdateCore 传回, 不能在这里重新调 os.Executable(): 替换过程已把原文件
+// rename 成 .old 并删除, /proc/self/exe 此时指向的是那个已消失的旧路径。
 //
 // 只能由调用方在 HTTP 响应已经写出之后调用: 关闭流程会关停 HTTP 服务器并掐断在途连接,
 // 若在响应写完之前重启, 客户端收到的是网络错误而不是 "update success"。
-func Restart() {
-	execPath, err := os.Executable()
-	if err != nil {
-		log.Errorf("get executable path failed: %v", err)
+func Restart(execPath string) {
+	if execPath == "" {
+		log.Errorf("restart skipped: empty executable path")
 		return
 	}
 	restartExecutable(execPath)

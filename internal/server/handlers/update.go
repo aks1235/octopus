@@ -46,7 +46,10 @@ func getNowVersion(c *gin.Context) {
 const restartDelay = 500 * time.Millisecond
 
 func updateFunc(c *gin.Context) {
-	if err := update.UpdateCore(); err != nil {
+	// execPath 必须在这里接住并传给 Restart: 替换完成后原文件已被挪走并删除,
+	// 重启时再取一次会拿到不存在的路径(容器里表现为 "no such file or directory")。
+	execPath, err := update.UpdateCore()
+	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -60,6 +63,6 @@ func updateFunc(c *gin.Context) {
 	c.Writer.Flush()
 	go func() {
 		time.Sleep(restartDelay)
-		update.Restart()
+		update.Restart(execPath)
 	}()
 }
