@@ -96,6 +96,13 @@ func Restart(execPath string) {
 		log.Errorf("restart skipped: empty executable path")
 		return
 	}
+	// 先确认目标可执行再关服务。shutdown 之后才发现路径不可用, 进程会停在
+	// "HTTP 已关停、数据库已释放" 的半死状态: 端口不通, 日志里持续刷 database is closed,
+	// 只能靠外部重启容器才能恢复。宁可这次不升级, 也不要让服务停在这种状态。
+	if _, err := os.Stat(execPath); err != nil {
+		log.Errorf("restart skipped, %q not usable: %v", execPath, err)
+		return
+	}
 	restartExecutable(execPath)
 }
 
@@ -176,11 +183,17 @@ func restartExecutable(execPath string) {
 		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
 			log.Errorf("restarting failed: %v", err)
+			// 服务已关停、数据库已释放, 留在原地只会是个拿到请求就报错的空壳;
+			// 以非零码退出, 交给容器的重启策略拉起(退出码 0 会被 restart: on-failure 忽略)。
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}
 
 	if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
 		log.Errorf("restarting failed: %v", err)
+		// 同 Windows 分支: 此时 HTTP 服务器与数据库都已关停, 继续运行没有意义;
+		// 退出让容器重启, 至少能恢复到可用状态。
+		os.Exit(1)
 	}
 }
