@@ -739,7 +739,10 @@
             "confirmDelete": "确认删除",
             "cancel": "取消",
             "keys": "凭据",
-            "keyDisabled": "已禁用"
+            "keyDisabled": "已禁用",
+            "cacheHitRate": "缓存命中率",
+            "cacheRead": "缓存命中",
+            "newInput": "新增输入"
         },
         "form": {
             "stepPreset": "开始",

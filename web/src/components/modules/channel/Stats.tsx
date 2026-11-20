@@ -5,6 +5,7 @@ import {
     CheckCircle2,
     Clock,
     Copy,
+    Database,
     DollarSign,
     Download,
     Eye,
@@ -33,6 +34,14 @@ const successRate = (success: number, failed: number) => {
     const total = success + failed;
     return total > 0 ? (success / total) * 100 : 0;
 };
+
+// 缓存命中率: 缓存命中词元 ÷ 输入词元(含命中与写入), 与首页同一口径; 无输入时返回 null, 由展示层给占位符。
+const cacheHitRate = (metrics: StatsMetricsFormatted) => metrics.input_token.raw > 0
+    ? (metrics.cache_read_token.raw / metrics.input_token.raw) * 100
+    : null;
+
+// rateText 渲染命中率: 分母为 0 时显示占位符, 不冒充 0%。
+const rateText = (rate: number | null) => rate !== null ? `${rate.toFixed(0)}%` : '-';
 
 // MetricValue 统一渲染数值与单位
 function MetricValue({ metric }: { metric: FormattedMetric }) {
@@ -96,6 +105,10 @@ function KeyStatsPanel({ channelId }: { channelId: number }) {
                                     <MetricValue metric={metrics.total_token} />
                                 </span>
                                 <span className="flex items-center gap-1">
+                                    <Database className="size-3.5 shrink-0 text-chart-2" />
+                                    <span>{rateText(cacheHitRate(metrics))}</span>
+                                </span>
+                                <span className="flex items-center gap-1">
                                     <DollarSign className="size-3.5 shrink-0 text-chart-5" />
                                     <MetricValue metric={metrics.total_cost} />
                                 </span>
@@ -134,6 +147,9 @@ export function ChannelStats({ channel, onEdit }: {
     // 分享截图的源节点
     const contentRef = useRef<HTMLDivElement>(null);
     const metrics = channel.formatted;
+    // 缓存命中率是渠道成本的关键侧面: 上游命中九成以上时, 实际单价与名义单价差一个量级。
+    const cacheRate = cacheHitRate(metrics);
+    const cacheRateText = cacheRate !== null ? cacheRate.toFixed(1) : '—';
 
     // 预览关闭或组件卸载时释放临时对象 URL
     useEffect(() => () => {
@@ -168,6 +184,23 @@ export function ChannelStats({ channel, onEdit }: {
             ),
         },
         {
+            icon: <Database className="size-3.5 text-chart-2" />,
+            label: t('cacheHitRate'),
+            value: (
+                <span>
+                    {cacheRateText}
+                    {cacheRate !== null && <span className="ml-0.5 text-xs font-normal text-muted-foreground">%</span>}
+                </span>
+            ),
+            // 副行给构成: 命中量与新增输入, 两者相加即总输入, 口径与首页一致。
+            sub: (
+                <>
+                    <span>{t('cacheRead')} {metrics.cache_read_token.formatted.value}{metrics.cache_read_token.formatted.unit}</span>
+                    <span>{t('newInput')} {metrics.new_input_token.formatted.value}{metrics.new_input_token.formatted.unit}</span>
+                </>
+            ),
+        },
+        {
             icon: <DollarSign className="size-3.5 text-chart-5" />,
             label: t('totalCost'),
             value: <MetricValue metric={metrics.total_cost} />,
@@ -196,6 +229,7 @@ export function ChannelStats({ channel, onEdit }: {
                     ? formatted.total_cost.raw
                     : modelSort === 'tokens' ? formatted.total_token.raw : formatted.request_count.raw,
                 rate: successRate(formatted.request_success.raw, formatted.request_failed.raw),
+                cacheRate: cacheHitRate(formatted),
                 count: formatted.request_count,
                 tokens: formatted.total_token,
                 cost: formatted.total_cost,
@@ -332,15 +366,15 @@ export function ChannelStats({ channel, onEdit }: {
                             )}
                         </div>
                     </div>
-                    {/* 宽屏下四项各占四分之一列高: 行数与 summary 的项数一致, 等分由 grid-rows-4 表达。 */}
-                    <dl className="grid grid-cols-2 gap-2 @md/stats:grid-cols-4 @2xl/stats:flex-1 @2xl/stats:grid-cols-1 @2xl/stats:grid-rows-4">
+                    {/* 宽屏下五项各占五分之一列高: 行数与 summary 的项数一致, 等分由 grid-rows-5 表达, 与右侧五行模型对齐。 */}
+                    <dl className="grid grid-cols-2 gap-2 @md/stats:grid-cols-3 @2xl/stats:flex-1 @2xl/stats:grid-cols-1 @2xl/stats:grid-rows-5">
                         {summary.map(({ icon, label, value, sub }) => (
-                            <div key={label} className="flex flex-col rounded-2xl border bg-card p-3">
+                            <div key={label} className="flex flex-col rounded-2xl border bg-card p-2.5">
                                 <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                     {icon}
                                     <span className="truncate">{label}</span>
                                 </dt>
-                                <dd className="mt-auto pt-2 text-right">
+                                <dd className="mt-auto pt-1.5 text-right">
                                     <span className="block text-lg font-bold tabular-nums text-card-foreground">{value}</span>
                                     {sub && (
                                         <span className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 text-[11px] tabular-nums text-muted-foreground">
@@ -406,7 +440,7 @@ export function ChannelStats({ channel, onEdit }: {
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs tabular-nums @md/stats:w-64 @md/stats:grid-cols-4 @md/stats:gap-x-2">
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs tabular-nums @md/stats:w-72 @md/stats:grid-cols-5 @md/stats:gap-x-2">
                                         <div className="flex items-center gap-1">
                                             <MessageSquare className="size-3.5 shrink-0 text-chart-1" />
                                             <MetricValue metric={model.count} />
@@ -422,6 +456,10 @@ export function ChannelStats({ channel, onEdit }: {
                                         <div className="flex items-center gap-1">
                                             <DollarSign className="size-3.5 shrink-0 text-chart-5" />
                                             <MetricValue metric={model.cost} />
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <Database className="size-3.5 shrink-0 text-chart-2" />
+                                            <span>{rateText(model.cacheRate)}</span>
                                         </div>
                                     </div>
                                 </li>

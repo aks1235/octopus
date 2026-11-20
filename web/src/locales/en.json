@@ -739,7 +739,10 @@
             "confirmDelete": "Confirm Delete",
             "cancel": "Cancel",
             "keys": "Credentials",
-            "keyDisabled": "Disabled"
+            "keyDisabled": "Disabled",
+            "cacheHitRate": "Cache Hit Rate",
+            "cacheRead": "Cached Input",
+            "newInput": "New Input"
         },
         "form": {
             "stepPreset": "Start",
