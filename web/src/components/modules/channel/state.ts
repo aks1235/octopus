@@ -19,6 +19,7 @@ export type ChannelFormState = {
     param_override: string;
     match_regex: string;
     health_check_skip: boolean;
+    official: boolean;
 };
 
 // grantKey 生成授权在状态里的键; 分隔符取 \0, 模型名与凭据名都不会含它。
@@ -43,6 +44,7 @@ export const emptyFormState: ChannelFormState = {
     param_override: '',
     match_regex: '',
     health_check_skip: false,
+    official: false,
 };
 
 // fromChannel 把渠道完整配置还原为表单状态; 授权读写都按名称, 直接建索引即可。
@@ -65,6 +67,7 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         param_override: channel.param_override,
         match_regex: channel.match_regex,
         health_check_skip: channel.health_check_skip,
+        official: channel.official ?? false,
     };
 }
 
@@ -85,6 +88,7 @@ export function toChannelConfig(state: ChannelFormState) {
         param_override: state.param_override.trim(),
         match_regex: state.match_regex.trim(),
         health_check_skip: state.health_check_skip,
+        official: state.official,
     };
 }
 

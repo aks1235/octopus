@@ -74,6 +74,7 @@ export type ChannelDetail = {
     channel_proxy: string;
     match_regex: string;
     health_check_skip: boolean; // 跳过健康检查；适用于无模型列表接口的渠道（探测必失败但转发可用）。
+    official: boolean; // 官方/云厂商渠道：每次探测都消耗真实额度，故只参加每日夜间一次的那一轮。
 };
 
 // ChannelModelStats 是单个渠道模型的累计统计，自带名称。

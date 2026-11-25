@@ -32,6 +32,8 @@ export interface SelectedMember {
     // 后端判定的"当前真的会被跳过": 已判死且结论未过期。界面只读这个布尔值排序,
     // 不自己拿 probe_at 减 24 小时——两套窗口迟早会分叉。
     probe_blocking?: boolean;
+    // outcome_rank 是后端算好的生效顺序(1 起), 只有故障转移分组有值; 0 表示不参与选路(禁用/判死)。
+    outcome_rank?: number;
 }
 
 // reorderVisible 在"渲染列表被过滤"的前提下重排完整成员数组。
@@ -125,6 +127,7 @@ function MemberItem({
     isRemoving,
     showConfirmDelete = true,
     layoutScope,
+    rankVisible = false,
     dnd,
 }: {
     member: SelectedMember;
@@ -137,6 +140,7 @@ function MemberItem({
     isRemoving?: boolean;
     showConfirmDelete?: boolean;
     layoutScope?: string;
+    rankVisible?: boolean; // 是否显示生效序号(仅故障转移分组、且确实算出了序号)。
     dnd: MemberItemDnd;
 }) {
     const { Icon, className: iconClassName } = getModelIcon(member.name);
@@ -145,6 +149,7 @@ function MemberItem({
     // 拖拽手柄由 dnd 提供：可拖行有，只读区传的是 staticDnd（dragHandleProps 为 null）。
     const canDrag = dnd.dragHandleProps != null;
     const tProbe = useTranslations('group.probe');
+    const tCard = useTranslations('group.card');
 
     return (
         <div
@@ -199,6 +204,16 @@ function MemberItem({
                 <span className={cn(isDisabled && 'opacity-70')}>
                     <Icon aria-hidden="true" className={iconClassName} width={18} height={18} />
                 </span>
+
+                {/* 生效序号: 只在故障转移分组上出现, 0 表示不参与选路(禁用/判死), 不显示以免误读为"第一个打它"。 */}
+                {rankVisible && (member.outcome_rank ?? 0) > 0 && (
+                    <span
+                        className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] tabular-nums leading-none text-muted-foreground"
+                        title={tCard('outcomeRankTip')}
+                    >
+                        {member.outcome_rank}
+                    </span>
+                )}
 
                 <div className="flex flex-col min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 min-w-0">
@@ -362,14 +377,28 @@ export function MemberList({
     // 已禁用成员默认收在底部的只读折叠区：它们的数量常远超可用成员，平铺会把可用项挤到屏幕外
     //（用户原话：要往下翻才能找到）。顺序即选路优先级，故收起只影响渲染，提交始终是全量成员。
     const [showDisabledMembers, setShowDisabledMembers] = useState(false);
+    // 默认按生效顺序看: 打开分组最常问的是"现在到底按什么顺序打", 而不是"我当初排的什么顺序"。
+    // 排序视图只是换渲染顺序、不改优先级; 拖拽在该视图下禁用 —— 列表可拖且拖完即提交,
+    // 允许在排序视图里拖动, 等于把"失败率排出来的顺序"写成新的优先级。要调顺序就切回优先级视图。
+    const [preferOutcomeOrder, setPreferOutcomeOrder] = useState(true);
+    const rankVisible = group?.mode === 'failover' && members.some((member) => (member.outcome_rank ?? 0) > 0);
+    // 没有序号时(非故障转移、或全员禁用/判死)不进入排序视图: 否则会顺带把拖拽锁死, 却没有开关能解开。
+    const orderByOutcome = rankVisible && preferOutcomeOrder;
+    // 没有序号的成员(禁用/判死)排到最后: 它们不参与选路, 混在中间只会打乱阅读。
+    const orderedMembers = orderByOutcome
+        ? [...members].sort(
+            (first, second) =>
+                (first.outcome_rank || Number.MAX_SAFE_INTEGER) - (second.outcome_rank || Number.MAX_SAFE_INTEGER)
+        )
+        : members;
     // 已探测判死（且结论未过期）的成员默认落到主列表下方：它们当前根本不参与选路，
     // 占着列表最上面只会让人以为"优先级最高的全是坏的"。顺序即优先级，这里只改渲染，
     // 提交始终是全量成员、顺序不变——一旦把重排结果提交，选路优先级就被显示顺序篡改了。
-    const draggableMembers = members.filter(
+    const draggableMembers = orderedMembers.filter(
         (member) => (member.enabled !== false && !member.probe_blocking) || removingIds.has(member.id)
     );
-    const blockedMembers = members.filter((member) => member.enabled !== false && member.probe_blocking);
-    const disabledMembers = members.filter((member) => member.enabled === false && !removingIds.has(member.id));
+    const blockedMembers = orderedMembers.filter((member) => member.enabled !== false && member.probe_blocking);
+    const disabledMembers = orderedMembers.filter((member) => member.enabled === false && !removingIds.has(member.id));
 
     useEffect(() => {
         // Skip the initial mount so we don't auto-scroll on first render / initial data load.
@@ -401,6 +430,8 @@ export function MemberList({
 
     const handleDragEnd = (result: DropResult) => {
         try {
+            // 排序视图只用于查看: 按生效顺序重排后提交, 等于把失败率排出来的顺序写成新的优先级。
+            if (orderByOutcome) return;
             const { destination, source } = result;
             if (!destination) return;
             if (destination.index === source.index) return;
@@ -434,6 +465,20 @@ export function MemberList({
                 )}
                 ref={scrollContainerRef}
             >
+                {rankVisible && (
+                    <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/60 bg-card/95 px-2.5 py-1.5 text-[11px] text-muted-foreground backdrop-blur">
+                        <span className="min-w-0 flex-1 truncate">
+                            {orderByOutcome ? t('card.sortedByOutcome') : t('card.priorityOrder')}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setPreferOutcomeOrder((value) => !value)}
+                            className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-foreground/80 transition-colors hover:bg-muted"
+                        >
+                            {orderByOutcome ? t('card.sortByPriority') : t('card.sortByOutcome')}
+                        </button>
+                    </div>
+                )}
                 <DragDropContext
                     onDragStart={() => onDragStart?.()}
                     onDragEnd={handleDragEnd}
@@ -454,6 +499,7 @@ export function MemberList({
                                     isRemoving={false}
                                     showConfirmDelete={showConfirmDelete}
                                     layoutScope={layoutScope}
+                                    rankVisible={rankVisible}
                                     dnd={{
                                         innerRef: draggableProvided.innerRef,
                                         draggableProps: draggableProvided.draggableProps,
@@ -475,7 +521,7 @@ export function MemberList({
                                         key={member.id}
                                         draggableId={member.id}
                                         index={index}
-                                        isDragDisabled={removingIds.has(member.id)}
+                                        isDragDisabled={orderByOutcome || removingIds.has(member.id)}
                                     >
                                         {(draggableProvided, snapshot) => (
                                             <MemberItem
@@ -489,10 +535,12 @@ export function MemberList({
                                                 isRemoving={removingIds.has(member.id)}
                                                 showConfirmDelete={showConfirmDelete}
                                                 layoutScope={layoutScope}
+                                                rankVisible={rankVisible}
                                                 dnd={{
                                                     innerRef: draggableProvided.innerRef,
                                                     draggableProps: draggableProvided.draggableProps,
-                                                    dragHandleProps: draggableProvided.dragHandleProps,
+                                                    // 排序视图不可拖: 连手柄一起去掉, 否则抓着能按下去却拖不动。
+                                                    dragHandleProps: orderByOutcome ? null : draggableProvided.dragHandleProps,
                                                     isDragging: snapshot.isDragging,
                                                 }}
                                             />
@@ -530,6 +578,7 @@ export function MemberList({
                                     isRemoving={false}
                                     showConfirmDelete={showConfirmDelete}
                                     layoutScope={layoutScope}
+                                    rankVisible={rankVisible}
                                     dnd={staticDnd}
                                 />
                             ))}
@@ -563,6 +612,7 @@ export function MemberList({
                                         isRemoving={false}
                                         showConfirmDelete={showConfirmDelete}
                                         layoutScope={layoutScope}
+                                        rankVisible={rankVisible}
                                         dnd={staticDnd}
                                     />
                                 ))}

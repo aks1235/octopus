@@ -198,11 +198,26 @@ func streamGroupEvents(c *gin.Context) {
 
 // getGroupList 返回全部分组, 并为每个分组补齐当前的实时路由状态。
 // 路由状态由 Relay 持有而 Relay 依赖 op, 故补齐点放在此处而非 op.GroupList 内。
+// annotateOutcomeOrder 给故障转移分组的成员标上当前的生效顺序(1 起)。
+// 与选路共用同一套过滤与比较器: 界面要回答"这个请求为什么会先打它", 顺序必须是选路真正用的那一个。
+// 被禁用或已判死的成员不编号(序号留 0), 它们根本不进候选; 轮询按计数器轮转、手动只认指定成员,
+// 两者都没有顺序可言, 同样留 0, 前端据此不显示。
+func annotateOutcomeOrder(group *model.Group) {
+	if group.Mode != model.GroupModeFailover || len(group.Items) == 0 {
+		return
+	}
+	ranks := relay.OutcomeRanks(*group)
+	for i := range group.Items {
+		group.Items[i].OutcomeRank = ranks[group.Items[i].ID]
+	}
+}
+
 func getGroupList(c *gin.Context) {
 	groups := op.GroupList()
 	responses := make([]groupResponse, len(groups))
-	for i, group := range groups {
-		responses[i] = groupResponse{Group: group, Runtime: relay.RouteStateOf(group)}
+	for i := range groups {
+		annotateOutcomeOrder(&groups[i])
+		responses[i] = groupResponse{Group: groups[i], Runtime: relay.RouteStateOf(groups[i])}
 	}
 	resp.Success(c, responses)
 }
@@ -220,6 +235,7 @@ func getGroup(c *gin.Context) {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
+	annotateOutcomeOrder(&group)
 	resp.Success(c, groupResponse{Group: group, Runtime: relay.RouteStateOf(group)})
 }
 
@@ -485,13 +501,13 @@ func runGroupProbe(c *gin.Context) {
 	started := task.RunGroupProbeRoundAsync()
 	// 连同当前轮次状态一起返回: 前端撞车时要能说清"已经跑到第几组", 否则"启动了没有"这件事
 	// 在界面上就是一个说不清的二值。
-	resp.Success(c, gin.H{"started": started, "status": task.ProbeRoundStatusSnapshot()})
+	resp.Success(c, gin.H{"started": started, "status": task.ProbeStatusSnapshot()})
 }
 
 // getGroupProbeStatus 返回当前轮次进度与上次完成时间, 供设置页展示。
 // 纯内存读, 不查库: 这个接口会被前端在探测期间轮询。
 func getGroupProbeStatus(c *gin.Context) {
-	resp.Success(c, task.ProbeRoundStatusSnapshot())
+	resp.Success(c, task.ProbeStatusSnapshot())
 }
 
 // probeHistoryDays 解析窗口天数, 缺省用 fallback, 上限一年(再长也没有意义: 探测是稀疏采样)。
@@ -559,6 +575,7 @@ func resetGroupCooldown(c *gin.Context) {
 		return
 	}
 	relay.ClearGroupCooldowns(id)
+	annotateOutcomeOrder(&group)
 	resp.Success(c, groupResponse{Group: group, Runtime: relay.RouteStateOf(group)})
 }
 

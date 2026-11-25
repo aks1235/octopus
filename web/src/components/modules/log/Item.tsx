@@ -52,6 +52,13 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     // 尝试记录直接来自状态流(后端每次尝试结束推一条), 不再由前端观察轮次号推断 ——
     // 那套推断要求"弹窗开着且恰好观察到该轮中间快照", 漏一帧就永久丢一轮。
     const attempts = log.attempts ?? [];
+    // 左侧"分组"面板的顺序: 故障转移按后端给的生效序号(与选路同一个比较器),
+    // 轮询与手动没有顺序可言, 保持配置顺序。不在前端重算失败率 —— 两套算法迟早分叉。
+    const groupItems = activeGroup && activeGroup.mode === 'failover'
+        ? [...activeGroup.items].sort(
+            (first, second) => (first.outcome_rank || Number.MAX_SAFE_INTEGER) - (second.outcome_rank || Number.MAX_SAFE_INTEGER)
+        )
+        : activeGroup?.items ?? [];
     const showRounds = log.status === 'running' || (requestFailed && attempts.length > 0);
     const waitingRound = log.status === 'running' && log.sending;
     const isWaitingForSelection = log.status === 'running' && !log.sending && activeGroup?.mode === 'manual' && activeGroup.runtime.current_item_id === 0; // isWaitingForSelection 表示手动模式请求正等待选择渠道。
@@ -158,12 +165,35 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                     {t('noGroupItems')}
                                 </div>
                             ) : (
-                                <div className="divide-y divide-border">
-                                    {activeGroup.items.map((item) => {
+                                <div className="flex flex-col">
+                                    {/* 故障转移才有顺序: 把"序号怎么来的、为什么有的成员没序号"写在列表头上,
+                                        否则一排数字和几个红标签放在一起, 看不出这次请求到底会怎么走。 */}
+                                    {activeGroup.mode === 'failover' && (
+                                        <div className="shrink-0 border-b border-border/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                                            {t('orderHint')}
+                                        </div>
+                                    )}
+                                    <div className="divide-y divide-border">
+                                    {groupItems.map((item) => {
                                         const { Icon: ItemIcon, className: itemIconClassName } = getModelIcon(item.model_name);
                                         const itemCurrent = switchingItemId !== null
                                             ? item.id === switchingItemId
                                             : activeGroup.runtime.current_item_id === item.id;
+                                        // 本次请求是否打过它: 按 渠道 + 模型 匹配, 同渠道不同模型是不同成员。
+                                        const attempt = attempts.find(
+                                            (entry) => entry.channel_id === item.channel_id && entry.model_name === item.model_name
+                                        );
+                                        const coolingUntil = activeGroup.runtime.cooldowns?.[item.id] ?? 0;
+                                        // 顺序 + 状态一起看才解释得清"为什么先打它": 序号即生效顺序, 状态说明它当时能不能被选中。
+                                        const state = attempt
+                                            ? (attempt.status === 'success' ? 'triedOk' : 'triedFailed')
+                                            : !item.available
+                                                ? 'disabled'
+                                                : item.probe_blocking
+                                                    ? 'probeDead'
+                                                    : coolingUntil > now
+                                                        ? 'cooling'
+                                                        : 'idle';
                                         // 人工切换只对手动模式有意义: 轮询与故障转移都由路由自动选成员。
                                         return (
                                             <button
@@ -187,8 +217,19 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                                         setSwitchingItemId(null);
                                                     }
                                                 }}
-                                                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent"
+                                                className={cn(
+                                                    'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent',
+                                                    !item.available && 'opacity-60',
+                                                )}
                                             >
+                                                {activeGroup.mode === 'failover' && item.outcome_rank > 0 && (
+                                                    <span
+                                                        className="w-5 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground"
+                                                        title={t('outcomeRank')}
+                                                    >
+                                                        {item.outcome_rank}
+                                                    </span>
+                                                )}
                                                 <ItemIcon aria-hidden="true" className={itemIconClassName} width={20} height={20} />
                                                 <span className="min-w-0 flex-1">
                                                     <span className="block truncate font-semibold text-foreground">
@@ -198,10 +239,24 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                                         {item.key_name ? `${item.channel_name} · ${item.key_name}` : item.channel_name}
                                                     </span>
                                                 </span>
+                                                <span
+                                                    className={cn(
+                                                        'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] leading-none',
+                                                        state === 'triedOk' && 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+                                                        state === 'triedFailed' && 'bg-destructive/15 text-destructive',
+                                                        state === 'probeDead' && 'bg-destructive/10 text-destructive/90',
+                                                        state === 'disabled' && 'bg-muted text-muted-foreground',
+                                                        state === 'cooling' && 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+                                                        state === 'idle' && 'bg-muted/60 text-muted-foreground/70',
+                                                    )}
+                                                >
+                                                    {t(`itemState.${state}`)}
+                                                </span>
                                                 <MemberStatus group={activeGroup} itemId={item.id} now={now} active={itemCurrent} />
                                             </button>
                                         );
                                     })}
+                                    </div>
                                 </div>
                             )}
                         </div>

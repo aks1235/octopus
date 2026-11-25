@@ -22,6 +22,7 @@ const (
 	SettingKeyModelFilter             SettingKey = "model_filter"               // 渠道拉取模型列表时的全局过滤正则; 留空表示不过滤
 	SettingKeyGroupProbeEnabled       SettingKey = "group_probe_enabled"        // 是否定时探测分组成员可用性(6-12 小时随机一轮); 默认关闭
 	SettingKeyGrantProbeKeepDays      SettingKey = "grant_probe_keep_days"      // 探测历史保留天数, 0 表示不清理; 与转发日志保留期互不影响
+	SettingKeyOfficialProbeHour       SettingKey = "official_probe_hour"        // 官方渠道每日探测的触发小时(0-23, 本地时区); 官方渠道只在这一次被探测
 )
 
 type Setting struct {
@@ -42,6 +43,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyModelFilter, Value: ""},               // 默认不过滤模型
 		{Key: SettingKeyGroupProbeEnabled, Value: "false"},    // 默认不自动探测: 探测会产生真实上游请求与配额消耗, 由人工开启
 		{Key: SettingKeyGrantProbeKeepDays, Value: "90"},      // 探测历史默认留 90 天: 体量极小, 保留三个月的对比窗口更有用
+		{Key: SettingKeyOfficialProbeHour, Value: "3"},        // 默认凌晨 3 点: 白天把额度留给真实请求, 夜里也避开通勤时段的上游抖动
 	}
 }
 
@@ -74,6 +76,15 @@ func (s *Setting) Validate() error {
 	case SettingKeyRelayLogKeepEnabled:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("relay log keep enabled must be true or false")
+		}
+		return nil
+	case SettingKeyOfficialProbeHour:
+		hour, err := strconv.Atoi(s.Value)
+		if err != nil {
+			return fmt.Errorf("official probe hour must be an integer")
+		}
+		if hour < 0 || hour > 23 {
+			return fmt.Errorf("official probe hour must be between 0 and 23")
 		}
 		return nil
 	case SettingKeyGroupProbeEnabled:

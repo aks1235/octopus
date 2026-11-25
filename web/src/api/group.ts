@@ -35,6 +35,9 @@ export interface GroupItem {
     probe_reason: string; // 判死或最近一次失败的原因摘要，已由后端截断。
     probe_at: number; // 最近一次探测完成的时间（unix 秒），0 表示从未探测。
     probe_blocking: boolean; // 为真表示该成员当前真的会被选路跳过（已判死且结论未过期）；界面据此把它排到列表末尾，不要自行比较 24 小时窗口。
+    // outcome_rank 是该成员在当前分组里的生效顺序（1 起），只有故障转移分组有值。
+    // 后端用选路同一个比较器算出，界面直接排序与标注即可，不要在前端重算一遍。
+    outcome_rank: number;
 }
 
 // GroupItemProbe 是后端为单条探测算好的结论快照, 随流式测试事件逐条回报。
@@ -315,16 +318,21 @@ export function useResetGroupCooldown() {
     });
 }
 
-// GroupProbeStatus 是一轮定时探测的实时快照：running 为真时 done/total 表示进度，
-// 否则 last_* 描述上一轮何时结束、跑了几组、耗时多久。
+// GroupProbeStatus 是定时探测的实时快照。
+// 定时探测已改为成员级排期（每个成员各自 6–12 小时随机到期，到期单独探），不再有"一轮"，
+// 所以日常看的是待测个数与上次完成时间；manual_* 只描述人工点的那一次全量探测。
 export interface GroupProbeStatus {
-    running: boolean;
-    started_at: number; // unix 秒
-    groups_total: number;
-    groups_done: number;
-    last_finished_at: number; // unix 秒；0 表示进程启动后还没跑过
-    last_groups: number;
-    last_duration_ms: number;
+    running: boolean; // 有探测在飞（含人工全量轮）
+    enabled: boolean;
+    pending: number; // 已到期待测的成员数
+    in_flight: number; // 正在探测的成员数
+    next_due_at: number; // 最近一个未到期的时刻；0 表示没有待测成员
+    last_finished_at: number; // unix 秒；0 表示进程启动后还没探测过
+    total_ok: number;
+    total_failed: number;
+    manual_running: boolean;
+    manual_total: number;
+    manual_done: number;
 }
 
 // getGroupProbeStatus 读当前轮次进度与上次完成时间（后端纯内存，可安全轮询）。

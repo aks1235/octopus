@@ -92,6 +92,7 @@ export const GroupCard = memo(function GroupCard({ group, now, isList = false }:
             probe_reason: item.probe_reason,
             probe_at: item.probe_at,
             probe_blocking: item.probe_blocking,
+            outcome_rank: item.outcome_rank,
         })),
         [group.items]
     );

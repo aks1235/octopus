@@ -95,6 +95,21 @@ func recordOutcomeOnce(recorded map[int]struct{}, grantID int, failed bool) {
 	RecordGrantOutcome(grantID, failed)
 }
 
+// OutcomeRanks 给分组里"能参与选路"的成员按生效顺序编号(1 起), 返回 分组项主键 -> 序号。
+//
+// 过滤与比较器都复用选路本身(selectableGroupItems + orderByOutcome), 不另写一套:
+// 序号必须回答"这次请求会先打谁", 所以被禁用、授权缺失、已判死且结论未过期的成员不参与编号 ——
+// 它们根本进不了选路, 给它们发一个 1 号只会让人误以为"先打它"。
+// 冷却中的成员仍然编号: 它们在候选集合里, 只是暂时被跳过, 位置本身是有意义的。
+func OutcomeRanks(group model.Group) map[int]int {
+	ordered := orderByOutcome(selectableGroupItems(group))
+	ranks := make(map[int]int, len(ordered))
+	for index, item := range ordered {
+		ranks[item.ID] = index + 1
+	}
+	return ranks
+}
+
 // orderByOutcome 按失败率重排候选成员: 低的在前, 同率保持原有优先级顺序。
 // 用稳定排序是为了不打断用户手排的次序 —— 同率的成员之间, 人工顺序是唯一依据。
 func orderByOutcome(items []model.GroupItem) []model.GroupItem {

@@ -350,8 +350,13 @@ func TestChannelKey_writesRelayLogPerModel(t *testing.T) {
 	if okLog.Attempts[2].ChannelKeyRemark != "anthropic message" {
 		t.Errorf("attempt remark = %q, want anthropic message", okLog.Attempts[2].ChannelKeyRemark)
 	}
-	if okLog.InputTokens != 0 || okLog.OutputTokens != 0 || okLog.Cost != 0 {
-		t.Errorf("tokens/cost = %d/%d/%v, want zeros", okLog.InputTokens, okLog.OutputTokens, okLog.Cost)
+	// 探测记账: 用量取上游返回的 usage(前两个协议 4xx 不带 usage, 成功那次是 1/1),
+	// 用于回答"探测吃掉多少额度"; 费用取决于价目表里有没有该模型, 故只断言非负。
+	if okLog.InputTokens != 1 || okLog.OutputTokens != 1 {
+		t.Errorf("tokens = %d/%d, want 1/1 from upstream usage", okLog.InputTokens, okLog.OutputTokens)
+	}
+	if okLog.Cost < 0 {
+		t.Errorf("cost = %v, want non-negative", okLog.Cost)
 	}
 	if okLog.ID == 0 || okLog.Time == 0 {
 		t.Errorf("id/time = %d/%d, want assigned snowflake id and unix time", okLog.ID, okLog.Time)

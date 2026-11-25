@@ -26,6 +26,7 @@ export function SettingSystem() {
     const [modelFilter, setModelFilter] = useState('');
     const [groupProbeEnabled, setGroupProbeEnabled] = useState(false);
     const [grantProbeKeepDays, setGrantProbeKeepDays] = useState('90');
+    const [officialProbeHour, setOfficialProbeHour] = useState('3');
     const [probeRunning, setProbeRunning] = useState(false);
     const [probeStatus, setProbeStatus] = useState<GroupProbeStatus | null>(null);
 
@@ -37,6 +38,7 @@ export function SettingSystem() {
     const initialModelFilter = useRef('');
     const initialGroupProbeEnabled = useRef(false);
     const initialGrantProbeKeepDays = useRef('');
+    const initialOfficialProbeHour = useRef('');
 
     useEffect(() => {
         if (settings) {
@@ -75,6 +77,11 @@ export function SettingSystem() {
                 queueMicrotask(() => setGroupProbeEnabled(groupProbe.value === 'true'));
                 initialGroupProbeEnabled.current = groupProbe.value === 'true';
             }
+            const officialHour = settings.find(s => s.key === SettingKey.OfficialProbeHour);
+            if (officialHour) {
+                queueMicrotask(() => setOfficialProbeHour(officialHour.value));
+                initialOfficialProbeHour.current = officialHour.value;
+            }
         }
     }, [settings]);
 
@@ -98,12 +105,14 @@ export function SettingSystem() {
                     initialModelFilter.current = value;
                 } else if (key === SettingKey.GroupProbeEnabled) {
                     initialGroupProbeEnabled.current = value === 'true';
+                } else if (key === SettingKey.OfficialProbeHour) {
+                    initialOfficialProbeHour.current = value;
                 }
             }
         });
     };
 
-    // 进页面先取一次轮次状态; 轮次在跑时每 4 秒轮询一次, 停下即止。
+    // 进页面先取一次状态; 人工全量轮在跑时每 4 秒轮询一次, 其余按 15 秒轻量刷新。
     // 一轮要跑几分钟且后端不推送进度, 没有这个轮询, 界面上就只剩"点了没反应"。
     useEffect(() => {
         let cancelled = false;
@@ -118,37 +127,34 @@ export function SettingSystem() {
     }, []);
 
     useEffect(() => {
-        if (!probeStatus?.running) return;
         let cancelled = false;
+        const delay = probeStatus?.manual_running ? 4000 : 15000;
         const timer = window.setInterval(() => {
             void getGroupProbeStatus()
                 .then((next) => {
                     if (!cancelled) setProbeStatus(next);
                 })
                 .catch(() => undefined);
-        }, 4000);
+        }, delay);
         return () => {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [probeStatus?.running]);
+    }, [probeStatus?.manual_running]);
 
-    // probeStatusText 把轮次状态说成人话: 在跑就给进度, 跑完给上次的完成时间/组数/耗时。
+    // probeStatusText 把调度状态说成人话: 人工全量轮在跑就给进度, 否则给待测个数与上次完成时间。
     const probeStatusText = useMemo(() => {
         if (!probeStatus) return '';
-        if (probeStatus.running) {
-            // 刚起跑的一瞬 groups_total 还是 0(分组清单尚未定下), 这时只说"正在探测"。
-            if (probeStatus.groups_total === 0) return t('groupProbe.starting');
-            return t('groupProbe.progress', { done: probeStatus.groups_done, total: probeStatus.groups_total });
+        if (probeStatus.manual_running) {
+            // 刚起跑的一瞬 manual_total 还是 0(分组清单尚未定下), 这时只说"正在探测"。
+            if (probeStatus.manual_total === 0) return t('groupProbe.starting');
+            return t('groupProbe.progress', { done: probeStatus.manual_done, total: probeStatus.manual_total });
+        }
+        if (probeStatus.pending > 0 || probeStatus.in_flight > 0) {
+            return t('groupProbe.idle', { pending: probeStatus.pending, inflight: probeStatus.in_flight });
         }
         if (!probeStatus.last_finished_at) return t('groupProbe.neverRun');
-        const seconds = Math.max(1, Math.round(probeStatus.last_duration_ms / 1000));
-        const duration = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
-        return t('groupProbe.lastRun', {
-            time: new Date(probeStatus.last_finished_at * 1000).toLocaleString(),
-            groups: probeStatus.last_groups,
-            duration,
-        });
+        return t('groupProbe.lastRun', { time: new Date(probeStatus.last_finished_at * 1000).toLocaleString() });
     }, [probeStatus, t]);
 
     // 运行中按钮直接显示进度, 而不是只写"进行中": 一轮几分钟, 用户需要知道还剩多少。
@@ -160,7 +166,7 @@ export function SettingSystem() {
         });
     };
 
-    const probeButtonLabel = probeStatus?.running ? t('groupProbe.runningNow') : t('groupProbe.runNow');
+    const probeButtonLabel = probeStatus?.manual_running ? t('groupProbe.runningNow') : t('groupProbe.runNow');
 
     // 定时探测开关: 只有开着才会每 6–12 小时自动跑一轮; 关掉后已落库的判死结论最多一天自动失效。
     const handleGroupProbeToggle = (next: boolean) => {
@@ -185,8 +191,8 @@ export function SettingSystem() {
             const { started, status } = await runGroupProbe();
             setProbeStatus(status);
             // 撞车不是错误: 说清"已经在跑、跑到第几组", 比一句"请稍后"有用得多。
-            if (!started && status.running) {
-                toast.info(t('groupProbe.busyWithProgress', { done: status.groups_done, total: status.groups_total }));
+            if (!started && status.manual_running) {
+                toast.info(t('groupProbe.busyWithProgress', { done: status.manual_done, total: status.manual_total }));
             } else {
                 toast.success(t('groupProbe.started'));
             }
@@ -348,7 +354,7 @@ export function SettingSystem() {
                         size="sm"
                         className="rounded-xl"
                         onClick={handleRunProbe}
-                        disabled={probeRunning || probeStatus?.running}
+                        disabled={probeRunning || probeStatus?.manual_running}
                     >
                         {probeRunning ? t('groupProbe.running') : probeButtonLabel}
                     </Button>
@@ -368,6 +374,32 @@ export function SettingSystem() {
                     onChange={(e) => setGrantProbeKeepDays(e.target.value)}
                     onBlur={() => handleSave(SettingKey.GrantProbeKeepDays, grantProbeKeepDays, initialGrantProbeKeepDays.current)}
                     placeholder={t('grantProbeKeepDays.placeholder')}
+                    className="w-48 rounded-xl"
+                />
+            </div>
+
+            {/* 官方渠道探测时段: 官方渠道只在每天这个小时被探一次, 其余时间不进任何轮次 */}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('officialProbeHour.label')}</span>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <HelpCircle className="size-4 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={10} align="center" className="max-w-72">
+                            {t('officialProbeHour.hint')}
+                        </TooltipContent>
+                    </Tooltip>
+                </div>
+                <Input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={officialProbeHour}
+                    onChange={(e) => setOfficialProbeHour(e.target.value)}
+                    onBlur={() => handleSave(SettingKey.OfficialProbeHour, officialProbeHour, initialOfficialProbeHour.current)}
+                    placeholder={t('officialProbeHour.placeholder')}
                     className="w-48 rounded-xl"
                 />
             </div>

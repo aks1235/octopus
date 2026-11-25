@@ -39,6 +39,10 @@ type ChannelConfig struct {
 	ParamOverride            string         `json:"param_override"`                                                                                     // 请求参数覆盖配置; 留空表示不覆盖。
 	MatchRegex               string         `json:"match_regex"`                                                                                        // 拉取模型列表时的过滤表达式; 留空表示不过滤。
 	HealthCheckSkip          bool           `json:"health_check_skip" gorm:"default:false"`                                                             // 跳过健康检查; 适用于无模型列表接口的渠道(探测必 404 但转发可用)。
+	// Official 标记官方直连或云厂商托管的渠道(按量计费, 或消耗免费试用额度)。
+	// 只影响定时探测的节奏: 这些渠道每探一次都在动真实额度, 故不进 6-12 小时的常规轮,
+	// 改由每日夜间单独一轮负责(见 internal/task/probe_official.go)。选路与转发不受影响。
+	Official bool `json:"official" gorm:"default:false"`
 }
 
 // 单个上游渠道的共享配置; 路径按协议分别配置, 凭据由 ChannelKey 提供。

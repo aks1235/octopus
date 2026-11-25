@@ -28,6 +28,48 @@ const keyTestMaxErrorLength = 200
 
 const keyTestMaxLogBodyLength = 16 * 1024
 
+// keyTestUsage 累计一次测试内所有上游请求的用量。
+// 测试会对同一成员按协议位逐个试, 先失败的那几次也可能已经产生 token(上游读完请求才超时/断开),
+// 只记成功那一次会低报, 故全部累加。用途是回答"探测到底吃掉了多少额度", 不参与业务统计。
+type keyTestUsage struct {
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	WriteCachedToken int64
+}
+
+// add 累加一次上游响应的用量; usage 为 nil 表示这次没有可用的用量信息(如报错响应)。
+func (u *keyTestUsage) add(usage *llm.Usage) {
+	if usage == nil {
+		return
+	}
+	u.PromptTokens += usage.PromptTokens
+	u.CompletionTokens += usage.CompletionTokens
+	if usage.PromptTokensDetails != nil {
+		u.CachedTokens += usage.PromptTokensDetails.CachedTokens
+		u.WriteCachedToken += usage.PromptTokensDetails.WriteCachedTokens
+	}
+}
+
+// llmUsage 转成转发链路同一个 llm.Usage, 供 usageMetrics 按价目表算钱; 无用量时返回 nil。
+func (u keyTestUsage) llmUsage() *llm.Usage {
+	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
+		return nil
+	}
+	usage := &llm.Usage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.PromptTokens + u.CompletionTokens,
+	}
+	if u.CachedTokens > 0 || u.WriteCachedToken > 0 {
+		usage.PromptTokensDetails = &llm.PromptTokensDetails{
+			CachedTokens:      u.CachedTokens,
+			WriteCachedTokens: u.WriteCachedToken,
+		}
+	}
+	return usage
+}
+
 // keyTestClientName / keyTestUserAgent 测试请求在转发日志里的固定标识:
 // 与 claude-code 等客户端标识同字段同位置, 日志页由此一眼区分人工测试与真实转发。
 const keyTestClientName = model.ClientNamePanelTest
@@ -94,14 +136,15 @@ func TestChannelKey(ctx context.Context, channel model.Channel, key, keyName str
 			// 客户端已断开, 剩余模型不再发往上游, 按取消摘要逐个记失败, 日志与结果行一一对应。
 			result := model.ChannelKeyTestResult{ModelName: modelName, Error: ctx.Err().Error()}
 			results = append(results, result)
-			keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, nil, "", "", 0)
+			keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, nil, "", "", 0, nil)
 			continue
 		}
 		protocols := keyTestModelProtocols(grants, modelName, keyName)
 		startedAt := time.Now()
-		result, attempts, requestContent, responseContent := testChannelKeyModel(ctx, channel, channelKey, modelName, protocols)
+		usage := &keyTestUsage{}
+		result, attempts, requestContent, responseContent := testChannelKeyModel(ctx, channel, channelKey, modelName, protocols, usage)
 		results = append(results, result)
-		keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, attempts, requestContent, responseContent, time.Since(startedAt).Milliseconds())
+		keyTestLogFinalize(channel, channelKey, modelName, result.Error, keyTestClientName, keyTestUserAgent, attempts, requestContent, responseContent, time.Since(startedAt).Milliseconds(), usage)
 	}
 	return results
 }
@@ -137,12 +180,12 @@ func protocolsOfMask(mask model.Protocol) []model.Protocol {
 // testChannelKeyModel 对单个模型按给定协议逐个试测: 任一协议成功即成功并记录该协议,
 // 全部失败时聚合各协议的错误摘要并截断, 界面上由此可直接看到每侧的原因。
 // 每次真实发往上游的请求记一条 ChannelAttempt, 供测试日志回放"试了哪些协议端点"。
-func testChannelKeyModel(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol) (model.ChannelKeyTestResult, []model.ChannelAttempt, string, string) {
-	result, attempts, _, requestContent, responseContent := testChannelKeyModelWithTimeout(ctx, channel, channelKey, modelName, protocols, keyTestTimeout)
+func testChannelKeyModel(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol, usage *keyTestUsage) (model.ChannelKeyTestResult, []model.ChannelAttempt, string, string) {
+	result, attempts, _, requestContent, responseContent := testChannelKeyModelWithTimeout(ctx, channel, channelKey, modelName, protocols, keyTestTimeout, usage)
 	return result, attempts, requestContent, responseContent
 }
 
-func testChannelKeyModelWithTimeout(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol, attemptTimeout time.Duration) (model.ChannelKeyTestResult, []model.ChannelAttempt, bool, string, string) {
+func testChannelKeyModelWithTimeout(ctx context.Context, channel model.Channel, channelKey model.ChannelKey, modelName string, protocols []model.Protocol, attemptTimeout time.Duration, usage *keyTestUsage) (model.ChannelKeyTestResult, []model.ChannelAttempt, bool, string, string) {
 	result := model.ChannelKeyTestResult{ModelName: modelName}
 	failures := make([]string, 0, len(protocols))
 	attempts := make([]model.ChannelAttempt, 0, len(protocols))
@@ -164,7 +207,7 @@ func testChannelKeyModelWithTimeout(ctx context.Context, channel model.Channel, 
 		}
 		attemptStartedAt := time.Now()
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
-		requestBody, responseBody, sendErr := sendKeyTestRequest(attemptCtx, channel, outbound, modelName)
+		requestBody, responseBody, sendErr := sendKeyTestRequest(attemptCtx, channel, outbound, modelName, usage)
 		err = sendErr
 		if err == nil {
 			// 探测口径比转发更严: 200 但正文为空(含命中输出上限)算这一协议没答出来。
@@ -261,11 +304,12 @@ func keyTestProtocolName(protocol model.Protocol) string {
 }
 
 // keyTestLogFinalize 把单次测试的结果落成一条转发日志, 组装方式与 relayLogFinalize 同构。
-// 每次测试一条, ID 走 RelayLogAdd 的同一雪花路径, 时间为秒级; tokens/cost 恒为 0:
-// 最小请求的用量不参与渠道统计对账, 日志只用于回放"何时测的、测了哪些协议、通没通"。
+// 每次测试一条, ID 走 RelayLogAdd 的同一雪花路径, 时间为秒级; tokens/cost 取自上游返回的
+// usage(见 keyTestUsage), 用来回答"探测吃掉了多少额度"。填真值不会污染业务统计:
+// 用量统计只由转发链路的 RequestState 写入, 测试日志只落 relay_logs, 不经过统计。
 // clientName/userAgent 参数化测试来源: 渠道面板测试与分组成员测试由此在日志页区分。
 // 渠道可能是尚未保存的表单渠道: 此时渠道主键取 0, 名称用表单名, 日志照写。
-func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, modelName, errSummary, clientName, userAgent string, attempts []model.ChannelAttempt, requestContent, responseContent string, useTime int64) {
+func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, modelName, errSummary, clientName, userAgent string, attempts []model.ChannelAttempt, requestContent, responseContent string, useTime int64, usage *keyTestUsage) {
 	streaming := false
 	status := StatusSuccess
 	if errSummary != "" {
@@ -298,6 +342,15 @@ func keyTestLogFinalize(channel model.Channel, channelKey model.ChannelKey, mode
 		TargetProtocol:    protocol,
 		Streaming:         &streaming,
 		Status:            string(status),
+	}
+	if usage != nil {
+		if metrics := usageMetrics(modelName, usage.llmUsage()); metrics.InputToken > 0 || metrics.OutputToken > 0 {
+			relayLog.InputTokens = int(metrics.InputToken)
+			relayLog.OutputTokens = int(metrics.OutputToken)
+			relayLog.CachedTokens = int(metrics.CacheReadToken)
+			relayLog.CacheCreationTokens = int(metrics.CacheWriteToken)
+			relayLog.Cost = metrics.InputCost + metrics.OutputCost
+		}
 	}
 	if err := op.RelayLogAdd(context.Background(), relayLog); err != nil {
 		log.Warnf("failed to save key test log: %v", err)
@@ -371,6 +424,12 @@ func TestGroupMembersStream(ctx context.Context, group model.Group, quick bool, 
 // testGroupMember 测试单个分组成员: 授权解析复用转发链路(ChannelGrantGet → ChannelGet),
 // 解析失败的不可用成员不发请求, 以原因摘要记失败。测通的成员立即清除冷却;
 // 每次真实发往上游的请求照写一条测试日志, 客户端标识用分组测试的固定值。
+// TestGroupItem 测试单个分组成员, 供成员级定时调度使用: 一次只测一个成员,
+// 并发与"同一渠道不同时打"由调用方控制 —— 组内并发那套是给人工整组测试用的。
+func TestGroupItem(ctx context.Context, group model.Group, item model.GroupItem) model.GroupMemberTestResult {
+	return testGroupMember(ctx, group, item)
+}
+
 func testGroupMember(ctx context.Context, group model.Group, item model.GroupItem) model.GroupMemberTestResult {
 	return testGroupMemberWithTimeout(ctx, group, item, keyTestTimeout)
 }
@@ -408,13 +467,14 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 		result.Error = ctx.Err().Error()
 		result.Status = "canceled"
 		clientName, userAgent := testClientNameOf(ctx)
-		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, nil, "", "", 0)
+		keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, nil, "", "", 0, nil)
 		return result
 	}
 
 	startedAt := time.Now()
 	// 协议位取该授权自身的位掩码: 授权位就是"模型 x 凭据"的实际协议位, 无需再按 grants 数组匹配。
-	keyResult, attempts, timedOut, requestContent, responseContent := testChannelKeyModelWithTimeout(ctx, channel, channelKey, channelModel.Name, protocolsOfMask(grant.Protocols), attemptTimeout)
+	usage := &keyTestUsage{}
+	keyResult, attempts, timedOut, requestContent, responseContent := testChannelKeyModelWithTimeout(ctx, channel, channelKey, channelModel.Name, protocolsOfMask(grant.Protocols), attemptTimeout, usage)
 	result.Success = keyResult.Success
 	result.Protocol = keyResult.Protocol
 	result.Error = keyResult.Error
@@ -436,14 +496,14 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 		RecordGrantOutcome(item.ChannelGrantID, !result.Success)
 	}
 	clientName, userAgent := testClientNameOf(ctx)
-	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, attempts, requestContent, responseContent, result.UseTime)
+	keyTestLogFinalize(channel, channelKey, channelModel.Name, result.Error, clientName, userAgent, attempts, requestContent, responseContent, result.UseTime, usage)
 	return result
 }
 
 // sendKeyTestRequest 按指定协议构最小非流式请求并发往上游, 2xx 且响应可按该协议解析才算连通。
 // 请求体经出站转换器生成(与转发链路同构), 渠道的参数覆盖与自定义 Header 同样生效;
 // 代理选择与转发同源, 由此测到的路径才是真实转发会走的路径。
-func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound transformer.Outbound, modelName string) ([]byte, []byte, error) {
+func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound transformer.Outbound, modelName string, usage *keyTestUsage) ([]byte, []byte, error) {
 	probeText := "1+1等于几？"
 	maxTokens := keyTestMaxTokens
 	request, err := outbound.TransformRequest(ctx, &llm.Request{
@@ -481,9 +541,12 @@ func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound tra
 	}
 	responseBody := truncateLogBody(response.Body)
 	// 2xx 之后仍解析一次: 确认响应是所选协议讲得通的形状, 空壳 200 不算连通。
-	if _, err := outbound.TransformResponse(ctx, response); err != nil {
+	parsed, err := outbound.TransformResponse(ctx, response)
+	if err != nil {
 		return requestBody, responseBody, fmt.Errorf("unparsable response: %v: %s", err, strings.TrimSpace(string(response.Body)))
 	}
+	// 能解析出来才有可信用量; 报错响应(4xx/5xx)通常不带 usage, 上游也未必计费。
+	usage.add(parsed.Usage)
 	return requestBody, responseBody, nil
 }
 

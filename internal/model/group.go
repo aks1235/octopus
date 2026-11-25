@@ -94,6 +94,11 @@ type GroupItem struct {
 	ChannelGrant   *ChannelGrant `json:"-" gorm:"foreignKey:ChannelGrantID;references:ID;constraint:OnDelete:CASCADE"` // 仅用于声明级联外键, 授权被删除时成员随之删除; 读取时不填充, 展示所需字段见下方。
 	Priority       int           `json:"priority" gorm:"not null"`                                                     // Priority 决定界面展示和故障转移模式下的成员切换顺序。
 
+	// ProbeNextAt 是下次应当探测这个成员的时刻(unix 秒); 0 表示还没排期, 由启动时的打散逻辑补齐。
+	// 排期记在分组项而不是授权上: 结论落库与冷却清除都按 (分组, 分组项) 定位, 跟着它们走最省事;
+	// 同一授权出现在两个分组时各排各的, 实际只影响 2 个成员, 换来的是整条链路不用改。
+	ProbeNextAt int64 `json:"-" gorm:"not null;default:0;index:idx_group_item_probe_next"`
+
 	ChannelID   int      `json:"channel_id" gorm:"-"`   // 授权所属渠道 ID。
 	ChannelName string   `json:"channel_name" gorm:"-"` // 授权所属渠道名称。
 	ModelName   string   `json:"model_name" gorm:"-"`   // 授权引用的上游模型名称。
@@ -109,6 +114,11 @@ type GroupItem struct {
 	// 与选路共用 GrantProbeDead 一个判定, 界面不得自行比较 probe_at 与 24 小时窗口——
 	// 前后端各判一套必然分叉, 而这里判错的后果是界面承诺的顺序与实际尝试顺序不一致。
 	ProbeBlocking bool `json:"probe_blocking" gorm:"-"`
+
+	// OutcomeRank 是该成员在当前分组里的生效顺序(1 起), 只在故障转移分组上有值。
+	// 由后端用选路同一个比较器算出, 界面直接拿来排序与标注 —— 前端不再自己算一遍,
+	// 否则界面承诺的顺序和实际尝试顺序迟早会分叉。
+	OutcomeRank int `json:"outcome_rank" gorm:"-"`
 }
 
 // 创建分组请求; 成员顺序即优先级顺序。

@@ -21,6 +21,7 @@ export const SettingKey = {
     RelayLogKeepPeriod: 'relay_log_keep_period',
     GroupProbeEnabled: 'group_probe_enabled',
     GrantProbeKeepDays: 'grant_probe_keep_days',
+    OfficialProbeHour: 'official_probe_hour',
 } as const;
 
 /**

@@ -228,6 +228,18 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     )}
                                 </div>
                             ))}
+                            {/* 官方渠道: 每次探测都在动真实额度, 勾上后退出 6-12 小时的常规轮, 只参加每日夜间那一轮。 */}
+                            <div className="space-y-1.5">
+                                <label htmlFor={`${idPrefix}-official`} className="flex items-center gap-2 cursor-pointer">
+                                    <Switch
+                                        id={`${idPrefix}-official`}
+                                        checked={state.official}
+                                        onCheckedChange={(checked) => setState({ ...state, official: checked })}
+                                    />
+                                    <span className="text-sm">{t('official')}</span>
+                                </label>
+                                <p className="text-xs text-muted-foreground">{t('officialHint')}</p>
+                            </div>
                             {/* 跳过健康检查: 面向无模型列表接口的渠道, 说明文案讲清后果再让用户勾选。 */}
                             <div className="space-y-1.5">
                                 <label htmlFor={`${idPrefix}-health-check-skip`} className="flex items-center gap-2 cursor-pointer">
