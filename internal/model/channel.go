@@ -29,7 +29,9 @@ type ChannelConfig struct {
 	Name                     string         `json:"name" gorm:"unique;not null"`                                                                        // 渠道名称。
 	Dialect                  Dialect        `json:"dialect" gorm:"not null;default:generic"`                                                            // 上游方言, 决定出站转换器的厂商特化配置。
 	Enabled                  bool           `json:"enabled" gorm:"default:true"`                                                                        // 渠道是否可用。
-	BaseURL                  string         `json:"base_url"`                                                                                           // 上游地址, 各协议共用。
+	BaseURL                  string         `json:"base_url"`                                                                                           // 上游默认地址, 各协议共用。
+	OpenAIBaseURL            string         `json:"openai_base_url" gorm:"column:openai_base_url"`                                                      // OpenAI 侧专用地址; 留空沿用 BaseURL。
+	AnthropicBaseURL         string         `json:"anthropic_base_url" gorm:"column:anthropic_base_url"`                                                // Anthropic 侧专用地址; 留空沿用 BaseURL。
 	OpenAIChatCompletionPath string         `json:"openai_chat_completion_path" gorm:"column:openai_chat_completion_path;default:/v1/chat/completions"` // OpenAI Chat Completions 请求路径; 留空由后端填默认路径。
 	OpenAIResponsePath       string         `json:"openai_response_path" gorm:"column:openai_response_path;default:/v1/responses"`                      // OpenAI Responses 请求路径; 留空由后端填默认路径。
 	AnthropicMessagePath     string         `json:"anthropic_message_path" gorm:"column:anthropic_message_path;default:/v1/messages"`                   // Anthropic Messages 请求路径; 留空由后端填默认路径。
@@ -43,6 +45,24 @@ type ChannelConfig struct {
 	// 只影响定时探测的节奏: 这些渠道每探一次都在动真实额度, 故不进 6-12 小时的常规轮,
 	// 改由每日夜间单独一轮负责(见 internal/task/probe_official.go)。选路与转发不受影响。
 	Official bool `json:"official" gorm:"default:false"`
+}
+
+// BaseURLFor 返回指定协议应使用的上游地址。
+//
+// 有些平台同一家却按协议分了入口: 火山方舟 Agent Plan 的 OpenAI 是 /api/plan/v3、Anthropic 是 /api/plan;
+// 阿里云 Token Plan 的 OpenAI 是 /compatible-mode/v1、Anthropic 是 /apps/anthropic。只有一个 BaseURL 时
+// 只能拆成两条渠道, 模型与授权各维护一份。专用地址留空即沿用默认地址, 老渠道行为完全不变。
+func (c ChannelConfig) BaseURLFor(protocol Protocol) string {
+	if protocol == ProtocolAnthropicMessage {
+		if c.AnthropicBaseURL != "" {
+			return c.AnthropicBaseURL
+		}
+		return c.BaseURL
+	}
+	if c.OpenAIBaseURL != "" {
+		return c.OpenAIBaseURL
+	}
+	return c.BaseURL
 }
 
 // 单个上游渠道的共享配置; 路径按协议分别配置, 凭据由 ChannelKey 提供。

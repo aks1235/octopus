@@ -175,6 +175,23 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     required
                                 />
                             </div>
+                            {/* 上游按协议分入口时用这两项: 留空即沿用上面的默认地址, 老渠道行为不变。 */}
+                            {([
+                                ['openai_base_url', t('openaiBaseUrl')],
+                                ['anthropic_base_url', t('anthropicBaseUrl')],
+                            ] as const).map(([field, label]) => (
+                                <div key={field} className="space-y-2">
+                                    <Label htmlFor={`${idPrefix}-${field}`}>{label}</Label>
+                                    <Input
+                                        id={`${idPrefix}-${field}`}
+                                        type="url"
+                                        value={state[field]}
+                                        onChange={(e) => setState({ ...state, [field]: e.target.value })}
+                                        placeholder={t('baseUrlOverrideHint')}
+                                        className="rounded-xl"
+                                    />
+                                </div>
+                            ))}
                             {([
                                 ['openai_chat_completion_path', 'OpenAI Chat'],
                                 ['openai_response_path', 'OpenAI Responses'],

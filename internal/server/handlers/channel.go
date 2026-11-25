@@ -243,15 +243,22 @@ func fetchModel(c *gin.Context) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		openaiModels, openaiErr = probe.FetchOpenAIModels(httpClient, ctx, target, request.Key, probe.ModelsURL(target.BaseURL, target.OpenAIResponsePath))
+		openaiModels, openaiErr = probe.FetchOpenAIModels(httpClient, ctx, target, request.Key, probe.ModelsURL(target.BaseURLFor(model.ProtocolOpenAIResponse), target.OpenAIResponsePath))
 	}()
 	go func() {
 		defer wg.Done()
-		anthropicModels, anthropicErr = probe.FetchAnthropicModels(httpClient, ctx, target, request.Key, probe.ModelsURL(target.BaseURL, target.AnthropicMessagePath))
+		anthropicModels, anthropicErr = probe.FetchAnthropicModels(httpClient, ctx, target, request.Key, probe.ModelsURL(target.BaseURLFor(model.ProtocolAnthropicMessage), target.AnthropicMessagePath))
 	}()
 	wg.Wait()
 
 	if openaiErr != nil && anthropicErr != nil {
+		// 两侧都拿不到列表时再探一次 chat 入口, 区分"上游本来就没有 /models"和"地址或 key 配错了"。
+		// 套餐类入口(火山方舟 Agent Plan、阿里云 Token Plan)本就不提供模型列表, 直接报上游原文
+		// 只会得到一句 404, 用户看不出该手填模型还是该改地址。
+		if message, ok := probeChatEndpoint(httpClient, ctx, target, request.Key); ok {
+			resp.Error(c, http.StatusBadGateway, message)
+			return
+		}
 		// 上游鉴权失败或地址不通属于调用方配置问题, 按 502 返回并带上上游原文, 便于在界面上直接看到原因。
 		resp.Error(c, http.StatusBadGateway, fmt.Sprintf("openai: %v; anthropic: %v", openaiErr, anthropicErr))
 		return
@@ -297,6 +304,32 @@ func fetchModel(c *gin.Context) {
 		}
 	}
 	resp.Success(c, models)
+}
+
+// probeChatEndpoint 在两侧模型列表都失败后补一次 chat 入口探活。
+//
+// 请求体给空对象: 上游会先鉴权, 再因为缺 model 在生成前拒掉(400), 不消耗额度。
+// 返回的报文带固定前缀, 前端据此给出"手动填模型"或"检查 key 与入口"的具体建议。
+// 返回 false 表示这次探活也没有结论(网络错误或非预期状态码), 由调用方退回原始错误。
+func probeChatEndpoint(httpClient *http.Client, ctx context.Context, target model.ChannelConfig, key string) (string, bool) {
+	url := strings.TrimRight(target.BaseURLFor(model.ProtocolOpenAIChatCompletion), "/") + target.OpenAIChatCompletionPath
+	status, body, err := probe.ChatEndpointStatus(httpClient, ctx, target, key, url)
+	if err != nil {
+		return "", false
+	}
+	snippet := strings.TrimSpace(body)
+	if len(snippet) > 140 {
+		snippet = snippet[:140]
+	}
+	switch {
+	case status == http.StatusBadRequest || status == http.StatusUnprocessableEntity:
+		return fmt.Sprintf("model_list_unavailable: upstream chat endpoint is reachable (HTTP %d) but exposes no /models; add model names manually and enable skip health check", status), true
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return fmt.Sprintf("key_endpoint_mismatch: upstream rejected the key at this endpoint (HTTP %d): %s", status, snippet), true
+	case status == http.StatusNotFound:
+		return fmt.Sprintf("endpoint_not_found: chat endpoint returned 404, check base url and chat path: %s", snippet), true
+	}
+	return "", false
 }
 
 // testKey 按提交的渠道配置与凭据对指定模型逐个发起最小真实请求, 返回逐模型的连通性结果。

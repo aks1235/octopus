@@ -77,8 +77,8 @@ func FetchModelsDetailed(ctx context.Context, config model.ChannelConfig, keys [
 	defer closeClient()
 
 	// 凭据之间与两侧端点之间串行探测: 探测是轻量的 GET /models, 无需渠道内部并发。
-	openaiURL := ModelsURL(config.BaseURL, config.OpenAIResponsePath)
-	anthropicURL := ModelsURL(config.BaseURL, config.AnthropicMessagePath)
+	openaiURL := ModelsURL(config.BaseURLFor(model.ProtocolOpenAIResponse), config.OpenAIResponsePath)
+	anthropicURL := ModelsURL(config.BaseURLFor(model.ProtocolAnthropicMessage), config.AnthropicMessagePath)
 	results := make([]KeyProbeResult, 0, len(keys))
 	failures := make([]string, 0, len(keys)*2)
 	healthy := false
@@ -222,4 +222,30 @@ func decodeModelList[T any](response *http.Response) (T, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+// ChatEndpointStatus 用一次"缺 model 的空请求"判定入口与凭据是否可用, 返回上游状态码与响应片段。
+//
+// 用途是区分"上游没有 /models 接口"和"地址或 key 配错了": 火山方舟 Agent Plan、阿里云 Token Plan
+// 这类套餐入口本来就不提供模型列表, 拉取必然失败。空请求会在鉴权之后、生成之前被拒(400),
+// 既能确认入口可用, 又不消耗生成额度。
+func ChatEndpointStatus(httpClient *http.Client, ctx context.Context, target model.ChannelConfig, key, url string) (int, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
+	for _, header := range target.CustomHeader {
+		if header.HeaderKey != "" {
+			req.Header.Set(header.HeaderKey, header.HeaderValue)
+		}
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	return resp.StatusCode, strings.TrimSpace(string(body)), nil
 }

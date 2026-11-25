@@ -220,6 +220,8 @@ func normalizeChannelConfig(config model.ChannelConfig) (model.ChannelConfig, er
 		return config, fmt.Errorf("channel name is required")
 	}
 	config.BaseURL = strings.TrimSpace(config.BaseURL)
+	config.OpenAIBaseURL = strings.TrimSpace(config.OpenAIBaseURL)
+	config.AnthropicBaseURL = strings.TrimSpace(config.AnthropicBaseURL)
 	if config.BaseURL == "" {
 		return config, fmt.Errorf("channel base url is required")
 	}

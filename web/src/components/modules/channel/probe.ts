@@ -77,7 +77,17 @@ export function useModelProbe() {
             setState({ ...state, models, grants });
             toast.success(t('modelRefreshSuccess', { count: fetched.length }));
         } catch (error) {
-            toast.error(t('modelRefreshFailed'), { description: String(error) });
+            // 后端会用固定前缀区分"上游没有 /models""key 与入口不匹配""路径不对",
+            // 这里翻成能直接照做的提示, 而不是把上游原文丢给用户。
+            const raw = String(error);
+            const description = raw.includes('model_list_unavailable')
+                ? t('modelListUnavailable')
+                : raw.includes('key_endpoint_mismatch')
+                    ? t('keyEndpointMismatch')
+                    : raw.includes('endpoint_not_found')
+                        ? t('endpointNotFound')
+                        : raw;
+            toast.error(t('modelRefreshFailed'), { description });
         } finally {
             setPendingKey(null);
         }

@@ -6,6 +6,8 @@ export type ChannelFormState = {
     name: string;
     dialect: ChannelDetail['dialect'];
     base_url: string;
+    openai_base_url: string;
+    anthropic_base_url: string;
     enabled: boolean;
     proxy: boolean;
     openai_chat_completion_path: string;
@@ -31,6 +33,8 @@ export const emptyFormState: ChannelFormState = {
     name: '',
     dialect: 'generic',
     base_url: '',
+    openai_base_url: '',
+    anthropic_base_url: '',
     enabled: true,
     proxy: false,
     openai_chat_completion_path: '/v1/chat/completions',
@@ -53,6 +57,8 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         name: channel.name,
         dialect: channel.dialect,
         base_url: channel.base_url,
+        openai_base_url: channel.openai_base_url ?? '',
+        anthropic_base_url: channel.anthropic_base_url ?? '',
         enabled: channel.enabled,
         proxy: channel.proxy,
         openai_chat_completion_path: channel.openai_chat_completion_path,
@@ -79,6 +85,8 @@ export function toChannelConfig(state: ChannelFormState) {
         dialect: state.dialect,
         enabled: state.enabled,
         base_url: state.base_url.trim(),
+        openai_base_url: state.openai_base_url.trim(),
+        anthropic_base_url: state.anthropic_base_url.trim(),
         openai_chat_completion_path: state.openai_chat_completion_path.trim(),
         openai_response_path: state.openai_response_path.trim(),
         anthropic_message_path: state.anthropic_message_path.trim(),

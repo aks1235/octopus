@@ -61,7 +61,9 @@ export type ChannelDetail = {
     name: string;
     dialect: Dialect;
     enabled: boolean;
-    base_url: string; // 上游地址，各协议共用。
+    base_url: string; // 上游默认地址，各协议共用。
+    openai_base_url: string; // OpenAI 侧专用地址；留空沿用 base_url（上游按协议分入口时用）。
+    anthropic_base_url: string; // Anthropic 侧专用地址；留空沿用 base_url。
     openai_chat_completion_path: string;
     openai_response_path: string;
     anthropic_message_path: string;

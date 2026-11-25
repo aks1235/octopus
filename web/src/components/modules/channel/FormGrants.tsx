@@ -120,16 +120,26 @@ export function FormGrants({ state, setState }: {
 
     // 自定义模型直接授权给当前选中的凭据, 协议位沿用该凭据在其他模型上已有的并集。
     // 并集来自此前刷新拉取出的模型协议选项; 该凭据尚无任何授权时退回 Responses。
+    // 支持一次粘贴多行(或逗号分隔): 没有 /models 接口的上游(火山 Agent Plan、阿里 Token Plan)
+    // 只能手填模型名, 一次一个地加十几个太慢。
     const addModel = () => {
-        const name = adding.trim();
-        if (!name || state.models.includes(name)) return;
+        const names = adding
+            .split(/[\n,，]/)
+            .map((name) => name.trim())
+            .filter((name) => name !== '');
+        if (names.length === 0) return;
         let protocols = 0;
         for (const modelName of state.models) {
             protocols |= state.grants.get(grantKey(modelName, activeKey)) ?? 0;
         }
         const grants = new Map(state.grants);
-        if (activeKey) grants.set(grantKey(name, activeKey), protocols || Protocol.OpenAIResponse);
-        setState({ ...state, models: [...state.models, name], grants });
+        const models = [...state.models];
+        for (const name of names) {
+            if (models.includes(name)) continue;
+            models.push(name);
+            if (activeKey) grants.set(grantKey(name, activeKey), protocols || Protocol.OpenAIResponse);
+        }
+        setState({ ...state, models, grants });
         setAdding('');
     };
 
@@ -159,7 +169,7 @@ export function FormGrants({ state, setState }: {
                 />
                 <IconButton
                     onClick={addModel}
-                    disabled={!adding.trim() || state.models.includes(adding.trim())}
+                    disabled={!adding.trim()}
                     className="size-9"
                     tip={t('modelAdd')}
                 >
