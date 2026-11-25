@@ -91,6 +91,7 @@ export type ChannelStats = StatsMetrics & {
     channel_id: number;
     channel_name: string;
     enabled: boolean;
+    official: boolean; // 官方直连或云厂商托管：每次探测消耗真实额度，定时探测只在夜间跑一次。
     health_fail_count: number; // 连续健康检查失败次数；探测成功后清零。
     last_health_error: string; // 最近一次健康检查的失败原因；探测成功后清空。
     last_health_at: number; // 最近一次健康检查完成的 unix 秒；0 表示尚未检查过。
@@ -128,6 +129,7 @@ export type ChannelStatsFormatted = {
     channel_id: number;
     channel_name: string;
     enabled: boolean;
+    official: boolean; // 官方直连或云厂商托管：列表上打"官方"标记，探测只在夜间跑一次。
     health_fail_count: number;
     last_health_error: string;
     last_health_at: number;
@@ -196,6 +198,7 @@ const channelStatsFormattedQueryOptions = queryOptions({
         channel_id: item.channel_id,
         channel_name: item.channel_name,
         enabled: item.enabled,
+        official: item.official,
         health_fail_count: item.health_fail_count,
         last_health_error: item.last_health_error,
         last_health_at: item.last_health_at,

@@ -716,6 +716,7 @@
     },
     "channel": {
         "card": {
+            "officialBadge": "Official",
             "requestCount": "Requests",
             "requestShort": "Req",
             "costShort": "Cost",
@@ -788,6 +789,8 @@
             "channelProxy": "Channel proxy",
             "matchRegex": "Match regex",
             "matchRegexHint": "When fetching models, only models matching this regex are kept (whitelist, e.g. \"this channel serves only these models\"); combined with the global model filter (blacklist, matches are excluded), empty means no filter",
+            "official": "Official channel",
+            "officialHint": "Direct vendor or cloud-hosted: every probe spends real quota or free trial credits. When checked, the channel leaves the 6-12 hour rotation and is probed once a day inside a 3 hour window starting at the configured hour (03:00 by default).",
             "healthCheckSkip": "Skip health check",
             "healthCheckSkipHint": "Check for channels without a model-list endpoint (probing /models always fails but forwarding works), e.g. China Telecom; skips auto probing and disabling, and auto-disabled channels are restored on save",
             "paramOverride": "Param override",

@@ -219,6 +219,13 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                         >
                             {channel.channel_name}
                         </h3>
+                        {/* 官方标记恒显: 它是渠道属性, 不是异常状态, 所以要排在异常徽标之前,
+                            颜色也取中性的蓝, 不跟红/橙/绿的告警语义抢注意力。 */}
+                        {channel.official && (
+                            <span className="shrink-0 rounded-full bg-blue-600 px-1.5 py-[1px] text-[10px] font-medium leading-none text-white">
+                                {t('officialBadge')}
+                            </span>
+                        )}
                         {statusBadge}
                         {!isList && (
                             <>

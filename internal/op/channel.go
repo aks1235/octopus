@@ -57,6 +57,7 @@ func ChannelStatsList() []model.ChannelStats {
 			ChannelID:       channel.ID,
 			ChannelName:     channel.Name,
 			Enabled:         channel.Enabled,
+			Official:        channel.Official,
 			Models:          models,
 			StatsMetrics:    channel.StatsMetrics,
 			HealthFailCount: channel.HealthFailCount,

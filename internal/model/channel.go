@@ -129,10 +129,13 @@ type ChannelGrantConfig struct {
 // 故不再另给渠道概览接口 —— 列表页与首页榜单共用这一条响应, 整份配置在点开编辑时由 /channel/detail 单独取。
 // 名称与渠道配置重复给出是有意的: 消费方由此无需再按主键回查渠道。
 type ChannelStats struct {
-	ChannelID    int                 `json:"channel_id"`   // 渠道主键。
-	ChannelName  string              `json:"channel_name"` // 渠道名称。
-	Enabled      bool                `json:"enabled"`      // 渠道是否可用, 供列表页的开关与过滤使用。
-	Models       []ChannelModelStats `json:"models"`       // 该渠道各模型的独立统计, 恒为数组; 长度即渠道的模型个数。
+	ChannelID   int    `json:"channel_id"`   // 渠道主键。
+	ChannelName string `json:"channel_name"` // 渠道名称。
+	Enabled     bool   `json:"enabled"`      // 渠道是否可用, 供列表页的开关与过滤使用。
+	// Official 表示这是官方直连或云厂商托管的渠道: 每次探测都消耗真实额度, 定时探测只在夜间跑一次。
+	// 列表页据此打"官方"标记, 让人一眼分清哪些渠道挂了要修、哪些只是公益站抽风。
+	Official     bool                `json:"official"`
+	Models       []ChannelModelStats `json:"models"` // 该渠道各模型的独立统计, 恒为数组; 长度即渠道的模型个数。
 	StatsMetrics                     // 渠道自身的累计统计。
 
 	HealthFailCount int    `json:"health_fail_count"` // 连续健康检查失败次数; 探测成功后清零。

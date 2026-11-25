@@ -3,6 +3,8 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -407,5 +409,100 @@ func TestChannelKey_logsUnsavedFormChannel(t *testing.T) {
 	}
 	if entry.ClientName != keyTestClientName || entry.RequestAPIKeyName != "k-form" {
 		t.Errorf("client/key name = %q/%q, want %q/k-form", entry.ClientName, entry.RequestAPIKeyName, keyTestClientName)
+	}
+}
+
+// 探测必须关掉思考: 实测一次探测 71 个输出 token 里 65 个是 reasoning,
+// 不加这个参数等于拿真实额度换一段没人看的推理过程。
+func TestChannelKey_sendsReasoningEffortNone(t *testing.T) {
+	setupRelayLogTest(t)
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if r.URL.Path != "/v1/chat/completions" {
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(chatCompletionBody()))
+	}))
+	defer server.Close()
+
+	channel := keyTestChannel(server.URL)
+	results := TestChannelKey(context.Background(), channel, "sk-test", "k", []string{"m"}, nil)
+	if len(results) != 1 || !results[0].Success {
+		t.Fatalf("results = %+v, want one success", results)
+	}
+	if len(bodies) == 0 {
+		t.Fatal("upstream saw no request")
+	}
+	if !strings.Contains(bodies[0], `"reasoning_effort":"none"`) {
+		t.Fatalf("request body = %s, want reasoning_effort:none", bodies[0])
+	}
+}
+
+// 不认这个参数的上游会直接 400: 必须去掉参数重发一次并成功,
+// 否则每次探测都白白背一次失败, 三轮之后好成员就被判死了。
+func TestChannelKey_retriesWithoutReasoningEffort(t *testing.T) {
+	setupRelayLogTest(t)
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		if r.URL.Path != "/v1/chat/completions" {
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+			return
+		}
+		if strings.Contains(string(raw), "reasoning_effort") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unsupported parameter: reasoning_effort"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(chatCompletionBody()))
+	}))
+	defer server.Close()
+
+	channel := keyTestChannel(server.URL)
+	channel.ID = 4242
+	t.Cleanup(func() { probeReasoningRejected.Delete(channel.ID) })
+
+	results := TestChannelKey(context.Background(), channel, "sk-test", "k", []string{"m"}, nil)
+	if len(results) != 1 || !results[0].Success {
+		t.Fatalf("results = %+v, want success after dropping the parameter", results)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("upstream saw %d requests, want 2 (with effort, then without)", len(bodies))
+	}
+	if !strings.Contains(bodies[0], `"reasoning_effort":"none"`) || strings.Contains(bodies[1], "reasoning_effort") {
+		t.Fatalf("bodies = %v, want first with effort and retry without", bodies)
+	}
+	if _, rejected := probeReasoningRejected.Load(channel.ID); !rejected {
+		t.Fatal("channel not remembered as reasoning-unsupported")
+	}
+}
+
+// 只有点名 reasoning/thinking 的 4xx 才算"不认关思考参数";
+// 别的 400(比如 max_tokens 越界)不能触发重发, 否则会把真正的失败藏起来。
+func TestProbeRejectedReasoning_classification(t *testing.T) {
+	cases := []struct {
+		message string
+		want    bool
+	}{
+		{"upstream 400 Bad Request: {\"error\":{\"message\":\"unsupported parameter: reasoning_effort\"}}", true},
+		{"upstream 422: unknown parameter thinking", true},
+		{"upstream 400 Bad Request: invalid max_tokens", false},
+		{"upstream 401 Unauthorized: reasoning budget exceeded", false},
+		{"upstream 503 upstream error", false},
+	}
+	for _, item := range cases {
+		if got := probeRejectedReasoning(errors.New(item.message)); got != item.want {
+			t.Errorf("probeRejectedReasoning(%q) = %v, want %v", item.message, got, item.want)
+		}
+	}
+	if probeRejectedReasoning(nil) {
+		t.Error("probeRejectedReasoning(nil) = true, want false")
 	}
 }

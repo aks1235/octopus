@@ -716,6 +716,7 @@
     },
     "channel": {
         "card": {
+            "officialBadge": "官方",
             "requestCount": "请求次数",
             "requestShort": "请求",
             "costShort": "成本",
@@ -788,6 +789,8 @@
             "channelProxy": "渠道代理",
             "matchRegex": "匹配正则",
             "matchRegexHint": "拉取模型时命中表达式的模型才保留（白名单，常见用途\"该渠道只要这几个模型\"）；与全局模型过滤（命中排除，黑名单）叠加生效，留空不过滤",
+            "official": "官方渠道",
+            "officialHint": "官方直连或云厂商托管：每次探测都消耗真实额度或免费试用额度。勾选后退出 6-12 小时的常规探测，改为每天在设置的时间（默认凌晨 3 点）起的 3 小时窗口内测一次。",
             "healthCheckSkip": "跳过健康检查",
             "healthCheckSkipHint": "无模型列表接口的渠道（探测 /models 必失败但转发可用）勾选，如天翼云；勾选后不再自动探测与禁用，被自动禁用的渠道保存后恢复",
             "paramOverride": "参数覆盖",

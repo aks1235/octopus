@@ -23,6 +23,16 @@ const keyTestTimeout = 15 * time.Second
 // keyTestMaxTokens 单次测试请求的生成上限, 给上游足够空间完整回答简单问题。
 const keyTestMaxTokens int64 = 8192
 
+// keyTestReasoningEffort 探测请求固定带的思考等级: none。
+// 探测只要一句能验证"通不通"的答复, 不需要模型先"想" —— 实测一次探测 71 个输出 token 里 65 个是思考,
+// 关掉之后这部分额度就省下来了。各协议由出站转换器各自映射(Gemini 转 thinkingBudget=0 等)。
+const keyTestReasoningEffort = "none"
+
+// probeReasoningRejected 记录"加了关思考参数就报 400"的渠道, 后续探测不再带它。
+// 有些上游只认自己的思考开关, 多传一个字段直接拒绝; 记下来避免每次探测都多打一次失败请求。
+// 只在进程内记: 重启后重新试一轮, 跨版本的上游支持情况会变, 不值得持久化。
+var probeReasoningRejected sync.Map // channelID -> struct{}
+
 // keyTestMaxErrorLength 失败原因的截断上限, 与 probe 包同值: 部分上游报错是整页 HTML, 全文带进结果无用。
 const keyTestMaxErrorLength = 200
 
@@ -504,12 +514,48 @@ func testGroupMemberWithTimeout(ctx context.Context, group model.Group, item mod
 // 请求体经出站转换器生成(与转发链路同构), 渠道的参数覆盖与自定义 Header 同样生效;
 // 代理选择与转发同源, 由此测到的路径才是真实转发会走的路径。
 func sendKeyTestRequest(ctx context.Context, channel model.Channel, outbound transformer.Outbound, modelName string, usage *keyTestUsage) ([]byte, []byte, error) {
+	effort := keyTestReasoningEffort
+	if _, rejected := probeReasoningRejected.Load(channel.ID); rejected {
+		effort = ""
+	}
+	requestBody, responseBody, err := sendProbeOnce(ctx, channel, outbound, modelName, usage, effort)
+	if err == nil || effort == "" || !probeRejectedReasoning(err) {
+		return requestBody, responseBody, err
+	}
+	// 这个渠道不认关思考参数: 记下来, 立刻按原样(不带该参数)重发一次。
+	// 只记不抛错 —— 探测的目标是判断通不通, 少省一点额度远不如给出正确结论要紧。
+	probeReasoningRejected.Store(channel.ID, struct{}{})
+	log.Debugf("channel %d rejects reasoning_effort=%s, probing without it: %v", channel.ID, keyTestReasoningEffort, err)
+	return sendProbeOnce(ctx, channel, outbound, modelName, usage, "")
+}
+
+// probeRejectedReasoning 判断这次失败是不是"不认关思考参数"造成的:
+// 只有 4xx 且报文里点名 reasoning/thinking 才算, 别的 400(比如参数越界)照常按失败处理。
+func probeRejectedReasoning(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	if !strings.Contains(message, "400") && !strings.Contains(message, "422") {
+		return false
+	}
+	for _, keyword := range []string{"reasoning", "thinking", "unsupported parameter", "unknown parameter", "unrecognized"} {
+		if strings.Contains(message, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+// sendProbeOnce 按给定思考等级发一次探测请求; effort 为空表示不带该参数。
+func sendProbeOnce(ctx context.Context, channel model.Channel, outbound transformer.Outbound, modelName string, usage *keyTestUsage, effort string) ([]byte, []byte, error) {
 	probeText := "1+1等于几？"
 	maxTokens := keyTestMaxTokens
 	request, err := outbound.TransformRequest(ctx, &llm.Request{
-		Model:     modelName,
-		Messages:  []llm.Message{{Role: "user", Content: llm.MessageContent{Content: &probeText}}},
-		MaxTokens: &maxTokens,
+		Model:           modelName,
+		Messages:        []llm.Message{{Role: "user", Content: llm.MessageContent{Content: &probeText}}},
+		MaxTokens:       &maxTokens,
+		ReasoningEffort: effort,
 	})
 	if err != nil {
 		return nil, nil, err
