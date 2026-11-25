@@ -2,7 +2,11 @@ import { useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { apiRequest, apiUnauthorizedEvent, setAPIKey } from './client';
+import { ApiError, apiRequest, apiUnauthorizedEvent, setAPIKey } from './client';
+
+// checkAuthRetryDelays 是启动鉴权失败后的重试间隔（毫秒），累计约 4 秒，
+// 用于覆盖后端重启、应用内升级换核期间端口不可达的窗口。
+const checkAuthRetryDelays = [0, 400, 1200, 2500];
 
 /**
  * 用户登录请求
@@ -69,17 +73,34 @@ export const useAuthStore = create<AuthState>()(
                     return;
                 }
 
-                try {
-                    const endpoint = isAPIKeyAuth ? '/api/v1/apikey/login' : '/api/v1/user/status';
-                    await apiRequest<unknown>(endpoint, { dispatchUnauthorized: false });
-                    set({
-                        isAuthenticated: true,
-                        isLoading: false,
-                        token: isAPIKeyAuth ? token : null
-                    });
-                } catch {
-                    get().logout();
+                const endpoint = isAPIKeyAuth ? '/api/v1/apikey/login' : '/api/v1/user/status';
+                const keepAuth = () => set({
+                    isAuthenticated: true,
+                    isLoading: false,
+                    token: isAPIKeyAuth ? token : null
+                });
+
+                // 只有明确的 401/403 才说明凭据真的失效。网络错误、超时、502/504
+                // （后端重启、升级换核、Wi-Fi 抖动）都不能清掉「信任此设备」的 cookie：
+                // 否则在重启窗口里刷新一次页面，30 天的登录凭据就被前端自己删了。
+                // 重试用尽仍失败则保持登录态，真正的失效交给后续接口的 401 兜底。
+                for (const [index, delay] of checkAuthRetryDelays.entries()) {
+                    if (index > 0) {
+                        await new Promise((resolve) => setTimeout(resolve, delay));
+                    }
+                    try {
+                        await apiRequest<unknown>(endpoint, { dispatchUnauthorized: false });
+                        keepAuth();
+                        return;
+                    } catch (error) {
+                        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+                            get().logout();
+                            return;
+                        }
+                    }
                 }
+
+                keepAuth();
             },
 
             logout: () => {

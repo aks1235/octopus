@@ -8,6 +8,7 @@ import (
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/server/auth"
 	"github.com/bestruirui/octopus/internal/server/resp"
+	"github.com/charmbracelet/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,11 +20,21 @@ func Auth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if !auth.VerifyJWTToken(token) {
+		claims, ok := auth.ParseTokenClaims(token)
+		if !ok {
 			c.SetCookie("auth", "", -1, "/", "", false, false)
 			resp.Error(c, http.StatusUnauthorized, resp.ErrUnauthorized)
 			c.Abort()
 			return
+		}
+		// 滑动续期：剩余有效期不足一半时，用原时长重发 cookie。
+		// 失败只告警，不影响本次请求。
+		if expire, needRenew := auth.RenewalExpire(claims); needRenew {
+			if newToken, maxAge, err := auth.GenerateJWTToken(expire); err != nil {
+				log.Warnf("renew auth cookie failed: %v", err)
+			} else {
+				c.SetCookie("auth", newToken, maxAge, "/", "", false, false)
+			}
 		}
 		c.Next()
 	}
