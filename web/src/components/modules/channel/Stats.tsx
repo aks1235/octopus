@@ -21,6 +21,7 @@ import { snapdom } from '@zumer/snapdom';
 import { toast } from 'sonner';
 import { useTranslations } from 'use-intl';
 import { type ChannelStatsFormatted, useChannelKeyStats, useDeleteChannel } from '@/api/channel';
+import { Balance } from './Balance';
 import { PlanQuota } from './PlanQuota';
 import { type StatsMetricsFormatted } from '@/api/stats';
 import { useMorphingDialog } from '@/components/ui/morphing-dialog';
@@ -304,6 +305,8 @@ export function ChannelStats({ channel, onEdit }: {
             {/* 套餐额度置顶: 订阅制套餐的余量决定"这个渠道还能不能跑", 比历史累计更该先被看到。
                 未配置或未采到数据时组件自身返回 null, 不占位。 */}
             <PlanQuota channelId={channel.channel_id} />
+            {/* 官方 DeepSeek 渠道才有余额; 组件自己判断厂商, 其他渠道不渲染。 */}
+            <Balance channelId={channel.channel_id} />
             <div className="grid flex-1 gap-4 @2xl/stats:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
                 {/* 左列: 渠道汇总 */}
                 <section className="flex min-h-0 flex-col gap-2">

@@ -382,6 +382,33 @@ export function usePlanQuotaList() {
     });
 }
 
+// ChannelBalance 是 DeepSeek 官方账户余额的一次实时快照, 不入库也不定时。
+export type ChannelBalance = {
+    available: boolean; // 账户当前能否调用 API。
+    entries: {
+        currency: string;
+        total: string;
+        granted: string;
+        topped_up: string;
+    }[];
+};
+
+/**
+ * 实时查询官方 DeepSeek 渠道的账户余额, 供渠道详情抽屉展示。
+ * 只对官方域名开放, 非官方渠道后端返回 400 —— 组件据此不渲染, 不重试。
+ *
+ * @example
+ * const { data } = useChannelBalance(channelId);
+ */
+export function useChannelBalance(id: number) {
+    return useQuery({
+        queryKey: ['channels', 'balance', id],
+        queryFn: () => apiRequest<ChannelBalance>(`/api/v1/channel/balance/${id}`),
+        refetchOnMount: 'always',
+        retry: false,
+    });
+}
+
 /**
  * 获取单个渠道完整配置 Hook, 供编辑表单打开时读取; id 为空时不发请求。
  * 不随统计一并取回: 整份配置带着路径、代理与凭据明文, 只有正在编辑的那一个渠道用得上。

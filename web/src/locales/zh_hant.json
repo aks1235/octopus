@@ -53,6 +53,10 @@
             "ariaLabel": "檢視選項",
             "layout": "佈局",
             "sort": "排序",
+            "sortName": "名稱",
+            "sortTime": "新增時間",
+            "sortRate": "成功率",
+            "sortRequest": "請求次數",
             "grid": "網格",
             "list": "清單",
             "nameAsc": "名稱正序",
@@ -68,7 +72,8 @@
                 "channel": {
                     "all": "全部供應源",
                     "enabled": "僅啟用",
-                    "disabled": "僅停用"
+                    "disabled": "僅停用",
+                    "official": "僅官方"
                 },
                 "group": {
                     "all": "全部分組",
@@ -758,6 +763,13 @@
                 "ok": "正常",
                 "manualDisabled": "手動停用"
             }
+        },
+        "balance": {
+            "title": "帳戶餘額",
+            "available": "可呼叫",
+            "insufficient": "餘額不足",
+            "accountLevel": "帳戶級，同帳號共用",
+            "detail": "贈金 {granted} · 儲值 {toppedUp}"
         },
         "planQuota": {
             "title": "套餐額度",

@@ -15,16 +15,22 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface PageActionOption {
-    value: string; // 操作选项的稳定标识。
+    // React key。必须与 value 分开: 排序方向切换时 value 会变,
+    // 若拿 value 当 key, React 会重建整个按钮, CSS 过渡就没机会跑。
+    key?: string;
+    value: string; // 操作选项当前的值(会随方向切换)。
     label: string; // 操作选项显示的文案。
     icon?: LucideIcon; // 操作选项左侧的可选图标。
+    // 方向相反的第二枚图标。两枚图标叠放做 3D 翻牌, 比直接换成另一枚图标平滑。
+    iconAlt?: LucideIcon;
+    iconReversed?: boolean; // 当前是否处于反方向。
 }
 
 type PageActionPage = 'channel' | 'group' | 'model';
 type PageActionLayout = 'grid' | 'list';
 // 排序方向: asc/desc 按名称, timeAsc/timeDesc 按添加时间, rate*/request* 按成功率与请求次数(均仅渠道页使用);
 // 各页读取时把未知值回落到 asc。
-type PageActionSortOrder =
+export type PageActionSortOrder =
     | 'asc'
     | 'desc'
     | 'timeAsc'
@@ -33,7 +39,7 @@ type PageActionSortOrder =
     | 'rateAsc'
     | 'requestDesc'
     | 'requestAsc';
-type ChannelFilter = 'all' | 'enabled' | 'disabled';
+type ChannelFilter = 'all' | 'enabled' | 'disabled' | 'official';
 type GroupFilter = 'all' | 'with-members' | 'empty';
 type ModelFilter = 'all' | 'priced' | 'free';
 
@@ -226,9 +232,10 @@ export function PageActions({
                             <div className="grid grid-cols-2 gap-2">
                                 {sortOptions.map((option) => {
                                     const Icon = option.icon;
+                                    const AltIcon = option.iconAlt;
                                     return (
                                         <button
-                                            key={option.value}
+                                            key={option.key ?? option.value}
                                             type="button"
                                             onClick={() => onSortChange(option.value)}
                                             className={cn(
@@ -238,7 +245,28 @@ export function PageActions({
                                                     : 'border-border bg-muted/20 text-foreground hover:bg-muted/30'
                                             )}
                                         >
-                                            {Icon && <Icon className="size-3.5" />}
+                                            {Icon && (AltIcon ? (
+                                                // 两枚图标常驻 DOM, 各自绕 X 轴翻 180° 并交叉淡入淡出。
+                                                // 换成单个图标组件会让 React 重建节点, 过渡就没了。
+                                                <span className="relative inline-flex size-3.5 shrink-0 [perspective:240px]">
+                                                    <Icon
+                                                        className="sort-direction-icon absolute inset-0 size-3.5"
+                                                        style={{
+                                                            transform: option.iconReversed ? 'rotateX(180deg)' : 'rotateX(0deg)',
+                                                            opacity: option.iconReversed ? 0 : 1,
+                                                        }}
+                                                    />
+                                                    <AltIcon
+                                                        className="sort-direction-icon absolute inset-0 size-3.5"
+                                                        style={{
+                                                            transform: option.iconReversed ? 'rotateX(0deg)' : 'rotateX(-180deg)',
+                                                            opacity: option.iconReversed ? 1 : 0,
+                                                        }}
+                                                    />
+                                                </span>
+                                            ) : (
+                                                <Icon className="size-3.5" />
+                                            ))}
                                             {option.label}
                                         </button>
                                     );

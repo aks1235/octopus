@@ -53,6 +53,10 @@
             "ariaLabel": "视图选项",
             "layout": "布局",
             "sort": "排序",
+            "sortName": "名称",
+            "sortTime": "添加时间",
+            "sortRate": "成功率",
+            "sortRequest": "请求次数",
             "grid": "网格",
             "list": "列表",
             "nameAsc": "名称正序",
@@ -68,7 +72,8 @@
                 "channel": {
                     "all": "全部渠道",
                     "enabled": "仅启用",
-                    "disabled": "仅禁用"
+                    "disabled": "仅禁用",
+                    "official": "仅官方"
                 },
                 "group": {
                     "all": "全部分组",
@@ -758,6 +763,13 @@
                 "ok": "正常",
                 "manualDisabled": "手动禁用"
             }
+        },
+        "balance": {
+            "title": "账户余额",
+            "available": "可调用",
+            "insufficient": "余额不足",
+            "accountLevel": "账户级，同账号共用",
+            "detail": "赠金 {granted} · 充值 {toppedUp}"
         },
         "planQuota": {
             "title": "套餐额度",

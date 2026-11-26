@@ -53,6 +53,10 @@
             "ariaLabel": "View options",
             "layout": "Layout",
             "sort": "Sort",
+            "sortName": "Name",
+            "sortTime": "Added",
+            "sortRate": "Success rate",
+            "sortRequest": "Requests",
             "grid": "Grid",
             "list": "List",
             "nameAsc": "Name Asc",
@@ -68,7 +72,8 @@
                 "channel": {
                     "all": "All channels",
                     "enabled": "Enabled only",
-                    "disabled": "Disabled only"
+                    "disabled": "Disabled only",
+                    "official": "Official only"
                 },
                 "group": {
                     "all": "All groups",
@@ -758,6 +763,13 @@
                 "ok": "Healthy",
                 "manualDisabled": "Manually disabled"
             }
+        },
+        "balance": {
+            "title": "Account balance",
+            "available": "Active",
+            "insufficient": "Insufficient",
+            "accountLevel": "Account-wide, shared by all keys",
+            "detail": "granted {granted} · topped up {toppedUp}"
         },
         "planQuota": {
             "title": "Plan quota",

@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/balance"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/planquota"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/probe"
 	"github.com/bestruirui/octopus/internal/relay"
+	"github.com/bestruirui/octopus/internal/rhttp"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -47,6 +49,11 @@ func init() {
 			// /plan-quota/refresh/:id 与 /plan-quota/:id 会直接冲突并 panic。
 			router.NewRoute("/plan-quota-refresh/:id", http.MethodPost).
 				Handle(refreshChannelPlanQuota),
+		).
+		AddRoute(
+			// 实时查余额, 不入库: 一个 GET 几十毫秒, 为它建表和定时任务都是多余的。
+			router.NewRoute("/balance/:id", http.MethodGet).
+				Handle(getChannelBalance),
 		).
 		AddRoute(
 			router.NewRoute("/grants", http.MethodGet).
@@ -172,6 +179,74 @@ func refreshChannelPlanQuota(c *gin.Context) {
 		return
 	}
 	resp.Success(c, row)
+}
+
+// getChannelBalance 实时查询官方 DeepSeek 渠道的账户余额。
+//
+// 只对官方域名开放: 中转站渠道名字里带 deepseek 也查不到官方余额, 不能拿它的 key 去打官方接口。
+// 余额是账户级的, 同账号的每把 key 查到的都是同一份数字, 界面会注明这一点。
+func getChannelBalance(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	detail, err := op.ChannelDetailGet(id)
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	if !balance.IsOfficialDeepSeekBaseURL(detail.BaseURL) {
+		resp.Error(c, http.StatusBadRequest, "balance query is only available for official DeepSeek channels")
+		return
+	}
+	apiKey := firstEnabledKey(detail.Keys)
+	if apiKey == "" {
+		resp.Error(c, http.StatusBadRequest, "channel has no enabled credential")
+		return
+	}
+
+	client, release, err := balanceHTTPClient(detail.ChannelConfig)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer release()
+
+	result, err := balance.Fetch(c.Request.Context(), client, apiKey)
+	if err != nil {
+		resp.Error(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	resp.Success(c, result)
+}
+
+// firstEnabledKey 取第一把启用的凭据。余额是账户级的, 选哪一把都一样, 因此不必遍历全部。
+func firstEnabledKey(keys []model.ChannelKeyConfig) string {
+	for _, key := range keys {
+		if key.Enabled && strings.TrimSpace(key.Key) != "" {
+			return key.Key
+		}
+	}
+	return ""
+}
+
+// balanceHTTPClient 按渠道的代理配置取客户端, 与转发、探测、额度采集三处保持一致。
+func balanceHTTPClient(channel model.ChannelConfig) (*http.Client, func(), error) {
+	if !channel.Proxy {
+		client, err := rhttp.Direct()
+		return client, func() {}, err
+	}
+	if channel.ChannelProxy == "" {
+		client, err := rhttp.Proxy()
+		return client, func() {}, err
+	}
+	client, err := rhttp.New(channel.ChannelProxy)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	// 专用代理的客户端是本次新建的, 用完关掉空闲连接, 避免随 Transport 一起残留。
+	return client, client.CloseIdleConnections, nil
 }
 
 // listChannelGrant 返回全部渠道授权候选, 供分组页选取成员。

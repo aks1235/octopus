@@ -1,8 +1,11 @@
 import { useMemo } from 'react';
-import { ArrowUpAZ, ArrowDownWideNarrow, ArrowUpNarrowWide, Clock } from 'lucide-react';
+import {
+    ArrowDownAZ, ArrowUpAZ, ArrowDownWideNarrow, ArrowUpNarrowWide,
+    ClockArrowDown, ClockArrowUp, type LucideIcon,
+} from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { type ChannelStatsFormatted, useChannelStats } from '@/api/channel';
-import { PageActions, usePageActionsStore } from '@/components/common/PageActions';
+import { PageActions, usePageActionsStore, type PageActionSortOrder } from '@/components/common/PageActions';
 import { MorphingDialogDescription } from '@/components/ui/morphing-dialog';
 import { Card } from './Card';
 import { ChannelForm } from './Form';
@@ -22,6 +25,24 @@ function normalizeChannelSort(order: string | undefined) {
         ? order
         : 'asc';
 }
+
+// SortGroup 把 8 个排序值归成 4 类: 点一次进该类默认方向, 再点一次切反向。
+// 默认方向按"这类通常想先看什么"定 —— 成功率低在前(排障), 请求次数多在前(看主力),
+// 名称与时间维持正序。8 个值一个不删, 旧 localStorage 记录照常生效。
+type SortGroup = {
+    base: PageActionSortOrder; // 该类默认方向的排序值。
+    reverse: PageActionSortOrder;
+    labelKey: string;
+    icon: LucideIcon; // 默认方向的类别图标。
+    reverseIcon: LucideIcon; // 反方向的类别图标, 做 3D 翻牌切换用。
+};
+
+const SORT_GROUPS: SortGroup[] = [
+    { base: 'asc', reverse: 'desc', labelKey: 'sortName', icon: ArrowUpAZ, reverseIcon: ArrowDownAZ },
+    { base: 'timeAsc', reverse: 'timeDesc', labelKey: 'sortTime', icon: ClockArrowUp, reverseIcon: ClockArrowDown },
+    { base: 'rateAsc', reverse: 'rateDesc', labelKey: 'sortRate', icon: ArrowUpNarrowWide, reverseIcon: ArrowDownWideNarrow },
+    { base: 'requestDesc', reverse: 'requestAsc', labelKey: 'sortRequest', icon: ArrowDownWideNarrow, reverseIcon: ArrowUpNarrowWide },
+];
 
 // successRate 取渠道成功率(0-1); 一次都没调用过时返回 null —— 这类渠道不该混进成功率排序里冒充 0%。
 function successRate(channel: ChannelStatsFormatted): number | null {
@@ -47,39 +68,43 @@ export function ChannelActions() {
             onSearchTermChange={(value) => setSearchTerm('channel', value)}
             layout={layout}
             onLayoutChange={(value) => setLayout('channel', value)}
-            sortOptions={[
-                { value: 'asc', label: t('popover.nameAsc'), icon: ArrowUpAZ },
-                { value: 'desc', label: t('popover.nameDesc'), icon: ArrowUpAZ },
-                { value: 'timeAsc', label: t('popover.timeAsc'), icon: Clock },
-                { value: 'timeDesc', label: t('popover.timeDesc'), icon: Clock },
-                { value: 'rateDesc', label: t('popover.rateDesc'), icon: ArrowDownWideNarrow },
-                { value: 'rateAsc', label: t('popover.rateAsc'), icon: ArrowUpNarrowWide },
-                { value: 'requestDesc', label: t('popover.requestDesc'), icon: ArrowDownWideNarrow },
-                { value: 'requestAsc', label: t('popover.requestAsc'), icon: ArrowUpNarrowWide },
-            ]}
+            sortOptions={SORT_GROUPS.map((group) => {
+                // 当前那一类交出实际方向值, 高亮自然落在它上面; 其他类交默认值, 点过去就是默认方向。
+                // 这样不必改通用 PageActions 的匹配逻辑。
+                const isCurrent = group.base === sortOrder || group.reverse === sortOrder;
+                const value = isCurrent ? sortOrder : group.base;
+                return {
+                    // key 固定为类别名, 不随方向变 —— 否则切方向时按钮被重建, 图标过渡不会触发。
+                    key: group.labelKey,
+                    value,
+                    label: t(`popover.${group.labelKey}`),
+                    icon: group.icon,
+                    iconAlt: group.reverseIcon,
+                    // 以该类自身的 base/reverse 判断, 不用全局升降序:
+                    // "请求次数"默认是降序(多在前), 用全局判断会把图标装反。
+                    iconReversed: value === group.reverse,
+                };
+            })}
             sortValue={sortOrder}
             onSortChange={(value) => {
-                if (
-                    value === 'asc' ||
-                    value === 'desc' ||
-                    value === 'timeAsc' ||
-                    value === 'timeDesc' ||
-                    value === 'rateDesc' ||
-                    value === 'rateAsc' ||
-                    value === 'requestDesc' ||
-                    value === 'requestAsc'
-                ) {
-                    setSort('channel', value);
-                }
+                const clicked = value as PageActionSortOrder;
+                const group = SORT_GROUPS.find((item) => item.base === clicked || item.reverse === clicked);
+                if (!group) return;
+                // 再点一次当前高亮的按钮 → 同类切反向; 点别的类 → 用那一类的默认方向。
+                const next = clicked === sortOrder
+                    ? (clicked === group.base ? group.reverse : group.base)
+                    : clicked;
+                setSort('channel', next);
             }}
             filterOptions={[
                 { value: 'all', label: t('popover.filter.channel.all') },
                 { value: 'enabled', label: t('popover.filter.channel.enabled') },
                 { value: 'disabled', label: t('popover.filter.channel.disabled') },
+                { value: 'official', label: t('popover.filter.channel.official') },
             ]}
             filterValue={filter}
             onFilterChange={(value) => {
-                if (value === 'all' || value === 'enabled' || value === 'disabled') setFilter(value);
+                if (value === 'all' || value === 'enabled' || value === 'disabled' || value === 'official') setFilter(value);
             }}
         >
             <div className="w-screen max-w-full md:max-w-3xl flex flex-col">
@@ -107,6 +132,8 @@ export function Channel() {
             if (term && !channel.channel_name.toLowerCase().includes(term)) return false;
             if (filter === 'enabled') return channel.enabled;
             if (filter === 'disabled') return !channel.enabled;
+            // 官方标记随统计一并下发, 无需再取整份配置。
+            if (filter === 'official') return channel.official;
             return true;
         });
 
