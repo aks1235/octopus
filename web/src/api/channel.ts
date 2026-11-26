@@ -328,6 +328,30 @@ export function useRefreshChannelPlanQuota() {
     });
 }
 
+/**
+ * 立即采集全部套餐额度 Hook，供首页那块的一键刷新。
+ * 后端同步采完才返回，回来直接无效化列表，不必轮询。
+ *
+ * @example
+ * const refresh = useRefreshPlanQuotaList();
+ * refresh.mutate();
+ */
+export function useRefreshPlanQuotaList() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        // 必须带 body：后端按 Content-Type 拦非 GET 请求，空 body 会因缺少 JSON 头被拒成 415。
+        mutationFn: () =>
+            apiRequest<{ channels: number }>('/api/v1/stats/plan-quota-refresh', {
+                method: 'POST',
+                body: {},
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'plan-quota'] });
+        },
+    });
+}
+
 // PlanQuotaListItem 是首页聚合视图的一条: 额度快照外加渠道名与启停。
 export type PlanQuotaListItem = ChannelPlanQuota & {
     channel_name: string;
@@ -337,6 +361,9 @@ export type PlanQuotaListItem = ChannelPlanQuota & {
 /**
  * 获取全部已采集的套餐额度 Hook，供首页一屏展示。
  * 后端给空数组而不是 null，此处仍兜一层，避免旧版本后端返回 null 时上层崩在 .map 上。
+ *
+ * 每分钟重取: 采集 15 分钟一轮, 不重取就只能靠用户手动点刷新, 页面会一直停在旧数字上。
+ * 返回空数组表示一条额度都没有。
  *
  * @example
  * const { data: items } = usePlanQuotaList();
@@ -351,6 +378,7 @@ export function usePlanQuotaList() {
                 windows: Array.isArray(row.windows) ? row.windows : [],
             }));
         },
+        refetchInterval: 60_000,
     });
 }
 

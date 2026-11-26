@@ -130,6 +130,18 @@ func getChannelPlanQuota(c *gin.Context) {
 		return
 	}
 	if row == nil {
+		// 渠道配了额度采集但一次都还没采到: 回一条空壳而不是空对象。
+		// 界面据此渲染"尚未采集"与刷新入口 —— 若也回空对象, 整块面板不渲染,
+		// 连触发采集的按钮都无处可点, 只能干等定时任务。
+		channel, channelErr := op.ChannelGet(id)
+		if channelErr == nil && channel.PlanQuotaVendor != "" {
+			resp.Success(c, model.ChannelPlanQuota{
+				ChannelID: id,
+				Vendor:    channel.PlanQuotaVendor,
+				Kind:      channel.PlanQuotaKind,
+			})
+			return
+		}
 		resp.Success(c, struct{}{})
 		return
 	}

@@ -11,11 +11,11 @@ function windowIndex(key: string): number {
     return index === -1 ? WINDOW_ORDER.length : index;
 }
 
-// 进度条按已用比例填充, 颜色随余量收紧。
-// 90% 才转红而非 80%: 套餐额度本来就该用到接近满, 阈值太松会让面板长期挂着告警色。
-function barClass(percent: number): string {
-    if (percent >= 90) return 'bg-destructive';
-    if (percent >= 70) return 'bg-amber-500';
+// 进度条按"剩余"填充, 颜色随余量收紧: 条子长度必须和旁边的"剩 xx%"对得上。
+// 阈值与首页聚合一致 —— 同一份额度在两个地方显示成两种颜色会让人以为数据不同。
+function barClass(remaining: number): string {
+    if (remaining <= 10) return 'bg-destructive';
+    if (remaining <= 30) return 'bg-amber-500';
     return 'bg-primary';
 }
 
@@ -74,8 +74,8 @@ function WindowRow({ window, now }: { window: PlanQuotaWindow; now: number }) {
             <span className="w-9 shrink-0 text-[11px] text-muted-foreground">{labels[window.key] ?? window.key}</span>
             <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                    className={`h-full rounded-full transition-[width] duration-500 ${barClass(percent)}`}
-                    style={{ width: `${percent}%` }}
+                    className={`h-full rounded-full transition-[width] duration-500 ${barClass(remaining)}`}
+                    style={{ width: `${remaining}%` }}
                 />
             </div>
             {/* 绝对用量在窄屏隐去: 百分比与进度条已表达同一件事, 弹窗收窄时优先保住可读性。 */}
@@ -109,8 +109,8 @@ export function PlanQuota({ channelId }: { channelId: number }) {
 
     const windows = [...quota.windows].sort((left, right) => windowIndex(left.key) - windowIndex(right.key));
     const hasWindows = windows.length > 0;
-    if (!hasWindows && !quota.error) return null;
-
+    // 未配置额度采集的渠道拿到的是空对象, 归一后为 null, 上面已返回。
+    // 走到这里只可能是三种状态: 有窗口、采集失败、或配了但一次都没采到。
     const stale = hasWindows && quota.error !== '';
 
     return (
@@ -118,7 +118,7 @@ export function PlanQuota({ channelId }: { channelId: number }) {
             <div className="flex min-h-6 items-center gap-1.5">
                 <h3 className="text-xs font-semibold tracking-wider text-muted-foreground">{t('title')}</h3>
                 {quota.plan_name && (
-                    <span className="rounded-md border px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+                    <span className="text-[10px] capitalize tracking-wide text-muted-foreground/70">
                         {quota.plan_name}
                     </span>
                 )}
@@ -144,10 +144,13 @@ export function PlanQuota({ channelId }: { channelId: number }) {
                         <WindowRow key={window.key} window={window} now={now} />
                     ))}
                 </div>
-            ) : (
-                <p className="text-xs leading-relaxed text-destructive">
+            ) : quota.error ? (
+                // 错误原文往往很长(带 IAM 的 Action 名), 折三行后截断, 全文放 title 里供排查。
+                <p className="line-clamp-3 break-all text-xs leading-relaxed text-destructive" title={quota.error}>
                     {t('errorTitle')}: {quota.error}
                 </p>
+            ) : (
+                <p className="text-xs text-muted-foreground">{t('notCollected')}</p>
             )}
 
             {stale && <p className="text-[11px] text-amber-600 dark:text-amber-500">{t('stale')}</p>}

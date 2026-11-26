@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -50,6 +51,11 @@ func init() {
 			// 放 stats 组而非 channel 组: 消费方是首页, 与其余看板数据同一入口。
 			router.NewRoute("/plan-quota", http.MethodGet).
 				Handle(getStatsPlanQuota),
+		).
+		AddRoute(
+			// 路径刻意不写成 /plan-quota/refresh: gin 的路由树不允许同一段既作通配又作字面量, 那样会直接 panic。
+			router.NewRoute("/plan-quota-refresh", http.MethodPost).
+				Handle(refreshStatsPlanQuota),
 		)
 }
 
@@ -62,6 +68,16 @@ func getStatsPlanQuota(c *gin.Context) {
 		return
 	}
 	resp.Success(c, items)
+}
+
+// refreshStatsPlanQuota 立即采集全部套餐额度, 供首页那块的一键刷新。
+//
+// 同步返回: 前端在按钮上转圈等结果, 采完即可刷新列表, 不必轮询。
+// 单个渠道失败不报错 —— 失败原因已经逐条落库并显示在各自卡片上, 这里只回采集了几个渠道。
+func refreshStatsPlanQuota(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	resp.Success(c, gin.H{"channels": planquota.SyncAll(ctx)})
 }
 
 func getStatsDaily(c *gin.Context) {

@@ -102,13 +102,22 @@
         },
         "planQuota": {
             "title": "套餐額度",
-            "hint": "剩餘比例，最緊的在前",
-            "failed": "查詢失敗",
-            "chipTitle": "{window}：已用 {used}%，剩 {left}%",
+            "hint": "依最緊的一檔排序",
+                        "errorTitle": "查詢失敗",
+            "remaining": "剩餘 {percent}%",
+            "resetAt": "{time} 重置",
+            "expired": "已重置",
+            "noReset": "未排定重置",
+            "nearLimit": "接近上限",
+            "exhausted": "已用盡",
+            "updatedAt": "更新於 {time}",
+            "refresh": "立即更新",
+            "neverCollected": "尚未擷取",
+            "stale": "更新失敗",
             "window": {
-                "fiveHour": "5h",
-                "week": "週",
-                "month": "月"
+                "fiveHour": "5 小時",
+                "week": "本週",
+                "month": "本月"
             }
         },
         "activity": {
@@ -767,6 +776,7 @@
             "refreshedMinutesAgo": "{count} 分鐘前更新",
             "refreshedHoursAgo": "{count} 小時前更新",
             "neverRefreshed": "尚未擷取",
+            "notCollected": "尚未擷取，點右上角更新",
             "stale": "本次更新失敗，顯示的是上一次成功的資料",
             "errorTitle": "額度查詢失敗",
             "refresh": "立即更新",

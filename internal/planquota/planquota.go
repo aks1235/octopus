@@ -199,15 +199,31 @@ func saveFailure(channel model.Channel, cause error) error {
 	return cause
 }
 
-// SyncAll 采集全部配置了额度的渠道。单渠道失败不影响其他渠道, 错误已落库并记一条告警日志。
-func SyncAll(ctx context.Context) {
+// SyncAll 采集全部配置了额度的渠道, 返回实际采集的渠道数。
+// 单渠道失败不影响其他渠道, 错误已落库并记一条告警日志。
+//
+// 并发跑而不是逐个来: 每家厂商各自签名与建连, 一次请求约几百毫秒到一秒,
+// 首页的刷新按钮要等它返回, 串行会让渠道一多就转很久。上限 4 是保守值,
+// 控制面接口通常有频控, 一起打过去容易被判成异常流量。
+func SyncAll(ctx context.Context) int {
 	targets := op.ChannelPlanQuotaTargets()
 	if len(targets) == 0 {
-		return
+		return 0
 	}
+
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
 	for _, channel := range targets {
-		if err := Refresh(ctx, channel); err != nil {
-			log.Warnf("plan quota sync failed, channel %d (%s): %v", channel.ID, channel.Name, err)
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(channel model.Channel) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := Refresh(ctx, channel); err != nil {
+				log.Warnf("plan quota sync failed, channel %d (%s): %v", channel.ID, channel.Name, err)
+			}
+		}(channel)
 	}
+	wg.Wait()
+	return len(targets)
 }

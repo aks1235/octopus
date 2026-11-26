@@ -191,10 +191,44 @@ type volcAFPResult struct {
 }
 
 type volcAFPBucket struct {
-	Quota         string `json:"Quota"`
-	Used          string `json:"Used"`
-	ResetTime     int64  `json:"ResetTime"`     // 毫秒。
-	SubscribeTime int64  `json:"SubscribeTime"` // 毫秒, 本期窗口的起算点。
+	Quota         volcFlexNumber `json:"Quota"`
+	Used          volcFlexNumber `json:"Used"`
+	ResetTime     int64          `json:"ResetTime"`     // 毫秒。
+	SubscribeTime int64          `json:"SubscribeTime"` // 毫秒, 本期窗口的起算点。
+}
+
+// volcFlexNumber 兼容控制面把同一字段返回成字符串或数字两种形态。
+//
+// 文档写的是 string, 但现网 GetAFPUsage 的 Quota/Used 直接返回 JSON number
+// (实测报 "cannot unmarshal number into Go struct field ... of type string")。
+// 只按其中一种解, 会在真实账号上直接解码失败, 故两种都收。
+type volcFlexNumber float64
+
+func (n *volcFlexNumber) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*n = 0
+		return nil
+	}
+
+	// 先按数字解; 成功即 number 形态。
+	var numeric float64
+	if err := json.Unmarshal(data, &numeric); err == nil {
+		*n = volcFlexNumber(numeric)
+		return nil
+	}
+
+	// 再按字符串解: 去掉引号后交给同一个解析器, 空串按 0 处理。
+	var quoted string
+	if err := json.Unmarshal(data, &quoted); err != nil {
+		return fmt.Errorf("volcengine plan quota: unexpected number literal %s: %w", trimmed, err)
+	}
+	value, err := parseVolcNumber(quoted)
+	if err != nil {
+		return err
+	}
+	*n = volcFlexNumber(value)
+	return nil
 }
 
 func (r volcAFPResult) toSnapshot() *Snapshot {
@@ -217,12 +251,12 @@ func (r volcAFPResult) toSnapshot() *Snapshot {
 
 // toWindow 把一个 AFP 窗口归一化。配额非正则视为"套餐不带这个窗口", 跳过而不是显示 0。
 func (b volcAFPBucket) toWindow(key WindowKey) (Window, bool) {
-	total, err := parseVolcNumber(b.Quota)
-	if err != nil || total <= 0 {
+	total := float64(b.Quota)
+	if total <= 0 {
 		return Window{}, false
 	}
-	used, err := parseVolcNumber(b.Used)
-	if err != nil || used < 0 {
+	used := float64(b.Used)
+	if used < 0 {
 		used = 0
 	}
 

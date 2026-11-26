@@ -102,13 +102,22 @@
         },
         "planQuota": {
             "title": "套餐额度",
-            "hint": "剩余比例，最紧的在前",
-            "failed": "查询失败",
-            "chipTitle": "{window}：已用 {used}%，剩 {left}%",
+            "hint": "按最紧的一档排序",
+                        "errorTitle": "查询失败",
+            "remaining": "剩余 {percent}%",
+            "resetAt": "{time} 重置",
+            "expired": "已重置",
+            "noReset": "未排定重置",
+            "nearLimit": "接近上限",
+            "exhausted": "已用尽",
+            "updatedAt": "更新于 {time}",
+            "refresh": "立即刷新",
+            "neverCollected": "尚未采集",
+            "stale": "刷新失败",
             "window": {
-                "fiveHour": "5h",
-                "week": "周",
-                "month": "月"
+                "fiveHour": "5 小时",
+                "week": "本周",
+                "month": "本月"
             }
         },
         "activity": {
@@ -767,6 +776,7 @@
             "refreshedMinutesAgo": "{count} 分钟前刷新",
             "refreshedHoursAgo": "{count} 小时前刷新",
             "neverRefreshed": "尚未采集",
+            "notCollected": "尚未采集，点右上角刷新",
             "stale": "本次刷新失败，显示的是上一次成功的数据",
             "errorTitle": "额度查询失败",
             "refresh": "立即刷新",

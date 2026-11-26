@@ -81,6 +81,28 @@ func TestParseAgentPlanWindows(t *testing.T) {
 	}
 }
 
+// TestParseAgentPlanNumericQuota 覆盖现网真实形态: Quota/Used 直接是 JSON number。
+// 官方文档写的是 string, 但线上返回 number, 只认一种会在这类响应上解码失败。
+func TestParseAgentPlanNumericQuota(t *testing.T) {
+	raw := `{"Result": {"PlanType": "Large",
+      "AFPFiveHour": {"Quota": 100000, "Used": 42000, "ResetTime": 1767235000000}}}`
+	snapshot := decodeAgentPlan(t, raw)
+
+	if snapshot.PlanName != "Large" {
+		t.Errorf("PlanName = %q, want Large", snapshot.PlanName)
+	}
+	if len(snapshot.Windows) != 1 {
+		t.Fatalf("windows = %d, want 1", len(snapshot.Windows))
+	}
+	window := snapshot.Windows[0]
+	if window.Total != 100000 || window.Used != 42000 {
+		t.Errorf("window = %+v, want total 100000 used 42000", window)
+	}
+	if window.Percent < 41.99 || window.Percent > 42.01 {
+		t.Errorf("percent = %v, want 42", window.Percent)
+	}
+}
+
 // TestParseAgentPlanSkipsEmptyWindow 验证 Quota 为 0 的窗口被跳过: 那是"该档位不带此窗口", 不是 0 额度。
 func TestParseAgentPlanSkipsEmptyWindow(t *testing.T) {
 	raw := `{"Result": {

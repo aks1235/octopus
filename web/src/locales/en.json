@@ -102,13 +102,22 @@
         },
         "planQuota": {
             "title": "Plan quota",
-            "hint": "Remaining, tightest first",
-            "failed": "Query failed",
-            "chipTitle": "{window}: {used}% used, {left}% left",
+            "hint": "Tightest first",
+                        "errorTitle": "Query failed",
+            "remaining": "{percent}% left",
+            "resetAt": "reset at {time}",
+            "expired": "Resetting",
+            "noReset": "No reset scheduled",
+            "nearLimit": "Near limit",
+            "exhausted": "Exhausted",
+            "updatedAt": "Updated {time}",
+            "refresh": "Refresh",
+            "neverCollected": "Not collected yet",
+            "stale": "Refresh failed",
             "window": {
-                "fiveHour": "5h",
-                "week": "wk",
-                "month": "mo"
+                "fiveHour": "5-hour",
+                "week": "Weekly",
+                "month": "Monthly"
             }
         },
         "activity": {
@@ -767,6 +776,7 @@
             "refreshedMinutesAgo": "Updated {count}m ago",
             "refreshedHoursAgo": "Updated {count}h ago",
             "neverRefreshed": "Not collected yet",
+            "notCollected": "Not collected yet — hit refresh at the top right",
             "stale": "Refresh failed — showing the last successful data",
             "errorTitle": "Quota query failed",
             "refresh": "Refresh now",
