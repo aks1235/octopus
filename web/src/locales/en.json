@@ -100,6 +100,17 @@
             "count": "Count",
             "tokens": "Tokens"
         },
+        "planQuota": {
+            "title": "Plan quota",
+            "hint": "Remaining, tightest first",
+            "failed": "Query failed",
+            "chipTitle": "{window}: {used}% used, {left}% left",
+            "window": {
+                "fiveHour": "5h",
+                "week": "wk",
+                "month": "mo"
+            }
+        },
         "activity": {
             "requestCount": "Requests",
             "waitTime": "Time Consumed",
@@ -739,6 +750,28 @@
                 "manualDisabled": "Manually disabled"
             }
         },
+        "planQuota": {
+            "title": "Plan quota",
+            "window": {
+                "fiveHour": "5-hour",
+                "week": "Weekly",
+                "month": "Monthly"
+            },
+            "remaining": "{percent}% left",
+            "resetInDays": "Resets in {count}d",
+            "resetInHours": "Resets in {count}h",
+            "resetInMinutes": "Resets in {count}m",
+            "resetSoon": "Resetting soon",
+            "noReset": "No reset scheduled",
+            "refreshedJustNow": "Updated just now",
+            "refreshedMinutesAgo": "Updated {count}m ago",
+            "refreshedHoursAgo": "Updated {count}h ago",
+            "neverRefreshed": "Not collected yet",
+            "stale": "Refresh failed — showing the last successful data",
+            "errorTitle": "Quota query failed",
+            "refresh": "Refresh now",
+            "footnote": "Metered in AFP, synced about every 15 minutes. A separate ledger from the token stats below; the two must not be subtracted from each other."
+        },
         "stats": {
             "totalRequests": "Total Requests",
             "totalToken": "Total Tokens",
@@ -760,11 +793,25 @@
             "newInput": "New Input"
         },
         "form": {
+            "planQuota": {
+                "vendor": "Quota provider",
+                "vendorNone": "Not collected",
+                "vendorVolcengine": "Volcengine Ark",
+                "vendorHint": "Subscription quota lives on the cloud control plane; the inference key cannot read it. An account-level AK/SK pair is required.",
+                "kind": "Plan type",
+                "kindAgentPlan": "Agent Plan",
+                "kindCodingPlan": "Coding Plan (not supported yet)",
+                "accessKeyId": "AccessKey ID",
+                "secretAccessKey": "SecretAccessKey",
+                "secretKeep": "Saved — leave blank to keep",
+                "secretHint": "Read-only permission is enough. The secret is never sent back to the browser."
+            },
             "stepPreset": "Start",
             "stepConnection": "Connection",
             "stepKeys": "Credentials",
             "stepGrants": "Models",
             "stepAdvanced": "Advanced",
+            "stepPlanQuota": "Plan quota",
             "name": "Channel name",
             "baseUrl": "Base URL",
             "openaiBaseUrl": "OpenAI-specific URL (optional)",

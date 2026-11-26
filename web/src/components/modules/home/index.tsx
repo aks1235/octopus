@@ -8,6 +8,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { todayDateStr } from '@/api/queries';
 import Logo from '@/components/modules/logo';
 import { Activity } from './activity';
+import { PlanQuotaList } from './plan-quota';
 import { Total } from './total';
 import { StatsChart } from './chart';
 import { Rank } from './rank';
@@ -45,6 +46,7 @@ function HomeSections() {
         <div className="@container/home space-y-6">
             <DateNav />
             <Total />
+            <PlanQuotaList />
             <Activity />
             <StatsChart />
             <Rank />

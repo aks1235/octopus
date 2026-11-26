@@ -7,9 +7,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/planquota"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/bestruirui/octopus/internal/probe"
 	"github.com/bestruirui/octopus/internal/relay"
@@ -35,6 +37,16 @@ func init() {
 		AddRoute(
 			router.NewRoute("/key-stats/:id", http.MethodGet).
 				Handle(getChannelKeyStats),
+		).
+		AddRoute(
+			router.NewRoute("/plan-quota/:id", http.MethodGet).
+				Handle(getChannelPlanQuota),
+		).
+		AddRoute(
+			// 路径不复用 plan-quota/:id 前缀: gin 的路由树不允许同一段既是通配又是字面量,
+			// /plan-quota/refresh/:id 与 /plan-quota/:id 会直接冲突并 panic。
+			router.NewRoute("/plan-quota-refresh/:id", http.MethodPost).
+				Handle(refreshChannelPlanQuota),
 		).
 		AddRoute(
 			router.NewRoute("/grants", http.MethodGet).
@@ -102,6 +114,52 @@ func getChannelKeyStats(c *gin.Context) {
 		return
 	}
 	resp.Success(c, keys)
+}
+
+// getChannelPlanQuota 返回渠道订阅套餐的最近一次采集结果。
+// 从未采集过时返回空对象而不是 404: 前端据此区分"还没采到"与"渠道不存在"。
+func getChannelPlanQuota(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	row, err := planquota.Get(id)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if row == nil {
+		resp.Success(c, struct{}{})
+		return
+	}
+	resp.Success(c, row)
+}
+
+// refreshChannelPlanQuota 立即采集一次并返回采集后的记录, 供面板上的手动刷新。
+// 采集失败仍是 200 + 记录里的 error: 额度查不到是这一栏的常规状态, 不该让整个页面弹错误提示。
+func refreshChannelPlanQuota(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	channel, err := op.ChannelGet(id)
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	// 失败原因已落库, 由记录本身交给前端, 这里不重复上报。
+	_ = planquota.Refresh(ctx, channel)
+
+	row, err := planquota.Get(id)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, row)
 }
 
 // listChannelGrant 返回全部渠道授权候选, 供分组页选取成员。

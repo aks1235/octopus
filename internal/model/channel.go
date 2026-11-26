@@ -45,6 +45,12 @@ type ChannelConfig struct {
 	// 只影响定时探测的节奏: 这些渠道每探一次都在动真实额度, 故不进 6-12 小时的常规轮,
 	// 改由每日夜间单独一轮负责(见 internal/task/probe_official.go)。选路与转发不受影响。
 	Official bool `json:"official" gorm:"default:false"`
+	// 套餐额度采集配置。订阅制套餐(Coding Plan / Token Plan 一类)的真实余量只在云厂商控制面上,
+	// 推理 key 调不通, 必须用账号级 AK/SK 签名另发一路请求; 留空则本渠道不采集额度。
+	PlanQuotaVendor          string `json:"plan_quota_vendor" gorm:"default:''"`                                                // 采集厂商; 目前只支持 volcengine。
+	PlanQuotaKind            string `json:"plan_quota_kind" gorm:"default:''"`                                                  // 套餐类型: agent_plan / coding_plan。
+	PlanQuotaAccessKeyID     string `json:"plan_quota_access_key_id" gorm:"column:plan_quota_access_key_id;default:''"`         // 云账号 AccessKey ID。
+	PlanQuotaSecretAccessKey string `json:"plan_quota_secret_access_key" gorm:"column:plan_quota_secret_access_key;default:''"` // 云账号 SecretAccessKey; 读取不回传。
 }
 
 // BaseURLFor 返回指定协议应使用的上游地址。
@@ -128,11 +134,14 @@ type ChannelGrant struct {
 // 凭据与模型只给界面用得上的字段: 两者在渠道内按名称唯一, 提交时也按名称引用, 主键与统计都无从使用。
 // 集合字段恒为数组, 读取侧承诺不为 null。
 type ChannelDetail struct {
-	ID            int                  `json:"id"` // 渠道主键; 创建时提交 0, 由数据库分配。
-	ChannelConfig                      // 渠道自身的可编辑配置。
-	Keys          []ChannelKeyConfig   `json:"keys"`   // 渠道下的上游凭据。
-	Models        []string             `json:"models"` // 渠道提供的上游模型名称。
-	Grants        []ChannelGrantConfig `json:"grants"` // 渠道下的授权。
+	ID            int `json:"id"` // 渠道主键; 创建时提交 0, 由数据库分配。
+	ChannelConfig     // 渠道自身的可编辑配置。
+	// PlanSecretConfigured 是只读回执: 该渠道是否已存过 SecretAccessKey。
+	// 云账号 SK 的权限远大于一把推理 key, 故读取接口不回传明文, 编辑时留空即表示沿用原值。
+	PlanSecretConfigured bool                 `json:"plan_secret_configured"`
+	Keys                 []ChannelKeyConfig   `json:"keys"`   // 渠道下的上游凭据。
+	Models               []string             `json:"models"` // 渠道提供的上游模型名称。
+	Grants               []ChannelGrantConfig `json:"grants"` // 渠道下的授权。
 }
 
 // 渠道授权的可编辑形状, 两侧按名称引用。

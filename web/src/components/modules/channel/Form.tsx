@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { FormGrants } from './FormGrants';
 import { FormKeys } from './FormKeys';
+import { FormPlanQuota } from './FormPlanQuota';
 import { IconButton } from '@/components/common/IconButton';
 import {
     emptyFormState,
@@ -23,7 +24,7 @@ import {
     type ChannelFormState,
 } from './state';
 
-type StepID = 'preset' | 'connection' | 'keys' | 'grants' | 'advanced';
+type StepID = 'preset' | 'connection' | 'keys' | 'grants' | 'advanced' | 'planQuota';
 
 // ChannelForm 新建与编辑共用; 编辑时按 id 取回整份配置, 到齐后再进表单。
 // 配置不随渠道列表下发, 故编辑必然要等这一趟请求; 占位与表单同高, 弹窗不会因此跳动。
@@ -78,6 +79,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
         { id: 'keys', label: t('stepKeys') },
         { id: 'grants', label: t('stepGrants') },
         { id: 'advanced', label: t('stepAdvanced') },
+        { id: 'planQuota', label: t('stepPlanQuota') },
     ];
 
     const applyPreset = (preset: ChannelPreset) => {
@@ -224,6 +226,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
 
                     {step === 'keys' && <FormKeys state={state} setState={setState} channelId={channel?.id ?? 0} />}
                     {step === 'grants' && <FormGrants state={state} setState={setState} />}
+                    {step === 'planQuota' && <FormPlanQuota state={state} setState={setState} idPrefix={idPrefix} />}
 
                     {step === 'advanced' && (
                         <div className="space-y-4 pt-2">

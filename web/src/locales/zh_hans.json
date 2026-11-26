@@ -100,6 +100,17 @@
             "count": "次数",
             "tokens": "词元"
         },
+        "planQuota": {
+            "title": "套餐额度",
+            "hint": "剩余比例，最紧的在前",
+            "failed": "查询失败",
+            "chipTitle": "{window}：已用 {used}%，剩 {left}%",
+            "window": {
+                "fiveHour": "5h",
+                "week": "周",
+                "month": "月"
+            }
+        },
         "activity": {
             "requestCount": "请求次数",
             "waitTime": "消耗时间",
@@ -739,6 +750,28 @@
                 "manualDisabled": "手动禁用"
             }
         },
+        "planQuota": {
+            "title": "套餐额度",
+            "window": {
+                "fiveHour": "5 小时",
+                "week": "本周",
+                "month": "本月"
+            },
+            "remaining": "剩 {percent}%",
+            "resetInDays": "{count} 天后重置",
+            "resetInHours": "{count} 小时后重置",
+            "resetInMinutes": "{count} 分钟后重置",
+            "resetSoon": "即将重置",
+            "noReset": "未排定重置",
+            "refreshedJustNow": "刚刚刷新",
+            "refreshedMinutesAgo": "{count} 分钟前刷新",
+            "refreshedHoursAgo": "{count} 小时前刷新",
+            "neverRefreshed": "尚未采集",
+            "stale": "本次刷新失败，显示的是上一次成功的数据",
+            "errorTitle": "额度查询失败",
+            "refresh": "立即刷新",
+            "footnote": "AFP 计量，约 15 分钟同步一次。与下方 token 统计是两套口径，不可互相扣减。"
+        },
         "stats": {
             "totalRequests": "总请求",
             "totalToken": "总词元",
@@ -760,11 +793,25 @@
             "newInput": "新增输入"
         },
         "form": {
+            "planQuota": {
+                "vendor": "额度采集厂商",
+                "vendorNone": "不采集",
+                "vendorVolcengine": "火山方舟",
+                "vendorHint": "订阅套餐的真实余量只在云厂商控制面上，推理 key 查不到，需要单独配置账号级 AK/SK。",
+                "kind": "套餐类型",
+                "kindAgentPlan": "Agent Plan",
+                "kindCodingPlan": "Coding Plan（尚未支持）",
+                "accessKeyId": "AccessKey ID",
+                "secretAccessKey": "SecretAccessKey",
+                "secretKeep": "已保存，留空则沿用",
+                "secretHint": "只读权限即可，用于查询额度。密钥不会回传到浏览器。"
+            },
             "stepPreset": "开始",
             "stepConnection": "连接",
             "stepKeys": "凭据",
             "stepGrants": "模型",
             "stepAdvanced": "高级",
+            "stepPlanQuota": "套餐额度",
             "name": "渠道名称",
             "baseUrl": "Base URL",
             "openaiBaseUrl": "OpenAI 专用地址（可选）",

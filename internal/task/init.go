@@ -7,6 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/planquota"
 	"github.com/bestruirui/octopus/internal/price"
 	"github.com/charmbracelet/log"
 )
@@ -18,7 +19,12 @@ const (
 	TaskGroupRegexSync           = "group_regex_sync"
 	TaskRelayLogSave             = "relay_log_save"
 	TaskRelayLogAttemptsBackfill = "relay_log_attempts_backfill"
+	TaskPlanQuotaSync            = "plan_quota_sync"
 )
+
+// planQuotaSyncInterval 套餐额度采集间隔。
+// 额度是分钟级才变的量, 而每次采集都在消耗云厂商只读接口的调用配额, 15 分钟足以逼近实时。
+const planQuotaSyncInterval = 15 * time.Minute
 
 // groupRegexSyncInterval 分组成员正则兜底任务的重算间隔。
 // 常量间隔不暴露设置: 渠道增删改与分组编辑已有即时重算, 定时只兜漏算, 无需人工调参。
@@ -109,6 +115,14 @@ func Init() {
 		if err := op.RelayLogAttemptsBackfill(ctx); err != nil {
 			log.Warnf("failed to backfill relay log attempts: %v", err)
 		}
+	})
+
+	// 注册套餐额度采集任务: 订阅制套餐的真实余量只在云厂商控制面上, 推理 key 查不到, 只能定时去问。
+	// 启动即跑一轮, 让刚配好 AK/SK 的渠道马上有数, 不必等一个周期。
+	Register(TaskPlanQuotaSync, planQuotaSyncInterval, true, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		planquota.SyncAll(ctx)
 	})
 
 	// 启动定时探测协程。不走 Register: 它的周期是"每轮结束随机 6–12 小时", 与固定 ticker 语义不符。

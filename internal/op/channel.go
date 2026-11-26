@@ -139,6 +139,13 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := normalizeChannelDetail(detail); err != nil {
 		return nil, err
 	}
+	// 云账号 SK 读取接口不回传, 编辑表单提交的空串表示"沿用原值"。
+	// 但换了 AK 就必须重填 SK: 否则会把新账号配上旧密钥, 采集一律鉴权失败且难以看出原因。
+	if detail.PlanQuotaSecretAccessKey == "" &&
+		cached.PlanQuotaSecretAccessKey != "" &&
+		detail.PlanQuotaAccessKeyID == cached.PlanQuotaAccessKeyID {
+		detail.PlanQuotaSecretAccessKey = cached.PlanQuotaSecretAccessKey
+	}
 	// 勾选跳过健康检查即接管被自动禁用的渠道: 随保存恢复启用并清空健康状态, 被误禁用的渠道无需等下一轮探测。
 	restoreOnSkip := detail.HealthCheckSkip && cached.AutoDisabled
 
@@ -147,8 +154,11 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 		// 而统计列由转发累加, 不在提交范围内, 整行覆盖会把它抹回提交时的旧值。
 		// 人工提交启用即接管渠道, 随提交一并清掉自动禁用标记; 提交禁用则保留标记, 让自动禁用的渠道继续探测以便恢复。
 		columns := []string{"name", "dialect", "enabled", "base_url",
+			"openai_base_url", "anthropic_base_url",
 			"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
-			"proxy", "channel_proxy", "custom_header", "param_override", "match_regex", "health_check_skip"}
+			"proxy", "channel_proxy", "custom_header", "param_override", "match_regex",
+			"health_check_skip", "official",
+			"plan_quota_vendor", "plan_quota_kind", "plan_quota_access_key_id", "plan_quota_secret_access_key"}
 		if detail.Enabled {
 			columns = append(columns, "auto_disabled")
 		}
@@ -814,6 +824,20 @@ func ChannelDel(id int, ctx context.Context) error {
 	return nil
 }
 
+// ChannelPlanQuotaTargets 返回配置了套餐额度采集的渠道, 供定时任务逐个采集。
+// 遍历缓存而非查库: 缓存条目就是当前生效的配置, 刚改完 AK/SK 的渠道不必等重启才被采到。
+func ChannelPlanQuotaTargets() []model.Channel {
+	targets := make([]model.Channel, 0, channelCache.Len())
+	for _, channel := range channelCache.GetAll() {
+		if channel.PlanQuotaVendor == "" {
+			continue
+		}
+		targets = append(targets, channel)
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+	return targets
+}
+
 // ChannelGet 返回指定渠道的缓存副本, 供转发按地址, 路径与代理构造上游请求。
 // 不补齐凭据, 模型与授权: 转发所需的授权由 ChannelGrantGet 按主键单独取, 那里已连带给出两侧。
 func ChannelGet(id int) (model.Channel, error) {
@@ -1007,6 +1031,12 @@ func reloadChannelChildren(ctx context.Context, channelID int) error {
 // 三者均按名称定序: 缓存遍历顺序随机, 而编辑表单不提供排序开关, 顺序须由此处定稿。
 func channelDetail(channel model.Channel) model.ChannelDetail {
 	detail := model.ChannelDetail{ID: channel.ID, ChannelConfig: channel.ChannelConfig}
+
+	// 云账号 SK 不回传: 只给出"是否已配置"这一事实, 明文仅在提交时单向写入。
+	if detail.PlanQuotaSecretAccessKey != "" {
+		detail.PlanSecretConfigured = true
+		detail.PlanQuotaSecretAccessKey = ""
+	}
 
 	detail.Keys = make([]model.ChannelKeyConfig, 0)
 	keyNameByID := make(map[int]string)

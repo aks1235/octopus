@@ -21,6 +21,7 @@ import { snapdom } from '@zumer/snapdom';
 import { toast } from 'sonner';
 import { useTranslations } from 'use-intl';
 import { type ChannelStatsFormatted, useChannelKeyStats, useDeleteChannel } from '@/api/channel';
+import { PlanQuota } from './PlanQuota';
 import { type StatsMetricsFormatted } from '@/api/stats';
 import { useMorphingDialog } from '@/components/ui/morphing-dialog';
 
@@ -300,6 +301,9 @@ export function ChannelStats({ channel, onEdit }: {
         // 高度不能写成 @2xl/stats:h-full: 容器查询只能由祖先容器回答, 这里自己声明了 @container/stats, 查不到自己。
         // min-h-full 在分享用的屏外容器里取不到确定高度, 退化为 0, 不影响分享图。
         <div ref={contentRef} className="@container/stats cursor-default flex min-h-full flex-col">
+            {/* 套餐额度置顶: 订阅制套餐的余量决定"这个渠道还能不能跑", 比历史累计更该先被看到。
+                未配置或未采到数据时组件自身返回 null, 不占位。 */}
+            <PlanQuota channelId={channel.channel_id} />
             <div className="grid flex-1 gap-4 @2xl/stats:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
                 {/* 左列: 渠道汇总 */}
                 <section className="flex min-h-0 flex-col gap-2">

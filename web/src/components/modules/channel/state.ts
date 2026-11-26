@@ -22,6 +22,12 @@ export type ChannelFormState = {
     match_regex: string;
     health_check_skip: boolean;
     official: boolean;
+    // 订阅套餐额度采集; 厂商留空表示该渠道不采集。
+    plan_quota_vendor: string;
+    plan_quota_kind: string;
+    plan_quota_access_key_id: string;
+    plan_quota_secret_access_key: string; // 后端不回传明文, 留空即沿用已存的值。
+    plan_secret_configured: boolean; // 只读回执: 是否已存过 SK, 用于给出占位提示。
 };
 
 // grantKey 生成授权在状态里的键; 分隔符取 \0, 模型名与凭据名都不会含它。
@@ -49,6 +55,11 @@ export const emptyFormState: ChannelFormState = {
     match_regex: '',
     health_check_skip: false,
     official: false,
+    plan_quota_vendor: '',
+    plan_quota_kind: 'agent_plan',
+    plan_quota_access_key_id: '',
+    plan_quota_secret_access_key: '',
+    plan_secret_configured: false,
 };
 
 // fromChannel 把渠道完整配置还原为表单状态; 授权读写都按名称, 直接建索引即可。
@@ -74,6 +85,12 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         match_regex: channel.match_regex,
         health_check_skip: channel.health_check_skip,
         official: channel.official ?? false,
+        plan_quota_vendor: channel.plan_quota_vendor ?? '',
+        // 厂商已选但类型未填时按 Agent Plan 回显: 后端对空值也是这个默认。
+        plan_quota_kind: channel.plan_quota_kind || 'agent_plan',
+        plan_quota_access_key_id: channel.plan_quota_access_key_id ?? '',
+        plan_quota_secret_access_key: '',
+        plan_secret_configured: channel.plan_secret_configured ?? false,
     };
 }
 
@@ -97,6 +114,11 @@ export function toChannelConfig(state: ChannelFormState) {
         match_regex: state.match_regex.trim(),
         health_check_skip: state.health_check_skip,
         official: state.official,
+        // 厂商留空则整组清掉, 后端据此判定该渠道不采集额度; 否则残留的 AK/SK 会一直留在库里。
+        plan_quota_vendor: state.plan_quota_vendor,
+        plan_quota_kind: state.plan_quota_vendor ? state.plan_quota_kind : '',
+        plan_quota_access_key_id: state.plan_quota_vendor ? state.plan_quota_access_key_id.trim() : '',
+        plan_quota_secret_access_key: state.plan_quota_vendor ? state.plan_quota_secret_access_key.trim() : '',
     };
 }
 

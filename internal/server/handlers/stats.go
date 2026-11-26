@@ -7,6 +7,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/planquota"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -44,7 +45,23 @@ func init() {
 		AddRoute(
 			router.NewRoute("/apikey", http.MethodGet).
 				Handle(getStatsAPIKey),
+		).
+		AddRoute(
+			// 放 stats 组而非 channel 组: 消费方是首页, 与其余看板数据同一入口。
+			router.NewRoute("/plan-quota", http.MethodGet).
+				Handle(getStatsPlanQuota),
 		)
+}
+
+// getStatsPlanQuota 返回所有已采集到的套餐额度, 供首页聚合展示。
+// 空数组而非 null: 前端据此判断"没有任何套餐"而不必再判空。
+func getStatsPlanQuota(c *gin.Context) {
+	items, err := planquota.List()
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, items)
 }
 
 func getStatsDaily(c *gin.Context) {

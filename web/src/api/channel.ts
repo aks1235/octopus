@@ -77,6 +77,14 @@ export type ChannelDetail = {
     match_regex: string;
     health_check_skip: boolean; // 跳过健康检查；适用于无模型列表接口的渠道（探测必失败但转发可用）。
     official: boolean; // 官方/云厂商渠道：每次探测都消耗真实额度，故只参加每日夜间一次的那一轮。
+
+    // 订阅套餐额度采集。套餐真实余量只在云厂商控制面上，推理 key 查不到，需另配账号级 AK/SK 签名请求。
+    // plan_quota_vendor 留空表示该渠道不采集额度。
+    plan_quota_vendor: string; // 采集厂商；目前只支持 volcengine。
+    plan_quota_kind: string; // 套餐类型：agent_plan / coding_plan。
+    plan_quota_access_key_id: string;
+    plan_quota_secret_access_key: string; // 只提交不回传：读取时恒为空串。
+    plan_secret_configured?: boolean; // 只读回执：该渠道是否已存过 SK。编辑时 SK 留空表示沿用原值。
 };
 
 // ChannelModelStats 是单个渠道模型的累计统计，自带名称。
@@ -241,6 +249,108 @@ export function useChannelKeyStats(id?: number) {
         enabled: id !== undefined,
         refetchInterval: 30000,
         refetchOnMount: 'always',
+    });
+}
+
+// PlanQuotaWindow 是套餐的一个计量窗口。key 决定界面文案，数值单位随厂商（火山为 AFP）。
+export type PlanQuotaWindow = {
+    key: string; // 5h / week / month。
+    used: number;
+    total: number;
+    percent: number; // 已用百分比 0-100，后端已封顶。
+    reset_at: number; // 下次重置的 unix 秒；0 表示该窗口未排定重置。
+};
+
+/**
+ * ChannelPlanQuota 是渠道订阅套餐最近一次的采集结果。
+ * 与网关按 token 累计的统计是两套账，不可互相扣减。
+ * windows 为空且 error 也为空表示账号下没有生效中的套餐，不是失败。
+ */
+export type ChannelPlanQuota = {
+    channel_id: number;
+    vendor: string;
+    kind: string;
+    plan_name: string; // 套餐档位，如 Medium；厂商不返回时为空。
+    fetched_at: number; // 最近一次采集时刻，成功失败都更新。
+    synced_at: number; // 最近一次采集成功的时刻；采集失败时保留旧值。
+    error: string; // 最近一次采集的失败原因；成功时为空。
+    windows: PlanQuotaWindow[];
+};
+
+// 后端对"从未采集过"回空对象、对"采集失败且无历史"回 null 窗口，统一收敛成 null 与空数组，
+// 免得消费方每处都写一遍形状判断。
+function normalizePlanQuota(row: ChannelPlanQuota | Record<string, never> | null): ChannelPlanQuota | null {
+    if (!row || !('channel_id' in row)) return null;
+    const quota = row as ChannelPlanQuota;
+    return { ...quota, windows: Array.isArray(quota.windows) ? quota.windows : [] };
+}
+
+/**
+ * 获取渠道套餐额度 Hook。id 为空时不发请求。
+ *
+ * @example
+ * const { data: quota } = useChannelPlanQuota(channelId);
+ */
+export function useChannelPlanQuota(id?: number) {
+    return useQuery({
+        queryKey: ['channels', 'plan-quota', id],
+        queryFn: async () => normalizePlanQuota(
+            await apiRequest<ChannelPlanQuota | Record<string, never> | null>(`/api/v1/channel/plan-quota/${id}`),
+        ),
+        enabled: id !== undefined,
+        refetchOnMount: 'always',
+    });
+}
+
+/**
+ * 立即采集一次渠道套餐额度 Hook，返回采集后的记录。
+ * 采集失败不抛错：失败原因在返回记录的 error 里，界面按常规状态展示。
+ *
+ * @example
+ * const refresh = useRefreshChannelPlanQuota();
+ * refresh.mutate(channelId);
+ */
+export function useRefreshChannelPlanQuota() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        // 必须带 body：后端按 Content-Type 拦非 GET 请求，空 body 会因缺少 JSON 头被拒成 415。
+        mutationFn: (id: number) =>
+            apiRequest<ChannelPlanQuota | Record<string, never> | null>(
+                `/api/v1/channel/plan-quota-refresh/${id}`,
+                { method: 'POST', body: {} },
+            ),
+        onSuccess: (data, id) => {
+            queryClient.setQueryData(['channels', 'plan-quota', id], normalizePlanQuota(data));
+            // 首页聚合用的是另一条查询, 手动刷新后同步失效, 免得两处数字不一致。
+            queryClient.invalidateQueries({ queryKey: ['channels', 'plan-quota', 'list'] });
+        },
+    });
+}
+
+// PlanQuotaListItem 是首页聚合视图的一条: 额度快照外加渠道名与启停。
+export type PlanQuotaListItem = ChannelPlanQuota & {
+    channel_name: string;
+    enabled: boolean;
+};
+
+/**
+ * 获取全部已采集的套餐额度 Hook，供首页一屏展示。
+ * 后端给空数组而不是 null，此处仍兜一层，避免旧版本后端返回 null 时上层崩在 .map 上。
+ *
+ * @example
+ * const { data: items } = usePlanQuotaList();
+ */
+export function usePlanQuotaList() {
+    return useQuery({
+        queryKey: ['channels', 'plan-quota', 'list'],
+        queryFn: async () => {
+            const rows = await apiRequest<PlanQuotaListItem[] | null>('/api/v1/stats/plan-quota');
+            return (rows ?? []).map((row) => ({
+                ...row,
+                windows: Array.isArray(row.windows) ? row.windows : [],
+            }));
+        },
     });
 }
 
