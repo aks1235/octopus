@@ -4,6 +4,7 @@ import (
 	"github.com/bestruirui/octopus/internal/conf"
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server"
 	"github.com/bestruirui/octopus/internal/task"
 	"github.com/bestruirui/octopus/internal/utils/shutdown"
@@ -41,6 +42,13 @@ var startCmd = &cobra.Command{
 			log.Errorf("user init error: %v", err)
 			return
 		}
+
+		// 排序窗口持久化: 回填失败不阻断启动, 只是退回"重启即失忆"的旧行为。
+		if err := relay.LoadOutcomes(); err != nil {
+			log.Errorf("load grant outcomes error: %v", err)
+		}
+		relay.StartOutcomePersistence()
+		shutdown.Register(relay.FlushOutcomes)
 
 		if err := server.Start(); err != nil {
 			log.Errorf("server start error: %v", err)

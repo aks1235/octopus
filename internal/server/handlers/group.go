@@ -206,9 +206,12 @@ func annotateOutcomeOrder(group *model.Group) {
 	if group.Mode != model.GroupModeFailover || len(group.Items) == 0 {
 		return
 	}
-	ranks := relay.OutcomeRanks(*group)
+	stats := relay.OutcomeStats(*group)
 	for i := range group.Items {
-		group.Items[i].OutcomeRank = ranks[group.Items[i].ID]
+		stat := stats[group.Items[i].ID]
+		group.Items[i].OutcomeRank = stat.Rank
+		group.Items[i].OutcomeCount = stat.Count
+		group.Items[i].OutcomeFails = stat.Fails
 	}
 }
 

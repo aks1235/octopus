@@ -92,7 +92,8 @@ func TestOrderByOutcome_ordersByRate(t *testing.T) {
 	// 103 无记录: 0.5
 
 	got := orderByOutcome(items)
-	want := []int{1, 3, 2}
+	// 103 无记录(count=0 < 预热阈值), 按预热规则排最前先试跑; 之后才是按失败率: 101 稳定, 102 很差。
+	want := []int{3, 1, 2}
 	for i := range want {
 		if got[i].ID != want[i] {
 			t.Fatalf("排序结果 = %+v, want 顺序 %v", idsOf(got), want)
@@ -174,4 +175,29 @@ func idsOf(items []model.GroupItem) []int {
 		ids[i] = item.ID
 	}
 	return ids
+}
+
+// TestOrderByOutcome_warmsUpNewMembers 锁定预热规则: 样本不足的成员先试跑, 攒够样本后回到失败率排序。
+// 没有这条, 新成员只有一两次记录, 平滑后失败率偏高就一直排末尾, 永远拿不到流量, 也就永远攒不满样本。
+func TestOrderByOutcome_warmsUpNewMembers(t *testing.T) {
+	resetOutcomes(t)
+	items := []model.GroupItem{
+		{ID: 1, ChannelGrantID: 401},
+		{ID: 2, ChannelGrantID: 402},
+	}
+	for i := 0; i < outcomeWindow; i++ {
+		RecordGrantOutcome(401, false) // 满窗全成功, 失败率 1/18
+	}
+	RecordGrantOutcome(402, false) // 只跑过一次: 失败率 1/3, 但样本不足
+
+	if got := orderByOutcome(items); got[0].ID != 2 {
+		t.Fatalf("样本不足的成员应先试跑, 实际顺序 %v", idsOf(got))
+	}
+
+	// 补到预热阈值: 1/5 仍高于 1/18, 回到失败率排序。
+	RecordGrantOutcome(402, false)
+	RecordGrantOutcome(402, false)
+	if got := orderByOutcome(items); got[0].ID != 1 {
+		t.Fatalf("样本足够后应回到失败率排序, 实际顺序 %v", idsOf(got))
+	}
 }

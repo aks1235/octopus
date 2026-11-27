@@ -119,6 +119,11 @@ type GroupItem struct {
 	// 由后端用选路同一个比较器算出, 界面直接拿来排序与标注 —— 前端不再自己算一遍,
 	// 否则界面承诺的顺序和实际尝试顺序迟早会分叉。
 	OutcomeRank int `json:"outcome_rank" gorm:"-"`
+
+	// OutcomeCount/OutcomeFails 是序号的依据: 窗口内记录数与失败数。界面直接显示,
+	// 免得用户看到一个序号却不知道它按什么排的; 与序号同源, 都取自选路用的窗口快照。
+	OutcomeCount int `json:"outcome_count" gorm:"-"`
+	OutcomeFails int `json:"outcome_fails" gorm:"-"`
 }
 
 // 创建分组请求; 成员顺序即优先级顺序。

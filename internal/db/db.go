@@ -73,6 +73,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.RelayLog{},
 		&model.RelayLogAttempt{},
 		&model.GrantProbeRecord{},
+		&model.GrantOutcome{},
 		&model.Setting{},
 		&model.StatsTotal{},
 		&model.StatsDaily{},

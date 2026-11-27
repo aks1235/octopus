@@ -472,7 +472,9 @@
             "sortByPriority": "按優先級",
             "sortedByOutcome": "目前按生效順序（失敗率從低到高），拖動已停用",
             "priorityOrder": "目前按你的優先級順序",
-            "outcomeRankTip": "生效序號：按最近 16 次呼叫的失敗率排出來的實際嘗試次序，越小越先打",
+            "outcomeRankTip": "生效序號：按最近 16 次呼叫的失敗率排出來的實際嘗試次序，越小越先打；樣本不足 3 次的成員會先插到前面試跑",
+            "outcomeBasis": "{count} 次 {fails} 敗",
+            "outcomeBasisEmpty": "未跑",
             "quickTestTip": "快速體檢：真實生成請求，每協議最多 3 秒、每成員最多 8 秒；逾時可完整複測",
             "testSummary": "{success}/{total} 可用，{failed} 個失敗，{timeout} 個逾時",
             "quickDone": "快速體檢完成：共 {total} 個成員"

@@ -38,6 +38,10 @@ export interface GroupItem {
     // outcome_rank 是该成员在当前分组里的生效顺序（1 起），只有故障转移分组有值。
     // 后端用选路同一个比较器算出，界面直接排序与标注即可，不要在前端重算一遍。
     outcome_rank: number;
+    // outcome_count/outcome_fails 是序号的依据：窗口内已记录次数与其中失败次数。
+    // 与 outcome_rank 同源，界面直接显示，免得只看到一个序号却不知道它按什么排的。
+    outcome_count: number;
+    outcome_fails: number;
 }
 
 // GroupItemProbe 是后端为单条探测算好的结论快照, 随流式测试事件逐条回报。

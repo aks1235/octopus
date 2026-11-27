@@ -34,6 +34,9 @@ export interface SelectedMember {
     probe_blocking?: boolean;
     // outcome_rank 是后端算好的生效顺序(1 起), 只有故障转移分组有值; 0 表示不参与选路(禁用/判死)。
     outcome_rank?: number;
+    // outcome_count/outcome_fails 是序号的依据, 与序号同源, 直接展示便于核验。
+    outcome_count?: number;
+    outcome_fails?: number;
 }
 
 // reorderVisible 在"渲染列表被过滤"的前提下重排完整成员数组。
@@ -207,11 +210,19 @@ function MemberItem({
 
                 {/* 生效序号: 只在故障转移分组上出现, 0 表示不参与选路(禁用/判死), 不显示以免误读为"第一个打它"。 */}
                 {rankVisible && (member.outcome_rank ?? 0) > 0 && (
-                    <span
-                        className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] tabular-nums leading-none text-muted-foreground"
-                        title={tCard('outcomeRankTip')}
-                    >
-                        {member.outcome_rank}
+                    <span className="flex shrink-0 items-center gap-1" title={tCard('outcomeRankTip')}>
+                        <span className="rounded bg-muted px-1 py-0.5 text-[10px] tabular-nums leading-none text-muted-foreground">
+                            {member.outcome_rank}
+                        </span>
+                        {/* 序号旁边直接给出依据: 只显示名次时, 用户无法判断它是因为失败率低还是样本少被排到这里。 */}
+                        <span className="tabular-nums text-[10px] leading-none text-muted-foreground/80">
+                            {(member.outcome_count ?? 0) > 0
+                                ? tCard('outcomeBasis', {
+                                      count: member.outcome_count ?? 0,
+                                      fails: member.outcome_fails ?? 0,
+                                  })
+                                : tCard('outcomeBasisEmpty')}
+                        </span>
                     </span>
                 )}
 

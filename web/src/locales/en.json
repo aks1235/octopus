@@ -472,7 +472,9 @@
             "sortByPriority": "Sort by priority",
             "sortedByOutcome": "Sorted by effective order (lowest failure rate first); dragging disabled",
             "priorityOrder": "Sorted by your configured priority",
-            "outcomeRankTip": "Effective rank: actual attempt order by failure rate over the last 16 calls; lower goes first",
+            "outcomeRankTip": "Effective rank: actual attempt order by failure rate over the last 16 calls; lower goes first. Members with fewer than 3 samples are tried first",
+            "outcomeBasis": "{fails} fail / {count} calls",
+            "outcomeBasisEmpty": "untried",
             "quickTestTip": "Quick check: real generation requests, up to 3 seconds per protocol and 8 seconds per member; retry timeouts with a full test",
             "testSummary": "{success}/{total} available, {failed} failed, {timeout} timed out",
             "quickDone": "Quick check finished: {total} members"

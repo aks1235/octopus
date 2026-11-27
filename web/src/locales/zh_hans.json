@@ -472,7 +472,9 @@
             "sortByPriority": "按优先级",
             "sortedByOutcome": "当前按生效顺序（失败率从低到高），拖动已禁用",
             "priorityOrder": "当前按你的优先级顺序",
-            "outcomeRankTip": "生效序号：按最近 16 次调用的失败率排出来的实际尝试次序，越小越先打",
+            "outcomeRankTip": "生效序号：按最近 16 次调用的失败率排出来的实际尝试次序，越小越先打；样本不足 3 次的成员会先插到前面试跑",
+            "outcomeBasis": "{count} 次 {fails} 败",
+            "outcomeBasisEmpty": "未跑",
             "quickTestTip": "快速体检：真实生成请求，每协议最多 3 秒、每成员最多 8 秒；超时可完整复测",
             "testSummary": "{success}/{total} 可用，{failed} 个失败，{timeout} 个超时",
             "quickDone": "快速体检完成：共 {total} 个成员"
