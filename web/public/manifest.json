@@ -38,30 +38,30 @@
   ],
   "screenshots": [
     {
-      "src": "./screenshot/desktop-home.png",
-      "sizes": "1437x918",
-      "type": "image/png",
+      "src": "./screenshot/desktop-home.webp",
+      "sizes": "1200x766",
+      "type": "image/webp",
       "form_factor": "wide",
       "label": "首页仪表盘"
     },
     {
-      "src": "./screenshot/desktop-channel.png",
-      "sizes": "1437x918",
-      "type": "image/png",
+      "src": "./screenshot/desktop-channel.webp",
+      "sizes": "1200x766",
+      "type": "image/webp",
       "form_factor": "wide",
       "label": "渠道管理"
     },
     {
-      "src": "./screenshot/mobile-home.png",
-      "sizes": "1290x2796",
-      "type": "image/png",
+      "src": "./screenshot/mobile-home.webp",
+      "sizes": "720x1560",
+      "type": "image/webp",
       "form_factor": "narrow",
       "label": "移动端首页"
     },
     {
-      "src": "./screenshot/mobile-channel.png",
-      "sizes": "1290x2796",
-      "type": "image/png",
+      "src": "./screenshot/mobile-channel.webp",
+      "sizes": "720x1560",
+      "type": "image/webp",
       "form_factor": "narrow",
       "label": "移动端渠道"
     }

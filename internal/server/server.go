@@ -36,6 +36,9 @@ func Start() error {
 	}
 	r.Use(middleware.Cors())
 	r.Use(middleware.StaticEmbed("/", static.StaticFS))
+	// API 的 JSON 响应统一压缩: 渠道统计这类大响应在慢速链路上是首屏的主要耗时来源。
+	// 静态文件由 StaticEmbed 用预压缩的 .gz 处理, 不经过这里; 流式接口不是 JSON, 同样不受影响。
+	r.Use(middleware.GzipJSON())
 
 	if err := router.RegisterAll(r); err != nil {
 		return err
